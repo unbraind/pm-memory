@@ -1,0 +1,27 @@
+id: pm-memory-ne0p
+title: Remember and deduplicate
+description: ""
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-19T12:57:35.244Z"
+updated_at: "2026-10-19T13:32:31.725Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+estimated_minutes: 90
+acceptance_criteria: Unique slugs; append-only updates; normalized title and body similarity refuses near duplicates with remedies; boundary revert proof.
+parent: pm-memory-0kwy
+comments[1]{created_at,author,text}:
+  "2026-10-19T13:32:31.723Z",codex-agent,"Behavioral revert proof: remove only the new duplicate refusal from remember. npm run build passes; node --test --test-name-pattern=\"dedup boundary\" test/memory.test.ts fails with AssertionError and exit 1. Restore the guard: the regression passes. Exact-slug updates and explicit force-new remain tested."
+files[3]{path,scope}:
+  src/memory.ts,project
+  src/store.ts,project
+  test/memory.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-name-pattern=\"dedup boundary\" test/memory.test.ts",project,codex-agent,"2026-10-19T13:18:26.268Z",local_mutation,feat/memory
+docs[2]{path,scope}:
+  ARCHITECTURE.md,project
+  README.md,project
+body: ""

@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { getHistoryPath } from '@unbrained/pm-cli/sdk';
+import { readFile } from 'node:fs/promises';
+import { consolidate, remember } from '../index.ts';
+import { contradicts, proposals } from '../src/consolidate.ts';
+import { tracker, snapshot } from './helpers.ts';
+
+test('consolidation dry-run is byte-for-byte read only; explicit apply archives stale and links duplicates and contradictions', async t => {
+  const { options, store } = await tracker(t);
+  const old = await remember('Feature policy\nAlways enable the feature.', { ...options, kind: 'project', slug: 'feature-old' });
+  await remember('Feature policy\nNever disable the feature.', { ...options, kind: 'project', slug: 'feature-new', forceNew: true });
+  const duplicate = await remember('Repeated durable guidance about builds', { ...options, kind: 'reference', slug: 'duplicate-one' });
+  const survivor = await remember('Repeated durable guidance about builds', { ...options, kind: 'reference', slug: 'duplicate-two', forceNew: true });
+  const stale = await remember('Unused stale context', { ...options, kind: 'project', slug: 'stale' }); await store.fields(stale.id, { verdict: 'stale' });
+  const pinned = await remember('Pinned stale context', { ...options, kind: 'user', slug: 'pinned', pin: true }); await store.fields(pinned.id, { verdict: 'stale' });
+  const used = await remember('Used stale context', { ...options, kind: 'user', slug: 'used' }); await store.fields(used.id, { verdict: 'stale', recalls: 1 });
+  const before = await snapshot(options.workspace); const history = await readFile(getHistoryPath(options.workspace, old.id));
+  const dry = await consolidate(options); assert.equal(dry.applied, false);
+  assert.ok(dry.proposals.some(proposal => proposal.action === 'supersedes'));
+  assert.ok(dry.proposals.some(proposal => proposal.action === 'merge'));
+  assert.deepEqual(dry.proposals.filter(proposal => proposal.action === 'archive').map(proposal => proposal.slug), ['stale']);
+  assert.deepEqual(await snapshot(options.workspace), before);
+  const applied = await consolidate({ ...options, apply: true }); assert.equal(applied.applied, true);
+  const rows = await store.read(); assert.equal(rows.find(item => item.id === stale.id)!.status, 'canceled'); assert.equal(rows.find(item => item.id === duplicate.id)!.status, 'canceled');
+  assert.ok(rows.find(item => item.id === survivor.id)!.links.includes(duplicate.id));
+  const after = await readFile(getHistoryPath(options.workspace, old.id)); assert.ok(after.subarray(0, history.length).equals(history));
+  const remain = (await consolidate(options)).proposals; assert.ok(!remain.some(proposal => proposal.action === 'archive'));
+  const memories = await store.read();
+  assert.equal(contradicts({ ...memories[0], title: 'unrelated', slug: 'unrelated', body: 'enable' }, { ...memories[0], title: 'different', slug: 'different', body: 'disable' }), false);
+  assert.deepEqual(proposals([]), []);
+});

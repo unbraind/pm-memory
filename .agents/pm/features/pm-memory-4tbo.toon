@@ -1,0 +1,24 @@
+id: pm-memory-4tbo
+title: Verify checkable claims
+description: ""
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-19T12:58:09.669Z"
+updated_at: "2026-10-19T13:29:00.678Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+estimated_minutes: 60
+acceptance_criteria: "Root-confined file, symbol and flag checks; optional npm and URL network checks; verified, stale and unknown receipts persisted."
+parent: pm-memory-0kwy
+files[2]{path,scope}:
+  src/verify.ts,project
+  test/verify.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/verify.test.ts,project,codex-agent,"2026-10-19T13:19:29.265Z",local_mutation,feat/memory
+docs[2]{path,scope}:
+  ARCHITECTURE.md,project
+  README.md,project
+body: ""

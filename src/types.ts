@@ -1,0 +1,124 @@
+/** Supported semantic memory classes shared by every harness. */
+export const KINDS = ['user', 'feedback', 'project', 'reference'] as const;
+/** One supported memory class. */
+export type MemoryKind = typeof KINDS[number];
+/** A supported memory import harness. */
+export type Harness = 'claude-code' | 'agents-md' | 'cursor';
+/** A memory claim's current evidence state. */
+export type Verdict = 'verified' | 'stale' | 'unknown';
+/** Explicit tracker binding; no ancestor tracker discovery is performed. */
+export interface MemoryOptions {
+  /** Initialized pm tracker directory. */
+  workspace: string;
+  /** Attributable mutation identity. */
+  author?: string;
+}
+/** Inputs accepted by the remember API. */
+export interface RememberOptions extends MemoryOptions {
+  /** Required semantic memory class. */
+  kind: MemoryKind;
+  /** Stable unique key; an existing key updates its item. */
+  slug?: string;
+  /** Explicit existing key to revise. */
+  update?: string;
+  /** Rationale retained for retrieval. */
+  why?: string;
+  /** Application instructions retained for retrieval. */
+  how?: string;
+  /** Standing guidance receives ranking priority. */
+  pin?: boolean;
+  /** Native item identifiers or memory slugs to relate. */
+  links?: string[];
+  /** Explicitly permit a distinct similar item. */
+  forceNew?: boolean;
+  /** Permit email addresses, but never credentials. */
+  allowEmail?: boolean;
+  /** Additional lexical search terms. */
+  tags?: string[];
+}
+/** Complete projection of one validated Knowledge item. */
+export interface Memory {
+  /** Native pm item identity. */
+  id: string;
+  /** Stable memory key. */
+  slug: string;
+  /** Short human-facing heading. */
+  title: string;
+  /** Complete semantic memory content. */
+  body: string;
+  /** Semantic class. */
+  kind: MemoryKind;
+  /** Rationale. */
+  why: string;
+  /** Application instructions. */
+  how: string;
+  /** Standing guidance. */
+  pinned: boolean;
+  /** Harness and relative path class. */
+  source: string;
+  /** Last semantic or operational mutation time. */
+  updated: string;
+  /** Number of emitted recall appearances. */
+  recalls: number;
+  /** Evidence state. */
+  verdict: Verdict;
+  /** Native lifecycle state. */
+  status: string;
+  /** Searchable tags. */
+  tags: string[];
+  /** Safe relative import name, retained only for export. */
+  path: string;
+  /** Exact original bytes encoded as text. */
+  original: string;
+  /** Original content must be regenerated after a semantic edit. */
+  edited: boolean;
+  /** Directory indexes are lossless artifacts rather than facts. */
+  artifact: boolean;
+  /** Native relationship targets used by generated export. */
+  links: string[];
+}
+/** A ranked, bounded recall row. */
+export interface RecallRow {
+  /** Stable key usable with --update. */
+  slug: string;
+  /** Heading. */
+  title: string;
+  /** Query-centered excerpt. */
+  text: string;
+}
+/** A whole response measured in both native host encodings. */
+export interface Packet {
+  /** Estimated tokens including envelope and receipt. */
+  estimated_tokens: number;
+  /** Memories removed by the declared budget. */
+  omitted: number;
+  /** Completeness of the underlying SDK read. */
+  complete: true;
+  /** Ranked recall rows, absent for indexes. */
+  memories?: RecallRow[];
+  /** Markdown index with terminal omission receipt. */
+  text?: string;
+}
+/** Claim extractor output; values are never shell-interpolated. */
+export interface Claim {
+  /** Evidence checker to invoke. */
+  type: 'file' | 'symbol' | 'flag' | 'package' | 'url';
+  /** Exact extracted claim. */
+  value: string;
+}
+/** A checkable claim and its evidence state. */
+export interface ClaimResult extends Claim {
+  /** Result of local or optional network checking. */
+  verdict: Verdict;
+}
+/** One auditable consolidation operation. */
+export interface Proposal {
+  /** Duplicate merge, contradictory supersession, or unused stale archive. */
+  action: 'merge' | 'supersedes' | 'archive';
+  /** Older or archived memory key. */
+  slug: string;
+  /** Surviving or superseding memory key. */
+  target?: string;
+  /** Deterministic reason for the proposal. */
+  reason: string;
+}

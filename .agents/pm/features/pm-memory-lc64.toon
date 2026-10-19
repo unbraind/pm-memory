@@ -1,0 +1,28 @@
+id: pm-memory-lc64
+title: Recall and index
+description: ""
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-19T12:57:44.557Z"
+updated_at: "2026-10-19T13:32:34.261Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+estimated_minutes: 90
+acceptance_criteria: "Rank lexical relevance, recency and standing guidance; entire packets stay within budget; process-concurrent recall counters; random-set property tests and packer revert proof."
+parent: pm-memory-0kwy
+comments[1]{created_at,author,text}:
+  "2026-10-19T13:32:34.261Z",codex-agent,"Behavioral revert proof: revert only the packer acceptance predicate so oversized rows are accepted. npm run build passes; node --test --test-name-pattern=\"budget packer\" test/memory.test.ts fails with AssertionError and exit 1. Restoring the predicate passes. Two independent processes start behind a shared barrier and produce exactly six recall increments."
+files[4]{path,scope}:
+  src/core.ts,project
+  src/memory.ts,project
+  test/memory.test.ts,project
+  test/recaller.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-name-pattern=\"independent process|budget property\" test/memory.test.ts",project,codex-agent,"2026-10-19T13:18:54.723Z",local_mutation,feat/memory
+docs[2]{path,scope}:
+  ARCHITECTURE.md,project
+  README.md,project
+body: ""

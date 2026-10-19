@@ -1,0 +1,43 @@
+id: pm-memory-0kwy
+title: Agent memory as shared typed context
+description: ""
+type: Epic
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-19T12:57:06.178Z"
+updated_at: "2026-10-19T13:32:38.900Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+estimated_minutes: 450
+acceptance_criteria: Seven commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
+comments[4]{created_at,author,text}:
+  "2026-10-19T12:57:31.272Z",codex-agent,"Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
+  "2026-10-19T13:08:07.483Z",codex-agent,"Implementation covers all seven commands and shared SDK entry points. Embedded SDK generic field writes require active extension registration; native registered schema options through client.run preserve in-process operation without extension recursion. Source copy remains private and external. Tests exercise real trackers, full host output and independent process recallers."
+  "2026-10-19T13:24:52.194Z",codex-agent,"Packed distribution acceptance passed for both npm/npx and Bun/bunx: 2 tests passed. The first private-copy round trip imported 281 files and exported all 281 byte-identically; re-import reported 281 unchanged and zero writes. Final lexical ranking and native semantic edit safeguards are being rechecked before final acceptance."
+  "2026-10-19T13:32:38.899Z",codex-agent,"All six feature-linked pm test commands passed. Baseline revert proof run after restoring all sources: 3 passed, zero failed. Production audit, duplication and docstrings are clean in preliminary checks. Full isolated npm and Bun release gates follow on the implementation commit."
+files[15]{path,scope}:
+  eslint.config.ts,project
+  index.ts,project
+  LICENSE,project
+  manifest.json,project
+  package.json,project
+  scripts,project
+  src/commands.ts,project
+  src/types.ts,project
+  test/commands.test.ts,project
+  test/edges.test.ts,project
+  test/helpers.ts,project
+  test/install.acceptance.ts,project
+  test/prepare-merge-driver.test.ts,project
+  test/tooling.test.ts,project
+  tsconfig.json,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run release:check",project,codex-agent,"2026-10-19T13:20:31.542Z",local_mutation,feat/memory
+  "bun run release:check",project,codex-agent,"2026-10-19T13:20:36.924Z",local_mutation,feat/memory
+docs[3]{path,scope}:
+  ARCHITECTURE.md,project
+  CHANGELOG.md,project
+  README.md,project
+body: ""
