@@ -1,5 +1,5 @@
 import { parseMutationReceipt } from '@unbrained/pm-cli/sdk';
-import type { Memory, MemoryOptions, Packet, RememberOptions } from './types.ts';
+import type { Memory, MemoryOptions, Packet, RememberOptions, RecallRow } from './types.ts';
 import { budget, digest, kind, MemoryError, pack, privacy, similarity, slug, text, words } from './core.ts';
 import { metadata, Store } from './store.ts';
 
@@ -42,17 +42,21 @@ export async function remember(fact: string, options: RememberOptions): Promise<
 /** Filter archived memories and lossless index artifacts out of active retrieval. */
 export function active(memories: readonly Memory[]): Memory[] { return memories.filter(item => item.status !== 'canceled' && !item.artifact); }
 /** Rank normalized lexical evidence with inverse document frequency, length normalization and bounded priors. */
-export function rank(memories: readonly Memory[], query: string): Memory[] {
+export function scored(memories: readonly Memory[], query: string): { item: Memory; score: number }[] {
   const terms = [...words(query)];
-  const documents = memories.map(item => words([item.title, item.body, item.why, item.how, ...item.tags].join(' ')));
+  const documents = memories.map(item => words([item.slug, item.title, item.description, item.body, item.why, item.how, ...item.tags].join(' ')));
   const scores = memories.map((item, index) => {
     const heading = words(item.title);
-    const lexical = terms.reduce((sum, term) => sum + (documents[index].has(term) ? (heading.has(term) ? 3 : 1) * Math.log(1 + memories.length / (1 + documents.filter(doc => doc.has(term)).length)) / (1 + Math.log(1 + documents[index].size) / 10) : 0), 0);
+    const hook = words(item.description);
+    const key = words(item.slug);
+    const lexical = terms.reduce((sum, term) => sum + (documents[index].has(term) ? (heading.has(term) ? 5 : hook.has(term) ? 2 : key.has(term) ? 1.5 : 1) * Math.log(1 + memories.length / (1 + documents.filter(doc => doc.has(term)).length)) / (1 + Math.log(1 + documents[index].size) / 10) : 0), 0);
     const ageDays = Math.max(0, (Date.now() - Date.parse(item.updated)) / 86400000);
     return { item, score: lexical * 10 + (item.pinned ? 0.5 : 0) + 0.2 / (1 + ageDays) };
   });
-  return scores.sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)).map(entry => entry.item);
+  return scores.sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug));
 }
+/** Preserve the public ranking projection while exposing scores in recall rows. */
+export function rank(memories: readonly Memory[], query: string): Memory[] { return scored(memories, query).map(entry => entry.item); }
 /** Return a query-centered excerpt without charging oversized full memory bodies to the packet. */
 function excerpt(item: Memory, query: string, size: number): string {
   const source = [item.body, item.why, item.how].filter(Boolean).join('\n');
@@ -67,8 +71,8 @@ export async function recall(query: string, options: MemoryOptions & { budget?: 
   const store = new Store(options);
   return store.write(async () => {
     const memories = active(await store.read()).filter(item => options.kind === undefined || item.kind === options.kind);
-    const rows = rank(memories, query).map(item => ({ slug: item.slug, title: item.title, text: excerpt(item, query, Math.max(40, Math.min(800, limit))) }));
-    const packet = pack(rows, limit, (selected, omitted) => ({ memories: selected, omitted, complete: true }));
+    const rows: RecallRow[] = scored(memories, query).map(({ item, score }) => ({ slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
+    const packet = recallPacket(rows, memories, query, limit);
     if (packet.memories!.length > 0) await store.register();
     for (const row of packet.memories!) {
       const item = memories.find(memory => memory.slug === row.slug)!;
@@ -77,6 +81,41 @@ export async function recall(query: string, options: MemoryOptions & { budget?: 
     }
     return packet;
   });
+}
+/** Pack compact rows in rank order first, then spend spare tokens on marked excerpts. */
+export function recallPacket(rows: RecallRow[], memories: readonly Memory[], query: string, limit: number): Packet {
+  const render = (selected: RecallRow[], omitted: number) => ({ memories: selected, omitted, complete: true as const });
+  // Compact even the first description until its row fits; never skip a higher-ranked row.
+  const firstRender = (selected: RecallRow[]) => render(selected, rows.length - selected.length);
+  const compact = rows.map(row => ({ ...row }));
+  if (compact.length > 0) {
+    while (pack([compact[0]], limit, firstRender).memories!.length === 0 && (compact[0].description ?? '').length > 0) compact[0].description = compact[0].description!.slice(0, -1);
+    if (pack([compact[0]], limit, firstRender).memories!.length === 0) throw new MemoryError('budget', 'Budget cannot hold the top memory row', 'Increase --budget to at least 200');
+  }
+  let packet = pack([], limit, render);
+  for (let length = 1; length <= compact.length; length++) {
+    const next = pack(compact.slice(0, length), limit, (selected) => render(selected, rows.length - selected.length));
+    if (next.memories!.length !== length) break;
+    packet = next;
+  }
+  for (let index = 0; index < packet.memories!.length; index++) {
+    const item = memories.find(item => item.slug === packet.memories![index].slug)!;
+    const content = excerpt(item, query, 800);
+    for (let size = content.length; size > 0; size = Math.floor(size / 2)) {
+      const selected = packet.memories!.map(row => ({ ...row }));
+      selected[index].text = content.slice(0, size).toWellFormed() + (size < [item.body, item.why, item.how].filter(Boolean).join('\n').length ? ' […truncated; use pm memory get]' : '');
+      const next = pack(selected, limit, (rows) => render(rows, packet.omitted));
+      if (next.memories!.length === selected.length) { packet = next; break; }
+    }
+  }
+  return packet;
+}
+/** Read a complete active memory by its stable slug without incrementing recall counters. */
+export async function get(key: string, options: MemoryOptions): Promise<Memory> {
+  slug(key);
+  const item = active(await new Store(options).read()).find(item => item.slug === key);
+  if (item === undefined) throw new MemoryError('missing', 'Memory slug does not exist', 'Use memory index to select an active slug');
+  return item;
 }
 /** Render a MEMORY.md-style bounded index with a terminal omission receipt. */
 export async function index(options: MemoryOptions & { budget?: number }): Promise<Packet> {

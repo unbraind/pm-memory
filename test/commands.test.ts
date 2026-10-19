@@ -25,13 +25,19 @@ test('all commands activate and actual host recall/index stay bounded in TOON an
   const { options, workspace, root } = await tracker(t); await installExtension(workspace);
   const activation = await activateExtensionForTest(extension, { capabilities: ['commands', 'schema'] }); assert.equal(activation.failed.length, 0);
   const help = cli(root, workspace, ['--help']); assert.equal(help.status, 0, help.stderr);
-  for (const command of ['remember', 'recall', 'index', 'import', 'export', 'verify', 'consolidate']) assert.ok(help.stdout.includes(command));
+  for (const command of ['remember', 'recall', 'get', 'index', 'import', 'export', 'verify', 'consolidate']) assert.ok(help.stdout.includes(command));
+  const importHelp = cli(root, workspace, ['import', '--help']);
+  assert.match(importHelp.stdout, /Read claude-code, agents-md or cursor files/);
+  assert.match(importHelp.stdout, /A directory or regular memory file/);
+  assert.match(importHelp.stdout, /pm memory import .\/memories --from claude-code/);
+  assert.ok(!importHelp.stdout.includes('Extension argument'));
   const first = cli(root, workspace, ['remember', 'Actual native host memory', '--kind', 'project', '--slug', 'host', '--pin', '--why', 'Context matters', '--how', 'Read memory', '--json']); assert.equal(first.status, 0, first.stderr);
   for (const format of [[], ['--json']]) for (const args of [['recall', 'host'], ['index']]) {
     const result = cli(root, workspace, [...args, '--budget', '200', ...format]); assert.equal(result.status, 0, result.stderr);
     const packet = (format.length ? JSON.parse(result.stdout) : decodeToon(result.stdout)) as { complete: boolean; estimated_tokens: number };
     assert.equal(packet.complete, true); assert.ok(estimatePmOutputTokens(Buffer.byteLength(result.stdout)) <= 200);
   }
+  const full = cli(root, workspace, ['get', 'host', '--json']); assert.equal(full.status, 0, full.stderr); assert.equal(JSON.parse(full.stdout).body, 'Actual native host memory');
   const ctx = { command: 'memory remember', pm_root: workspace, args: ['New linked instructions'], options: { kind: 'user', slug: 'linked', link: ['host'], why: 'Learned policy', how: 'Apply policy', pin: true, allowEmail: true, forceNew: true }, global: { author: 'memory-test' } } as CommandHandlerContext;
   await runCommand('remember', ctx);
   await runCommand('remember', { ...ctx, args: ['Revised linked instructions'], options: { kind: 'feedback', update: 'linked', link: 'host' } });
@@ -40,10 +46,11 @@ test('all commands activate and actual host recall/index stay bounded in TOON an
   const source = join(root, 'source'); await mkdir(source); await writeFile(join(source, 'sample.md'), '# Imported example\nA standalone reference');
   await runCommand('import', { ...ctx, args: [source], options: { from: 'claude-code', allowEmail: true } });
   await runCommand('export', { ...ctx, args: [join(root, 'export')], options: { to: 'claude-code' } });
-  await runCommand('verify', { ...ctx, args: [], options: { root, slug: 'host' } });
+  await runCommand('verify', { ...ctx, args: [], options: { root: [root], slug: 'host' } });
+  await runCommand('verify', { ...ctx, args: [], options: { root } });
   await runCommand('verify', { ...ctx, args: [], options: {} });
   await runCommand('consolidate', { ...ctx, args: [], options: {} });
-  await runCommand('consolidate', { ...ctx, args: [], options: { apply: true } });
+  await runCommand('consolidate', { ...ctx, args: [], options: { apply: true, minAgeDays: '60' } });
   await remember('Independent SDK memory', { ...options, kind: 'project' });
 });
 

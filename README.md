@@ -30,7 +30,8 @@ Every command returns native host TOON by default and accepts `--json`. Expected
 | Command | Example | Result |
 | --- | --- | --- |
 | remember | `pm memory remember "Run the build before review" --kind project --slug build --why "Catch regressions" --how "Run npm test" --pin --link project-item` | Create Knowledge or revise an exact slug |
-| recall | `pm memory recall "build review" --budget 800 --kind project` | Ranked, bounded excerpts; counts emitted memories |
+| recall | `pm memory recall "release workflow" --budget 800 --kind project` | Compact ranked rows, then excerpts; counts emitted memories |
+| get | `pm memory get build` | Full selected memory, including its complete body |
 | index | `pm memory index --budget 1500` | MEMORY.md-style markdown in `text`, ending with an omission receipt |
 | import | `pm memory import ./memory-copy --from claude-code` | Idempotent import; native links from `[[slug]]` |
 | export | `pm memory export ./memory-output --to claude-code` | Exact imported bytes or generated portable files |
@@ -39,17 +40,19 @@ Every command returns native host TOON by default and accepts `--json`. Expected
 
 `remember` requires `--kind user|feedback|project|reference`. Omit `--slug` for a stable content-derived key. An exact slug updates the same item and appends native history. Use `--update build` to require that the key already exists. Near duplicates at or above 0.82 normalized title-plus-body token Jaccard similarity refuse with the existing key and two remedies: `--update <slug>` or `--force-new --slug <distinct-key>`. `--why`, `--how`, `--pin` and repeatable `--link` add retrieval context and relationships. SDK clients may also supply tags.
 
-The privacy gate examines facts, rationale, application instructions, tags and imported source bytes before mutations. It refuses recognizable API/token prefixes, JWTs, private keys, password/key/secret assignments, authenticated URLs and credential-shaped token assignments. Variable references and short plain `token:` accounting prose are references rather than literal credentials. Emails require explicit `--allow-email`, also supported by import. This heuristic is an input guard, not a proof that arbitrary prose contains no private information. Do not store credentials in memory.
+The privacy gate examines facts, rationale, application instructions, tags and imported source bytes before mutations. It refuses recognizable API/token prefixes, JWTs, private keys, password/key/secret assignments, authenticated URLs and credential-shaped token assignments. Variable references and short plain `token:` accounting prose are references rather than literal credentials. Emails require explicit `--allow-email`, also supported by import. Import reports every offending relative file and line together with its matched class before writing anything; edit the listed files or permit email explicitly. This heuristic is an input guard, not a proof that arbitrary prose contains no private information. Do not store credentials in memory.
 
-Recall defaults to 800 estimated tokens; index defaults to 1500. The entire packet, including the estimated-token field and omission receipt, is measured in both pretty JSON and native TOON with the host's UTF-8 byte estimator. An impossibly small budget refuses before counter writes. Oversized entries are omitted; they never silently expand a budget. Excerpts are query-centered and Unicode-safe. An index orders pinned guidance first, then kind, then recency.
+Recall defaults to 800 estimated tokens; index defaults to 1500. The entire packet, including the estimated-token field and omission receipt, is measured in both pretty JSON and native TOON with the host's UTF-8 byte estimator. An impossibly small budget refuses before counter writes. Recall packs compact rows first (slug, kind, pinned, description, score), in rank order; it then spends spare space on query-centered excerpts. A top result is never replaced by a smaller lower-ranked result. At 200 tokens even a maximum-length slug retains its top row; smaller budgets may refuse. Truncated excerpts carry an explicit marker pointing to `pm memory get <slug>`. Index entries may be omitted when oversized. All truncation is Unicode-safe. An index orders pinned guidance first, then kind, then recency.
 
-Import supports `--from claude-code|agents-md|cursor`, directories or individual regular UTF-8 files. Claude Code frontmatter recognizes `name`, `description`, `metadata.type` and legacy top-level `type`; optional `**Why:**` and `**How to apply:**` lines become fields. Unknown memory kinds and malformed YAML refuse. Plain unquoted `name`/`description` values containing a colon are accepted without altering their original bytes. Directory indexes are retained as export artifacts and excluded from retrieval. Import deliberately retains source duplicates for review instead of discarding source files. Re-importing unchanged bytes and links performs no durable writes. Independently revised items refuse source replacement.
+Import supports `--from claude-code|agents-md|cursor`, directories or individual regular UTF-8 files. Claude Code frontmatter recognizes `name`, `description`, `metadata.type` and legacy top-level `type`; optional `**Why:**` and `**How to apply:**` lines become fields. Unknown memory kinds and malformed YAML refuse. Plain unquoted `name`/`description` values containing a colon are accepted without altering their original bytes. A valid frontmatter `name` is the canonical kebab-case key. The original file stem remains a link alias; canonical names take precedence, and ambiguous aliases stay unresolved. Frontmatter descriptions populate the native description field and participate in ranking and compact recall. Directory indexes are retained as export artifacts and excluded from retrieval. Import deliberately retains source duplicates for review instead of discarding source files. Re-importing unchanged bytes and links performs no durable writes. Independently revised items refuse source replacement.
 
 Export supports `--to claude-code|agents-md`. Imported files of the same harness retain byte-identical content, frontmatter, BOM, line endings, ordering and final newline. Recall and verification metadata do not invalidate that preservation. Semantic updates generate fresh content. New Claude Code exports include a MEMORY.md index; AGENTS exports include an AGENTS.md plus per-memory files. Symlinks, unsafe relative names and conflicting destination files refuse; identical existing files are accepted. Use a dedicated empty output directory. Files are created exclusively; export does not overwrite existing content.
 
-Verification extracts delimited paths, `fn()` calls, `--flags`, exact `package@version` claims and HTTP(S) URLs. Local checks use `--root` (the current directory by default), refuse escaping symlinks, and use ripgrep for symbol/flag presence. `--network` enables `npm view` version checks and URL HEAD checks. Without it, network claims remain unknown. A missing local claim makes a memory stale; all claims must verify for a verified verdict; no claims or incomplete evidence yields unknown. Grep proves textual presence, not runtime correctness. Network outages and denied endpoints remain unknown.
+Verification extracts delimited paths, `fn()` calls, `--flags`, exact `package@version` claims and HTTP(S) URLs. Repeat `--root` to search multiple trees, including nested Git repositories: `pm memory verify --root . --root ../shared`. The bounded inventory includes hidden files and ignores Git ignore rules while excluding node_modules, .git, dist, coverage and tracker internals at every depth. Basenames and relative paths resolve anywhere under a root. Known runtime globals are skipped. Absolute, home, excluded-tree and escaping paths remain unknown, as do symlink escapes. Flags check the SDK command registry and source text; a flag absent from both has unknown context and is never stale. Absent symbols are stale only with explicit source-file context. Every stale claim includes an absence reason with the path or number of files searched. A bounded search failure remains unknown or refuses rather than claiming absence.
 
-Consolidation changes nothing without `--apply`. Applied duplicate merges retain old content in the surviving item, link the originals and cancel the duplicate with a reason. Supersession recognizes overlapping headings/slug tokens with explicit opposite guidance (`enable/disable`, `always/never`, `required/forbidden`); it normalizes toggle negations and requires exclusive opposing signals. Always/never requires the same remaining guidance. It adds a native `supersedes` edge and a comment. It is a lexical proposal, so review the dry run before applying. Stale memories are archived only when never recalled and not pinned. All original items and history remain available.
+`--network` enables `npm view` version checks and URL HEAD checks. Without it, network claims remain unknown. One confidently absent claim makes a memory stale; all claims must verify for a verified verdict; no claims or incomplete evidence yields unknown. Textual presence does not establish runtime correctness. Network outages and denied endpoints remain unknown.
+
+Consolidation changes nothing without `--apply`. Applied duplicate merges retain old content in the surviving item, link the originals and cancel the duplicate with a reason. Supersession recognizes overlapping headings/slug tokens with explicit opposite guidance (`enable/disable`, `always/never`, `required/forbidden`); it normalizes toggle negations and requires exclusive opposing signals. Always/never requires the same remaining guidance. It adds a native `supersedes` edge and a comment. It is a lexical proposal, so review the dry run before applying. Archive proposals require stale status with a persisted confident reason, zero recalls, no pin, and native `updated_at` age of at least 30 days. Use `--min-age-days 60` to change the threshold. Verification and recall are native updates and reset that age, so freshly verified imports produce no immediate archive proposals. All original items and history remain available.
 
 ## Harness usage
 
@@ -62,7 +65,7 @@ Add this guidance to AGENTS.md (or the harness's equivalent instructions):
 
 At session start, run `pm memory index --budget 1500`, then
 `pm memory recall "<current task>" --budget 800`.
-Read linked pm items when more context is needed.
+Use `pm memory get <slug>` to read full context, then read linked pm items.
 After learning a durable fact, use `pm memory remember "<fact>" --kind project`
 with a stable slug, rationale and application guidance. Update existing slugs.
 Never store credentials. Review `pm memory verify --root .` and
@@ -75,7 +78,7 @@ For a local Markdown artifact, extract the SDK packet's `text` field. CLI output
 
 ```ts
 import {
-  remember, recall, index, importDir, exportDir, verify, consolidate,
+  remember, recall, get, index, importDir, exportDir, verify, consolidate,
   MemoryError,
 } from 'pm-memory';
 
@@ -84,14 +87,15 @@ await remember('Run the build before review', {
   ...options, kind: 'project', slug: 'build', why: 'Catch regressions', pin: true,
 });
 const context = await recall('build review', { ...options, budget: 800 });
+const full = await get('build', options);
 const listing = await index({ ...options, budget: 1500 });
 await importDir(sourceDirectory, { ...options, from: 'claude-code' });
 await exportDir(outputDirectory, { ...options, to: 'claude-code' });
-const evidence = await verify({ ...options, root: sourceRoot });
+const evidence = await verify({ ...options, root: [sourceRoot, sharedSourceRoot] });
 const proposal = await consolidate(options);
 ```
 
-All seven functions are asynchronous. `remember(fact, RememberOptions)` returns `{id, slug, updated}`. `recall(query, options)` and `index(options)` return `Packet` with `estimated_tokens`, `omitted`, `complete` and either `memories` or `text`. `importDir(path, options)` returns imported/updated/unchanged/unresolved-link counts. `exportDir(path, options)` returns exported/byte-preserved counts. `verify(options)` returns checked/stale counts and per-memory claim results. `consolidate(options)` returns proposals and whether application was requested. Exported types document every option; `MemoryError` exposes `code` and `remedy`.
+All eight functions are asynchronous. `get(slug, options)` returns the full selected memory without counting a recall. `remember(fact, RememberOptions)` returns `{id, slug, updated}`. `recall(query, options)` and `index(options)` return `Packet` with `estimated_tokens`, `omitted`, `complete` and either `memories` or `text`. `importDir(path, options)` returns imported/updated/unchanged/unresolved-link counts. `exportDir(path, options)` returns exported/byte-preserved counts. `verify(options)` returns checked/stale counts and per-memory claim results. `consolidate(options)` returns proposals and whether application was requested. Exported types document every option; `MemoryError` exposes `code` and `remedy`.
 
 Embedded SDK clients register the same persistent schema as installed hosts. The host's generic `field` mutation option requires active extension registration; embedded calls instead use registered native schema options through `PmClient.run`. Certified `listAllComplete` reads prevent omitted/corrupt corpus entries from being silently ignored. Mutations share an SDK process-owned lock; two independent recallers cannot lose a counter increment. Direct edits through other tools do not participate in this package's outer lock.
 
@@ -99,19 +103,23 @@ Embedded SDK clients register the same persistent schema as installed hosts. The
 
 Synthetic tests use real temporary SDK trackers without SDK mocks. They cover duplicate boundaries, a realistic fake-secret fixture, process-concurrent counters, randomized Unicode budgets, idempotent import, byte-identical export, claim verification, read-only consolidation and installed native output. Behavioral mutation proofs cover duplicate refusal, budget packing and source byte preservation. Tooling, scripts and the package entry point are included in all four 100% coverage thresholds; no source exemptions are configured.
 
-The local private-copy acceptance run imported 281 files (280 active facts plus one index artifact). Re-import reported 281 unchanged, zero imported and zero updated. All 281 exported files were byte-identical by recursive diff. The 1,500-token index used 1,498 estimated tokens and omitted 248 facts.
+The round-two private-copy proof imported 281 files (280 active facts and one index artifact). Re-import reported all 281 unchanged with no creates or updates. All 281 exported files were byte-identical. The 1,500-token index used 1,476 estimated tokens. The source copy, scratch tracker and exports were deleted after the independent audit.
 
-| Recall query | Packet tokens / 800 | Reference rank in packet |
-| --- | --- | --- |
-| codex forecast | 759 | 1 |
-| merge driver | 752 | 1 |
-| release workflow | 751 | Omitted; three other rows returned |
-| coderabbit | 737 | 1 |
-| pm-web hosted | 738 | 3 |
+Recall now returns 13 compact rows at budget 800, compared with three in the v1 replay; at budget 200 it returns two or three rows, compared with two. The same reference-selection rule uses strongest title word overlap, then smallest body vocabulary, then stable canonical key. The baseline replays the original ranking and packer on the same content; no private identities or content are published.
 
-Reference candidates were selected before recall by strongest title word overlap, then smallest body vocabulary, then stable key order. These are retrieval measurements rather than a semantic correctness certification. In particular, the selected release-workflow reference did not fit among the returned rows at this budget; increase the budget or narrow the query when that context is needed.
+| Query | v1 packet rank, 800 / 200 | Round-two rank, 800 / 200 | Round-two tokens, 800 / 200 |
+| --- | --- | --- | --- |
+| codex forecast | 1 / 1 | 1 / 1 | 800 / 199 |
+| merge driver | 1 / 1 | 1 / 1 | 799 / 196 |
+| release workflow | omitted (rank 8) / omitted (rank 8) | 1 / 1 | 798 / 194 |
+| coderabbit | 1 / 1 | 1 / 1 | 799 / 199 |
+| pm-web hosted | 2 / 2 | 2 / 2 | 799 / 193 |
 
-Local verification checked 280 facts and marked 198 stale, with 377 failing file claims, 249 failing flag claims and 34 failing symbol claims. Offline URL and package-version claims remained unknown. Consolidation proposed 0 duplicate merges, 1 supersession and 189 unused-stale archives. It performed no consolidation writes. The private scratch copy and tracker were removed. No source content, file identities or tracker snapshots are published.
+The review snapshot reported 198 stale memories. A fresh v1 classifier replay against the current workspace reported 196; its fixed-seed sample had 11/20 memories supported by confident absence (55%). Round two reports 111 stale memories, containing 237 failing file claims and no failing flag or symbol claims. The independent fixed-seed audit confirmed 20/20 sampled stale memories (100% sample precision), including absence of all 43 sampled claims. The independent audit enumerates both files and directories rather than reusing the verifier inventory. These are sampled source-absence measurements, not a claim of population-wide semantic precision.
+
+Unresolved wiki-link occurrences fell from 129 to 36. An independent source-name and file-alias audit confirmed all 36 refer to genuinely absent targets (33 unique missing targets). Consolidation proposals changed from 0 merges / 1 supersession / 189 archives to 0 / 1 / 0. Fresh verification updates native updated_at, so the default 30-day archive threshold intentionally excludes these fresh imports. No proposals were applied.
+
+Behavioral reverts of only the extractor, import parser and recall function each produced one failing regression; restoring each fix passed. Native help and packed consumers confirm the pinned SDK carries argument and option descriptions and realistic examples, with no help-description SDK gap.
 
 ## Exit codes
 

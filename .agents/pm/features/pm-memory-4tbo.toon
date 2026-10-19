@@ -6,13 +6,20 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:58:09.669Z"
-updated_at: "2026-10-19T13:41:36.284Z"
+updated_at: "2026-10-19T14:38:43.223Z"
 author: codex-agent
 estimated_minutes: 60
 acceptance_criteria: "Root-confined file, symbol and flag checks; optional npm and URL network checks; verified, stale and unknown receipts persisted."
 parent: pm-memory-0kwy
-files[2]{path,scope}:
+comments[5]{created_at,author,text}:
+  "2026-10-19T14:00:35.952Z",codex-agent,"Classifier now resolves nested basename/path evidence across repeated roots, consults SDK command flags, skips standard runtime calls, treats absolute/home paths and ambiguous flags as unknown, and persists explicit stale reasons. Synthetic classifier regression added; private precision proof pending."
+  "2026-10-19T14:07:24.740Z",codex-agent,"Behavioral revert proof: reverting only extractClaims to the review baseline makes the classifier regression fail (1 failed, 0 passed): runtime globals become claims again. Restored code passes the focused suite (6 passed, 0 failed)."
+  "2026-10-19T14:17:16.130Z",codex-agent,Independent private sampling exposed empty/nested directory references that file-only enumeration missed. Added a bounded directory inventory and an empty-directory regression. Runtime/flag false positives remain unknown; final private proof and precision sample are being refreshed.
+  "2026-10-19T14:23:06.931Z",codex-agent,"Final review also marks explicit paths inside excluded dependency/build/metadata trees unknown, since those trees are deliberately outside search evidence. This keeps a search exclusion from becoming an absence claim. Regression added; final release gates use an isolated identity environment."
+  "2026-10-19T14:29:57.929Z",codex-agent,"Final private proof: 111/280 memories stale versus 198 in the review snapshot (196 in a fresh v1 replay). Fixed-seed independent samples: v1 11/20 supported absences (55%); round two 20/20 (100%), with all 43 sampled claims independently absent. Final failing claims: 237 file, 0 flag, 0 symbol. Empty directories and excluded trees handled conservatively. Private copy, tracker and exports deleted after audit."
+files[3]{path,scope}:
   src/verify.ts,project
+  test/round2.test.ts,project
   test/verify.test.ts,project
 tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/verify.test.ts,project,codex-agent,"2026-10-19T13:19:29.265Z",local_mutation,feat/memory

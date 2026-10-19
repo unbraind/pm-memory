@@ -29,14 +29,14 @@ test('verification differentiates stale, verified and unknown with native audit 
   assert.equal((await verify({ ...options, root, slug: 'verified' })).checked, 1);
   await assert.rejects(verify({ ...options, root, slug: 'absent' }), /does not exist/);
   await assert.rejects(verify({ ...options, root: join(root, 'src', 'entry.ts') }), /not a directory/);
-  assert.equal((await checkClaim({ type: 'file', value: '/absolute/file.ts' }, root, false)).verdict, 'stale');
-  assert.equal((await checkClaim({ type: 'file', value: '../escape.ts' }, root, false)).verdict, 'stale');
-  assert.equal((await checkClaim({ type: 'file', value: 'src' }, root, false)).verdict, 'stale');
+  assert.equal((await checkClaim({ type: 'file', value: '/absolute/file.ts' }, root, false)).verdict, 'unknown');
+  assert.equal((await checkClaim({ type: 'file', value: '../escape.ts' }, root, false)).verdict, 'unknown');
+  assert.equal((await checkClaim({ type: 'file', value: 'src' }, root, false)).verdict, 'verified');
   assert.equal((await checkClaim({ type: 'file', value: 'src/entry.ts/missing.ts' }, root, false)).verdict, 'stale');
   const outside = await tracker(t); await writeFile(join(outside.root, 'outside.ts'), 'outside');
   await symlink(join(outside.root, 'outside.ts'), join(root, 'src', 'link.ts'));
-  assert.equal((await checkClaim({ type: 'file', value: 'src/link.ts' }, root, false)).verdict, 'stale');
-  await assert.rejects(checkClaim({ type: 'symbol', value: 'nope()' }, join(root, 'absent'), false), /grep/);
+  assert.equal((await checkClaim({ type: 'file', value: 'src/link.ts' }, root, false)).verdict, 'unknown');
+  await assert.rejects(checkClaim({ type: 'symbol', value: 'nope()' }, join(root, 'absent'), false), /ENOENT/);
 });
 
 test('network URL evidence uses a real HTTP server and classifies unavailable or denied endpoints as unknown', async t => {

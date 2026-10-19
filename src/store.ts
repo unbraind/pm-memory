@@ -5,7 +5,7 @@ import { kind, MemoryError, slug } from './core.ts';
 
 /** All memory metadata uses registered SDK fields, including lossless source artifacts. */
 export const MEMORY_FIELDS: SchemaFieldDefinition[] = [
-  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
+  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
   ...['pinned', 'edited', 'artifact'].map(name => ({ name: `memory_${name}`, type: 'boolean' as const, optional: true })),
   { name: 'memory_recalls', type: 'number', optional: true },
 ];
@@ -52,7 +52,7 @@ export class Store {
       if (!Number.isSafeInteger(recalls) || recalls < 0) throw new MemoryError('schema', 'Invalid memory recall counter', 'Restore a nonnegative integer counter through pm update');
       const verdict = item.memory_verdict ?? 'unknown';
       if (!['verified', 'stale', 'unknown'].includes(String(verdict))) throw new MemoryError('schema', 'Invalid memory verdict', 'Use verified, stale or unknown');
-      result.push({ id: item.id, slug: key, title: item.title, body: String(item.body), kind: kind(item.memory_kind), why: String(item.memory_why ?? ''), how: String(item.memory_how ?? ''), pinned: item.memory_pinned === true, source: String(item.memory_source ?? 'native:item'), updated: item.updated_at, recalls, verdict: verdict as Memory['verdict'], status: item.status, tags: item.tags, path: String(item.memory_path ?? ''), original: String(item.memory_original ?? ''), edited: item.memory_edited === true, artifact: item.memory_artifact === true, links: (item.dependencies ?? []).map(edge => edge.id) });
+      result.push({ id: item.id, slug: key, title: item.title, description: item.description, reason: String(item.memory_reason ?? ''), body: String(item.body), kind: kind(item.memory_kind), why: String(item.memory_why ?? ''), how: String(item.memory_how ?? ''), pinned: item.memory_pinned === true, source: String(item.memory_source ?? 'native:item'), updated: item.updated_at, recalls, verdict: verdict as Memory['verdict'], status: item.status, tags: item.tags, path: String(item.memory_path ?? ''), original: String(item.memory_original ?? ''), edited: item.memory_edited === true, artifact: item.memory_artifact === true, links: (item.dependencies ?? []).map(edge => edge.id) });
     }
     return result;
   }

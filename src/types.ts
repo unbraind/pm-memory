@@ -42,6 +42,10 @@ export interface Memory {
   id: string;
   /** Stable memory key. */
   slug: string;
+  /** Imported description or native retrieval hook. */
+  description: string;
+  /** Confident stale evidence retained for consolidation. */
+  reason?: string;
   /** Short human-facing heading. */
   title: string;
   /** Complete semantic memory content. */
@@ -82,9 +86,17 @@ export interface RecallRow {
   /** Stable key usable with --update. */
   slug: string;
   /** Heading. */
-  title: string;
+  title?: string;
+  /** Semantic memory class. */
+  kind?: MemoryKind;
+  /** Standing guidance indicator. */
+  pinned?: boolean;
+  /** Compact retrieval hook. */
+  description?: string;
+  /** Deterministic ranking score. */
+  score?: number;
   /** Query-centered excerpt. */
-  text: string;
+  text?: string;
 }
 /** A whole response measured in both native host encodings. */
 export interface Packet {
@@ -105,11 +117,15 @@ export interface Claim {
   type: 'file' | 'symbol' | 'flag' | 'package' | 'url';
   /** Exact extracted claim. */
   value: string;
+  /** Source-file context for otherwise ambiguous symbols. */
+  context?: string;
 }
 /** A checkable claim and its evidence state. */
 export interface ClaimResult extends Claim {
   /** Result of local or optional network checking. */
   verdict: Verdict;
+  /** Evidence or uncertainty explanation, required on stale claims. */
+  reason?: string;
 }
 /** One auditable consolidation operation. */
 export interface Proposal {

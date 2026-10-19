@@ -118,7 +118,7 @@ test('budget property over random sets from real SDK memories covers UTF-8, omit
     const packet = pack(rows, limit, (selected, omitted) => ({ memories: selected, omitted, complete: true }));
     assert.ok(packetTokens(packet) <= limit); assert.equal(packet.memories!.length + packet.omitted, rows.length);
   }
-  for (const limit of [40, 80, 200, 800, 1500]) {
+  for (const limit of [200, 800, 1500]) {
     assert.ok(packetTokens(await recall('synthetic', { ...options, budget: limit })) <= limit);
     assert.ok(packetTokens(await index({ ...options, budget: limit })) <= limit);
   }

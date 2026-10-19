@@ -14,6 +14,8 @@ interface Source {
   slug: string;
   /** Human-facing title. */
   title: string;
+  /** Compact frontmatter retrieval hook. */
+  description: string;
   /** Semantic body without the YAML envelope. */
   body: string;
   /** Semantic class. */
@@ -70,21 +72,25 @@ function sourceDocument(path: string, bytes: Buffer, from: Harness): Source {
   const stem = path.replace(/\.[^./]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
   const key = stem.length > 0 && stem.length <= 120 ? stem : `import-${digest(path).slice(0, 16)}`;
   const title = typeof metadata.name === 'string' && metadata.name.trim() !== '' ? metadata.name : body.split(/\r?\n/).find(line => line.trim() !== '')?.replace(/^#+\s*/, '') ?? key;
-  return { path, slug: slug(key), title: title.slice(0, 160).toWellFormed(), body, kind: classification === undefined ? 'reference' : kind(classification), artifact: from === 'claude-code' && basename(path).toUpperCase() === 'MEMORY.MD', original, why: /\*\*Why:\*\*\s*([^\r\n]*)/i.exec(body)?.[1] ?? '', how: /\*\*How to apply:\*\*\s*([^\r\n]*)/i.exec(body)?.[1] ?? '', links: [...body.matchAll(/\[\[([a-z0-9_-]+)\]\]/g)].map(match => match[1]) };
+  return { path, slug: slug(typeof metadata.name === 'string' && /^[a-z0-9][a-z0-9_-]{0,119}$/.test(metadata.name) ? metadata.name : key), description: typeof metadata.description === 'string' ? metadata.description : '', title: title.slice(0, 160).toWellFormed(), body, kind: classification === undefined ? 'reference' : kind(classification), artifact: from === 'claude-code' && basename(path).toUpperCase() === 'MEMORY.MD', original, why: /\*\*Why:\*\*\s*([^\r\n]*)/i.exec(body)?.[1] ?? '', how: /\*\*How to apply:\*\*\s*([^\r\n]*)/i.exec(body)?.[1] ?? '', links: [...body.matchAll(/\[\[([a-z0-9_-]+)\]\]/g)].map(match => match[1]) };
 }
 /** Compare semantic content so native pm edits cannot silently export obsolete original bytes. */
 function sameContent(item: Memory, source: Source): boolean {
   /** Normalize SDK whitespace boundaries without altering retained source bytes. */
   const normalized = (values: string[]): string => JSON.stringify(values.map(value => value.replace(/\r\n/g, '\n').trim()));
-  return normalized([item.title, item.body, item.kind, item.why, item.how]) === normalized([source.title, source.body, source.kind, source.why, source.how]);
+  return normalized([item.title, item.description, item.body, item.kind, item.why, item.how]) === normalized([source.title, source.description, source.body, source.kind, source.why, source.how]);
 }
 /** Import regular harness files idempotently, resolving wiki references into native links. */
 export async function importDir(path: string, options: MemoryOptions & { from: Harness; allowEmail?: boolean }): Promise<{ imported: number; updated: number; unchanged: number; unresolved_links: number }> {
   harness(options.from);
-  const parsed = (await sources(path)).map(source => {
-    privacy(source.bytes.toString('utf8'), options.allowEmail);
-    return sourceDocument(source.path, source.bytes, options.from);
-  });
+  const input = await sources(path);
+  const offenses: string[] = [];
+  for (const source of input) for (const [index, line] of source.bytes.toString('utf8').split(/\r?\n/).entries()) {
+    try { privacy(line, options.allowEmail); }
+    catch (error) { offenses.push(`${source.path}:line ${index + 1} (${(error as MemoryError).message})`); }
+  }
+  if (offenses.length > 0) throw new MemoryError('privacy', `Import refused: ${offenses.join('; ')}`, 'Edit each listed file to remove credentials or addresses; --allow-email permits email addresses only');
+  const parsed = input.map(source => sourceDocument(source.path, source.bytes, options.from));
   if (new Set(parsed.map(source => source.slug)).size !== parsed.length) throw new MemoryError('duplicate', 'Import names normalize to duplicate slugs', 'Rename the colliding source files');
   const store = new Store(options);
   return store.write(async () => {
@@ -100,19 +106,21 @@ export async function importDir(path: string, options: MemoryOptions & { from: H
       if (previous?.original === source.original) { unchanged++; continue; }
       const fields = { slug: source.slug, kind: source.kind, why: source.why, how: source.how, pinned: false, source: `${options.from}:relative-file`, recalls: previous?.recalls ?? 0, verdict: 'unknown', verified_at: '', original: source.original, path: source.path, edited: false, artifact: source.artifact };
       if (previous === undefined) {
-        await store.client.run('create', { options: { title: source.title, body: source.body, description: 'Imported agent memory', type: 'Knowledge', allowDuplicate: true, ...metadata(fields) } }); imported++;
+        await store.client.run('create', { options: { title: source.title, body: source.body, description: source.description, type: 'Knowledge', allowDuplicate: true, ...metadata(fields) } }); imported++;
       } else {
         await store.history(previous.id);
-        await store.client.update(previous.id, { title: source.title, body: source.body, message: 'Revise imported memory source' });
+        await store.client.update(previous.id, { title: source.title, description: source.description, body: source.body, message: 'Revise imported memory source' });
         await store.fields(previous.id, fields); updated++;
       }
     }
     const memories = await store.read();
     for (const source of parsed) for (const reference of source.links) {
-      const target = memories.find(item => item.slug === reference);
+      const exact = memories.find(item => item.slug === reference);
+      const aliases = memories.filter(item => item.path.replace(/\.[^./]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-') === reference);
+      const target = exact ?? (aliases.length === 1 ? aliases[0] : undefined);
       if (target === undefined) { unresolved_links++; continue; }
       const item = memories.find(item => item.slug === source.slug)!;
-      if (item.id !== target.id) await store.link(item.id, target.id);
+      if (item.id !== target.id && !item.links.includes(target.id)) { await store.link(item.id, target.id); item.links.push(target.id); }
     }
     return { imported, updated, unchanged, unresolved_links };
   });
@@ -120,7 +128,7 @@ export async function importDir(path: string, options: MemoryOptions & { from: H
 /** Produce a portable source for a native or deliberately revised fact. */
 function generated(item: Memory, to: Harness, memories: readonly Memory[]): Buffer {
   const links = item.links.map(id => memories.find(memory => memory.id === id)).filter(memory => memory !== undefined).map(memory => `[[${memory.slug}]]`).join(' ');
-  const content = to === 'claude-code' ? `---\nname: ${JSON.stringify(item.title)}\ndescription: ${JSON.stringify(item.why)}\nmetadata:\n  type: ${item.kind}\n---\n\n${item.body}\n\n**Why:** ${item.why}\n**How to apply:** ${item.how}\n${links}\n` : `## ${item.title}\n\n${item.body}\n\n**Why:** ${item.why}\n**How to apply:** ${item.how}\n${links}\n`;
+  const content = to === 'claude-code' ? `---\nname: ${JSON.stringify(item.slug)}\ndescription: ${JSON.stringify(item.description || item.why)}\nmetadata:\n  type: ${item.kind}\n---\n\n${item.body}\n\n**Why:** ${item.why}\n**How to apply:** ${item.how}\n${links}\n` : `## ${item.title}\n\n${item.body}\n\n**Why:** ${item.why}\n**How to apply:** ${item.how}\n${links}\n`;
   return Buffer.from(content);
 }
 /** Confine destination writes through real directories; never follow an existing symlink. */

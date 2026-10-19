@@ -1,6 +1,6 @@
 import { jaccardSimilarity } from '@unbrained/pm-cli/sdk';
 import { active, DUPLICATE_THRESHOLD } from './memory.ts';
-import { words } from './core.ts';
+import { words, MemoryError } from './core.ts';
 import { Store } from './store.ts';
 import type { Memory, MemoryOptions, Proposal } from './types.ts';
 
@@ -35,12 +35,13 @@ function opposite(left: Signals, right: Signals): boolean {
 /** Detect explicit opposite guidance only when headings or slug tokens overlap strongly. */
 export function contradicts(left: Memory, right: Memory): boolean { return opposite(signals(left), signals(right)); }
 /** Produce deterministic, non-destructive proposals from a certified in-memory snapshot. */
-export function proposals(memories: readonly Memory[]): Proposal[] {
+export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposal[] {
+  if (!Number.isFinite(minAgeDays) || minAgeDays < 0) throw new MemoryError('invalid', 'Invalid archive age', 'Use --min-age-days with a nonnegative number');
   const rows = active(memories).sort((a, b) => a.updated.localeCompare(b.updated) || a.slug.localeCompare(b.slug)).map(signals);
   const result: Proposal[] = [];
   for (let i = 0; i < rows.length; i++) {
     const older = rows[i].item;
-    if (older.verdict === 'stale' && older.recalls === 0 && !older.pinned) result.push({ action: 'archive', slug: older.slug, reason: 'Stale, never recalled and not pinned' });
+    if (older.verdict === 'stale' && older.recalls === 0 && !older.pinned && /^(?:missing path \S+ under roots|symbol absent in \d+ files searched|Exact package version absent in registry|HTTP endpoint returned 404 or 410)(?:; |$)/.test(older.reason ?? '') && Date.now() - Date.parse(older.updated) >= minAgeDays * 86400000) result.push({ action: 'archive', slug: older.slug, reason: `Stale: ${older.reason}; never recalled, not pinned, at least ${minAgeDays} days old` });
     for (const candidate of rows.slice(i + 1)) {
       const newer = candidate.item;
       if (opposite(rows[i], candidate)) result.push({ action: 'supersedes', slug: older.slug, target: newer.slug, reason: 'Overlapping identity with explicit opposite guidance; review evidence before applying' });
@@ -50,10 +51,10 @@ export function proposals(memories: readonly Memory[]): Proposal[] {
   return result;
 }
 /** Preview consolidation without writes; explicitly applied actions preserve all content and audited history. */
-export async function consolidate(options: MemoryOptions & { apply?: boolean }): Promise<{ applied: boolean; proposals: Proposal[] }> {
+export async function consolidate(options: MemoryOptions & { apply?: boolean; minAgeDays?: number }): Promise<{ applied: boolean; proposals: Proposal[] }> {
   const store = new Store(options);
   return store.write(async () => {
-    const memories = await store.read(); const planned = proposals(memories);
+    const memories = await store.read(); const planned = proposals(memories, options.minAgeDays);
     if (options.apply === true) for (const proposal of planned) {
       const older = memories.find(item => item.slug === proposal.slug)!;
       await store.history(older.id);
