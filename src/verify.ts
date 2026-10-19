@@ -93,7 +93,10 @@ async function inventory(root: string, limit: number): Promise<{ files: string[]
   try {
     while (pending.length > 0) {
       const directory = pending.pop()!;
-      if (!(await lstat(join(root, directory))).isDirectory()) continue;
+      if (!(await lstat(join(root, directory))).isDirectory()) {
+        if (directory === '') throw new MemoryError('verify', 'Verification root is not a regular directory', 'Supply a real directory as --root');
+        continue;
+      }
       for (const entry of await readdir(join(root, directory), { withFileTypes: true })) {
         if (EXCLUDED.has(entry.name)) continue;
         const path = directory === '' ? entry.name : `${directory}/${entry.name}`;

@@ -7,13 +7,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-19T19:39:05.725Z"
+updated_at: "2026-10-19T20:01:02.529Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[18]:
+comments[21]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -69,6 +69,15 @@ comments[18]:
   - created_at: "2026-10-19T19:39:05.638Z"
     author: codex-agent
     text: "Restored revert-proof baseline passed 12 of 12 tests with zero failures or skips; the mandatory linked pm runner also passed 12 of 12 after its timeout increase. The first full npm gate exposed an existing index-compatibility assertion: simple generated link destinations must retain their established plain syntax. Generation now angle-delimits only names requiring URI encoding, and the prior index regression plus the new escaped-name round trip are being rechecked before restarting both full gates. The superseded gate was stopped after identifying that failure; it is not counted as passing."
+  - created_at: "2026-10-19T19:57:54.234Z"
+    author: codex-agent
+    text: "Final guard review found an introduced edge case before push: skipping a non-regular verification root could yield an empty inventory and falsely mark an existing contextual symbol stale. inventory now refuses such a root explicitly. The regression first verifies real source evidence, then asserts that a symlink root refuses without changing durable tracker bytes. The related four inventory/text guards passed. Both superseded release runs passed 118 tests and full four-dimension coverage, but were stopped before packed acceptance completed; neither is claimed as a full release-gate pass. Full gates will be rerun on the final guard source."
+  - created_at: "2026-10-19T19:58:34.257Z"
+    author: codex-agent
+    text: "Final causal checks: after preserving simple-link compatibility, reverting exportDir and currentIndex separately to 325d45d each failed the escaped-index regression; restoration passed. The additional symlink-root regression fails when only inventory is reverted to d1a70f0 and passes after restoration, including a real verified memory whose durable bytes must stay unchanged on refusal. This supplements the initial 10 mutation runs and their 13 intended assertion failures. No private corpus, SDK mocks, missing-import failures or syntax failures were involved."
+  - created_at: "2026-10-19T20:01:02.502Z"
+    author: codex-agent
+    text: The identity gate flagged the literal opening delimiter of a test regex followed by root as an absolute-home prefix. The assertions now match the complete Verification root error text. This changes no production behavior or policy threshold. The unpublished local source commit is amended to avoid preserving the false-positive line in commit ancestry; every existing pm history record remains unchanged.
 files[24]{path,scope}:
   eslint.config.ts,project
   index.ts,project

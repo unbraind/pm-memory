@@ -5,7 +5,7 @@ import promises, { mkdir, readFile, writeFile, stat, rename, symlink } from 'nod
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { decodeToon } from '@unbrained/pm-cli/sdk/testing';
-import { remember, recall, consolidate, importDir, exportDir } from '../index.ts';
+import { remember, recall, consolidate, importDir, exportDir, verify } from '../index.ts';
 import { proposals } from '../src/consolidate.ts';
 import { scored } from '../src/memory.ts';
 import { checkClaim, extractClaims, directoryEvidence, searchClaims } from '../src/verify.ts';
@@ -158,4 +158,17 @@ test('text evidence opens with no-follow even if a regular file is swapped at op
     await assert.rejects(searchClaims([{ type: 'symbol', value: 'externalOnly()' }], source), /could not be read/);
     assert.equal(source.matches.get('externalOnly'), false);
   } finally { hook.mock.restore(); syncBuiltinESMExports(); }
+});
+
+
+test('verification refuses a symlink root rather than treating an unsearched tree as absent', async t => {
+  const { root, options } = await tracker(t); const outside = await tracker(t);
+  await writeFile(join(outside.root, 'source.ts'), 'presentSymbol');
+  const alias = join(root, 'alias'); await symlink(outside.root, alias);
+  await assert.rejects(directoryEvidence(alias), /Verification root is not a regular directory/);
+  await remember('Use `source.ts` presentSymbol()', { ...options, kind: 'project', slug: 'root-evidence' });
+  assert.equal((await verify({ ...options, root: outside.root })).results[0].verdict, 'verified');
+  const before = await snapshot(options.workspace);
+  await assert.rejects(verify({ ...options, root: alias }), /Verification root is not a regular directory/);
+  assert.deepEqual(await snapshot(options.workspace), before);
 });
