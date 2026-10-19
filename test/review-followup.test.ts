@@ -139,7 +139,7 @@ test('text evidence refuses raced file and directory symlinks outside the root',
   await symlink(outside.root, join(root, 'parent'));
   for (const file of ['file.ts', 'parent/secret.ts']) {
     const source = { roots: [root], files: [[file]], directories: [[]], suffixes: new Map<string, string>(), matches: new Map<string, boolean | undefined>() };
-    await assert.rejects(searchClaims([{ type: 'symbol', value: 'externalOnly()' }], source), /could not be read/);
+    await assert.rejects(searchClaims([{ type: 'symbol', value: 'externalOnly()' }], source), /Source escapes the declared root/);
     assert.equal(source.matches.get('externalOnly'), false);
   }
 });

@@ -50,10 +50,10 @@ export function privacy(value: string, allowEmail = false): void {
 }
 /** Scan each URL authority once; delimiter positions avoid ambiguous regex backtracking. */
 function credentialUrl(value: string): boolean {
-  for (const match of value.matchAll(/https?:\/\/[^\s/]+/gi)) {
-    const authority = match[0].slice(match[0].indexOf('//') + 2);
-    const colon = authority.indexOf(':'); const at = authority.indexOf('@');
-    if (colon > 0 && at > colon + 1) return true;
+  for (const match of value.matchAll(/:\/\/[^\s/?#]+/g)) {
+    const authority = match[0].slice(3);
+    const colon = authority.indexOf(':'); const at = authority.lastIndexOf('@');
+    if (colon >= 0 && at > colon + 1) return true;
   }
   return false;
 }

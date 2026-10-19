@@ -108,6 +108,9 @@ test('export refuses symlink roots, symlink parents and files rather than overwr
   const outside = join(root, 'outside'); await mkdir(outside);
   const linked = join(root, 'linked'); await symlink(outside, linked);
   await assert.rejects(exportDir(linked, { ...options, to: 'claude-code' }), /regular directory/);
+  const outsideBefore = await snapshot(outside);
+  await assert.rejects(exportDir(join(linked, 'missing', 'out'), { ...options, to: 'claude-code' }), /regular directory/);
+  assert.deepEqual(await snapshot(outside), outsideBefore);
   const out = join(root, 'out'); await mkdir(out); await symlink(outside, join(out, 'memories'));
   await assert.rejects(exportDir(out, { ...options, to: 'agents-md' }), /regular directory/);
   await rm(join(out, 'memories')); await mkdir(join(out, 'native.md'));

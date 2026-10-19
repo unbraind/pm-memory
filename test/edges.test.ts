@@ -9,6 +9,7 @@ import { contradicts, proposals } from '../src/consolidate.ts';
 import { checkClaim } from '../src/verify.ts';
 import { metadata } from '../src/store.ts';
 import { indexOrder, rank } from '../src/memory.ts';
+import { gitEnvironment } from '../scripts/environment.ts';
 import { tracker } from './helpers.ts';
 
 test('privacy variable references and token assignment forms remain discriminated', () => {
@@ -78,7 +79,7 @@ test('filesystem permission and symlink loop failures produce safe typed evidenc
 /** Author-controlled files must never embed this run's scratch locations or private home paths. */
 test('authored and tracker files contain no absolute temporary or private home paths', async () => {
   const repository = join(import.meta.dirname, '..');
-  const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: repository, encoding: 'utf8' }).split('\0').filter(Boolean);
+  const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: repository, encoding: 'utf8', env: gitEnvironment(process.env) }).split('\0').filter(Boolean);
   const forbidden = new RegExp(`(?<![\\w.])(?:${['tmp', 'home', 'Users'].map(name => `[/]${name}[/]`).join('|')})`);
   for (const file of files) {
     const content = await readFile(join(repository, file), 'utf8');

@@ -1,6 +1,6 @@
 import { jaccardSimilarity } from '@unbrained/pm-cli/sdk';
 import { active, DUPLICATE_THRESHOLD } from './memory.ts';
-import { words, MemoryError } from './core.ts';
+import { digest, words, MemoryError } from './core.ts';
 import { metadata, Store } from './store.ts';
 import type { Memory, MemoryOptions, Proposal } from './types.ts';
 
@@ -49,19 +49,52 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
       else if (jaccardSimilarity(rows[i].content, candidate.content) >= DUPLICATE_THRESHOLD) result.push({ action: 'merge', slug: older.slug, target: newer.slug, reason: 'Normalized title and body similarity meets duplicate threshold' });
     }
   }
-  const superseded = new Set(result.filter(proposal => proposal.action === 'supersedes').map(proposal => proposal.slug));
+  const superseded = new Set(result.filter(proposal => proposal.action === 'supersedes').flatMap(proposal => [proposal.slug, proposal.target]));
+  for (const { item } of rows) for (const id of item.supersedes ?? []) {
+    superseded.add(item.slug);
+    const older = memories.find(memory => memory.id === id);
+    if (older !== undefined) superseded.add(older.slug);
+  }
   const merges = result.filter(proposal => proposal.action === 'merge' && !superseded.has(proposal.slug));
   const selected = new Map(merges.map(proposal => [proposal.slug, proposal]));
   const targets = new Set([...selected.values()].map(proposal => proposal.target));
   const archived = new Set(result.filter(proposal => proposal.action === 'archive' && !targets.has(proposal.slug)).map(proposal => proposal.slug));
   return result.filter(proposal => !(proposal.action === 'supersedes' && archived.has(proposal.target!)) && !(proposal.action === 'archive' && targets.has(proposal.slug)) && !(proposal.action === 'merge' && (targets.has(proposal.slug) || selected.get(proposal.slug) !== proposal)));
 }
+/** Durable merge evidence binds replay to the original source and both target states. */
+interface MergeReceipt {
+  /** Stable destination slug. */
+  target: string;
+  /** Exact intended merged body. */
+  body: string;
+  /** Content revision assigned by publication. */
+  changed_at: string;
+  /** Semantic source revision before cancellation. */
+  source_revision: string;
+  /** Destination revision before publication. */
+  target_before: string;
+  /** Destination revision after publication. */
+  target_after: string;
+}
+/** Ignore operational metadata while detecting every acknowledged semantic edit. */
+function revision(item: Memory): string {
+  return digest(JSON.stringify([item.slug, item.title, item.description, item.body, item.kind, item.why, item.how, item.pinned, item.tags, item.updated]));
+}
+/** Refuse unsafe or legacy replay before any planned action can mutate tracker state. */
+function mergeReceipt(source: Memory, memories: readonly Memory[]): MergeReceipt {
+  let receipt: MergeReceipt;
+  try { receipt = JSON.parse(source.merge) as MergeReceipt; }
+  catch { throw new MemoryError('conflict', 'Invalid pending memory merge', 'Inspect the pending merge receipt before retrying'); }
+  const target = memories.find(item => item.slug === receipt?.target && item.status !== 'canceled');
+  if (target === undefined || typeof receipt.body !== 'string' || typeof receipt.changed_at !== 'string' || receipt.source_revision !== revision(source) || ![receipt.target_before, receipt.target_after].includes(revision(target))) throw new MemoryError('conflict', 'Pending memory merge revisions changed', 'Preserve intervening edits and reconcile the pending merge before retrying');
+  return receipt;
+}
 /** Preview consolidation without writes; explicitly applied actions preserve all content and audited history. */
 export async function consolidate(options: MemoryOptions & { apply?: boolean; minAgeDays?: number }): Promise<{ applied: boolean; proposals: Proposal[] }> {
   const store = new Store(options);
   return store.write(async () => {
     const memories = await store.read();
-    const pending = memories.filter(item => item.merge !== '').map(item => ({ action: 'merge' as const, slug: item.slug, target: JSON.parse(item.merge).target as string, reason: 'Resume recorded memory merge' }));
+    const pending = memories.filter(item => item.merge !== '').map(item => ({ action: 'merge' as const, slug: item.slug, target: mergeReceipt(item, memories).target, reason: 'Resume recorded memory merge' }));
     const reserved = new Set<string | undefined>(pending.flatMap(proposal => [proposal.slug, proposal.target]));
     const planned = [...pending, ...proposals(memories, options.minAgeDays).filter(proposal => !reserved.has(proposal.slug) && !reserved.has(proposal.target))];
     if (options.apply === true && planned.length > 0) await store.register();
@@ -77,11 +110,13 @@ export async function consolidate(options: MemoryOptions & { apply?: boolean; mi
         await store.link(target.id, older.id, proposal.action === 'supersedes' ? 'supersedes' : 'related');
         await store.client.comments(target.id, { add: `Memory ${proposal.action}: ${older.slug}; ${proposal.reason}. Original content retained in its Knowledge item and append-only history.`, ifAbsent: true });
         if (proposal.action === 'merge') {
-          let receipt: { target: string; body: string; changed_at: string };
-          if (older.merge !== '') receipt = JSON.parse(older.merge) as typeof receipt;
+          let receipt: MergeReceipt;
+          if (older.merge !== '') receipt = mergeReceipt(older, await store.read());
           else {
-            const current = (await store.client.get(target.id, { full: true })).item;
-            receipt = { target: target.slug, body: `${String(current.body)}\n\n### Consolidated context (${older.slug})\n${older.body}\n\n**Why:** ${older.why}\n**How to apply:** ${older.how}`, changed_at: new Date().toISOString() };
+            const current = (await store.read()).find(item => item.id === target.id)!;
+            const body = `${current.body}\n\n### Consolidated context (${older.slug})\n${older.body}\n\n**Why:** ${older.why}\n**How to apply:** ${older.how}`;
+            const changed_at = new Date().toISOString();
+            receipt = { target: target.slug, body, changed_at, source_revision: revision(older), target_before: revision(current), target_after: revision({ ...current, body: body.trim(), updated: changed_at }) };
             await store.fields(older.id, { merge: JSON.stringify(receipt) });
           }
           await store.client.run('update', { id: target.id, options: { body: receipt.body, ...metadata({ edited: true, verdict: 'unknown', verified_at: '', changed_at: receipt.changed_at }), message: 'Retain merged memory content' } });

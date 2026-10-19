@@ -100,6 +100,7 @@ test('network verification releases writers and skips changed, archived and nati
   const result = await checking; await writing;
   assert.equal(writable, true, 'remember must finish while the network response is pending');
   assert.deepEqual(result.results.map(row => row.slug), [stable.slug]);
+  assert.deepEqual(result.skipped?.sort(), [changed.slug, archived.slug, native.slug].sort());
   const rows = await store.read();
   for (const id of [changed.id, archived.id, native.id]) assert.equal(rows.find(row => row.id === id)!.verdict, 'unknown');
   assert.equal(rows.find(row => row.id === stable.id)!.verdict, 'stale');

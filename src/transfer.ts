@@ -50,6 +50,8 @@ async function sources(path: string, prefix = ''): Promise<{ path: string; bytes
   for (const entry of (await readdir(path)).sort()) result.push(...await sources(join(path, entry), prefix ? `${prefix}/${entry}` : entry));
   return result;
 }
+/** Normalize relative source paths identically for generated slugs and wiki aliases. */
+function stemOf(path: string): string { return path.replace(/\.[^./]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, ''); }
 /** Parse frontmatter with the YAML parser while preserving its original byte representation. */
 function sourceDocument(path: string, bytes: Buffer, from: Harness): Source {
   const original = bytes.toString('base64');
@@ -69,7 +71,7 @@ function sourceDocument(path: string, bytes: Buffer, from: Harness): Source {
   const nested = metadata.metadata;
   const classification = typeof nested === 'object' && nested !== null && 'type' in nested ? nested.type : metadata.type;
   const body = content.slice(front?.[0].length ?? 0);
-  const stem = path.replace(/\.[^./]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+  const stem = stemOf(path);
   const key = stem.length > 0 && stem.length <= 120 ? stem : `import-${digest(path).slice(0, 16)}`;
   const title = typeof metadata.name === 'string' && metadata.name.trim() !== '' ? metadata.name : body.split(/\r?\n/).find(line => line.trim() !== '')?.replace(/^#+\s*/, '') ?? key;
   return { path, slug: slug(typeof metadata.name === 'string' && /^[a-z0-9][a-z0-9_-]{0,119}$/.test(metadata.name) ? metadata.name : key), description: typeof metadata.description === 'string' ? metadata.description : '', title: title.slice(0, 160).toWellFormed(), body, kind: classification === undefined ? 'reference' : kind(classification), artifact: from === 'claude-code' && basename(path).toUpperCase() === 'MEMORY.MD', original, why: /\*\*Why:\*\*\s*([^\r\n]*)/i.exec(body)?.[1] ?? '', how: /\*\*How to apply:\*\*\s*([^\r\n]*)/i.exec(body)?.[1] ?? '', links: [...body.matchAll(/\[\[([a-z0-9_-]+)\]\]/g)].map(match => match[1]) };
@@ -117,7 +119,7 @@ export async function importDir(path: string, options: MemoryOptions & { from: H
     const memories = await store.read();
     for (const source of parsed) for (const reference of source.links) {
       const exact = memories.find(item => item.slug === reference);
-      const aliases = memories.filter(item => item.path.replace(/\.[^./]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-') === reference);
+      const aliases = memories.filter(item => stemOf(item.path) === reference);
       const target = exact ?? (aliases.length === 1 ? aliases[0] : undefined);
       if (target === undefined) { unresolved_links++; continue; }
       const item = memories.find(item => item.slug === source.slug)!;
@@ -146,6 +148,12 @@ async function destination(root: string, name: string): Promise<string> {
 }
 /** Publish a fully planned directory with one rename; failed staging leaves the destination intact. */
 async function publish(root: string, outputs: Map<string, Buffer>): Promise<void> {
+  for (let parent = dirname(root); ; parent = dirname(parent)) {
+    try {
+      if (!(await lstat(parent)).isDirectory()) throw new MemoryError('path', 'Export ancestor is not a regular directory', 'Choose a destination with regular directory ancestors');
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    if (parent === dirname(parent)) break;
+  }
   await destination(dirname(root), `${basename(root)}/placeholder`);
   let existing = false;
   try {
@@ -218,7 +226,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       }
     } else {
       const original = outputs.get('AGENTS.md');
-      const additions = [...outputs.entries()].filter(([name]) => name !== 'AGENTS.md').map(([, bytes]) => bytes);
+      const additions = [...outputs.entries()].filter(([name, bytes]) => name !== 'AGENTS.md' && (original === undefined || !original.includes(bytes))).map(([, bytes]) => bytes);
       if (original === undefined || additions.length > 0) {
         outputs.set('AGENTS.md', Buffer.concat([...(original === undefined ? [] : [original, Buffer.from('\n')]), ...additions]));
         if (original !== undefined) byte_preserved--;

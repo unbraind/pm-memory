@@ -199,7 +199,8 @@ export async function searchClaims(claims: Claim[], source: Evidence, maxBytes =
           tail = overlap === 0 ? Buffer.alloc(0) : window.subarray(-overlap);
         }
       } finally { await handle.close(); }
-    } catch {
+    } catch (error) {
+      if (error instanceof MemoryError) throw error;
       throw new MemoryError('verify', 'Source evidence could not be read', 'Check source permissions and symlink loops before verification');
     }
   }
@@ -246,7 +247,7 @@ export async function checkClaim(claim: Claim, root: string | readonly string[],
   return { ...claim, verdict, ...(verdict === 'stale' ? { reason: claim.type === 'package' ? 'Exact package version absent in registry' : 'HTTP endpoint returned 404 or 410' } : {}) };
 }
 /** Persist conservative verdicts and confident reasons, caching repeated claims for this run only. */
-export async function verify(options: MemoryOptions & { root?: string | readonly string[]; slug?: string; network?: boolean }): Promise<{ checked: number; stale: number; results: { slug: string; verdict: Verdict; claims: ClaimResult[] }[] }> {
+export async function verify(options: MemoryOptions & { root?: string | readonly string[]; slug?: string; network?: boolean }): Promise<{ checked: number; stale: number; skipped: string[]; results: { slug: string; verdict: Verdict; claims: ClaimResult[] }[] }> {
   if (options.slug !== undefined) slug(options.slug);
   const roots = options.root ?? process.cwd(); const source = await evidence(roots);
   const store = new Store(options);
@@ -268,13 +269,14 @@ export async function verify(options: MemoryOptions & { root?: string | readonly
   return store.write(async () => {
     const current = new Map(active(await store.read()).map(item => [item.id, item]));
     const results: { slug: string; verdict: Verdict; claims: ClaimResult[] }[] = [];
+    const skipped: string[] = [];
     if (planned.length > 0) await store.register();
     for (const { item, claims, verdict } of planned) {
       const now = current.get(item.id);
-      if (now === undefined || now.updated !== item.updated || JSON.stringify([now.title, now.body, now.why, now.how]) !== JSON.stringify([item.title, item.body, item.why, item.how])) continue;
+      if (now === undefined || now.updated !== item.updated || JSON.stringify([now.title, now.body, now.why, now.how]) !== JSON.stringify([item.title, item.body, item.why, item.how])) { skipped.push(item.slug); continue; }
       await store.fields(item.id, { verdict, reason: claims.filter(claim => claim.verdict === 'stale').map(claim => claim.reason!).join('; '), verified_at: new Date().toISOString() });
       results.push({ slug: item.slug, verdict, claims });
     }
-    return { checked: results.length, stale: results.filter(result => result.verdict === 'stale').length, results };
+    return { checked: results.length, stale: results.filter(result => result.verdict === 'stale').length, skipped, results };
   });
 }

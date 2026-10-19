@@ -2,17 +2,26 @@ id: pm-memory-c3gv
 title: Refuse stale merge receipts after intervening memory edits
 description: "Follow-up on an already-resolved PR 1 thread, outside the ten currently unresolved review requests: receipt replay can overwrite acknowledged target edits or cancel a subsequently edited source."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T19:35:29.756Z"
-updated_at: "2026-10-19T19:35:29.756Z"
+updated_at: "2026-10-19T23:00:31.571Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 60
 acceptance_criteria: Capture and validate target and source revisions before receipt replay; preserve or refuse intervening edits without clearing the pending operation; retain exactly-once retries without intervening edits; prove with synthetic real-tracker interruption tests and both unchanged release gates.
 parent: pm-memory-0kwy
-files[1]{path,scope}:
+comments[2]{created_at,author,text}:
+  "2026-10-19T22:54:13.683Z",codex-agent,"Self-review reproduced unsafe pending merge replay. Added durable semantic revision bindings for source and destination, validate every pending receipt before planned writes, accept before/after publication states for exactly-once retry, and refuse stale, missing, archived or legacy receipt states while retaining evidence. Synthetic real-tracker regressions cover intervening native source and target edits."
+  "2026-10-19T23:00:31.569Z",codex-agent,"Revert proof: restore only consolidate to the starting implementation, retain revision helpers and regression tests, then node --test --test-name-pattern=\"pending merge receipts\" test/review-r5.test.ts fails with the intended missing-refusal assertion. Fixed implementation preserves current source/target bodies and pending receipt bytes on refusal; unchanged before-publication and after-publication receipts remain retryable."
+files[3]{path,scope}:
   src/consolidate.ts,project
+  test/review-r1.test.ts,project
+  test/review-r5.test.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-name-pattern=merge\\ receipts test/review-r1.test.ts test/review-r5.test.ts",project,600,codex-agent,"2026-10-19T22:56:24.541Z",local_mutation,review/memory-r1
 docs[1]{path,scope}:
   ARCHITECTURE.md,project
 body: "Source: resolved thread PRRT_kwDOVPw2oc6t_o9_ on PR 1. The later maintainer comment reports an SDK-tracker reproduction after interruption between target publication and source cancellation. Code inspection at 325d45d confirms consolidate replays receipt.body without checking target or source content revisions. Preserve later acknowledged edits or refuse with a typed conflict while retaining the pending receipt. No private memory data was inspected; this follow-up records the resolved-thread concern separately from the current unresolved-thread fixes."
