@@ -7,13 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-19T20:54:05.394Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-19T21:03:54.696Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[24]:
+comments[25]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -87,6 +85,9 @@ comments[24]:
   - created_at: "2026-10-19T20:54:05.368Z"
     author: codex-agent
     text: "PR 1 revert evidence: six isolated mutations each exited 1 with ERR_ASSERTION; current tests were retained and only relevant implementation functions reverted against the prior remote head. In test/review-r4.test.ts: PRRT_kwDOVPw2oc6uGDKI reverted proposals with node --test --test-name-pattern=\"competing merge\"; competing proposals now cross the documented 0.82 threshold. PRRT_kwDOVPw2oc6uGDKS reverted remember with --test-name-pattern=\"unchanged remember\" and failed CRLF import state/age preservation. PRRT_kwDOVPw2oc6uGDKj reverted exportDir with --test-name-pattern=\"export rejects reserved\" and failed the typed collision refusal. PRRT_kwDOVPw2oc6uGDKx reverted verify with --test-name-pattern=\"network verification releases\" and failed writer completion during a pending real HTTP response; checkClaim separately reverted with --test-name-pattern=\"network evidence subprocesses\" failed event-loop responsiveness. PRRT_kwDOVPw2oc6uGDK6 reverted checkout, prepare and registeredDrivers in test/prepare-merge-driver.test.ts with node --test --test-name-pattern=\"fixture Git commands ignore\" and failed synthetic fixture driver registration under poisoned Git overrides. Every mutation was restored. The linked pm runner passed 16 of 16 final regressions before this mutation series. An earlier full run exposed only a short timing deadline in the new test; the revised regression controls a real HTTP response and bounds writer completion below its lock wait. That run measured all coverage dimensions at 100 percent. Unchanged release gates follow; fixtures contain no private corpus and use real SDK trackers."
+  - created_at: "2026-10-19T21:03:52.955Z"
+    author: codex-agent
+    text: "Final local acceptance for PR 1 at implementation commit a5262d2: npm run release:check and bun run release:check both passed all 12 stages under isolated HOME and Git identity settings. Each passed 125 of 125 unit/tooling tests and 2 of 2 real packed npm/Bun consumers, with zero failures, skips or cancellations. All 19 configured sources retain unchanged 100 percent statement, branch, function and line thresholds: 1839 statements/lines, 1109 branches and 94 functions. All 79 declarations are documented; duplication is zero; production vulnerabilities are zero; all 42 packed files are allowlisted. The linked pm runner passed 16 of 16 regressions; six behavioral revert runs covering the five valid unresolved threads each produced an intended assertion failure and every function was restored. Independent no-local clone strict health passed all 10 checks with zero warnings. No finding was refused. No private corpus was read or copied, no dependency pins/workflows/installer template/thresholds changed, and no new pm CLI or SDK defect was encountered. Existing open follow-ups pm-memory-c3gv and pm-memory-eafx remain separate. This item stays in progress for orchestrator verification; thread replies, thread resolution, PR merge and release are held. Remote CI will be verified on the pushed completion head."
 files[25]{path,scope}:
   eslint.config.ts,project
   index.ts,project
