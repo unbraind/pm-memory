@@ -6,17 +6,17 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-19T13:32:38.900Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-19T13:41:44.585Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Seven commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[4]{created_at,author,text}:
+comments[6]{created_at,author,text}:
   "2026-10-19T12:57:31.272Z",codex-agent,"Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
   "2026-10-19T13:08:07.483Z",codex-agent,"Implementation covers all seven commands and shared SDK entry points. Embedded SDK generic field writes require active extension registration; native registered schema options through client.run preserve in-process operation without extension recursion. Source copy remains private and external. Tests exercise real trackers, full host output and independent process recallers."
   "2026-10-19T13:24:52.194Z",codex-agent,"Packed distribution acceptance passed for both npm/npx and Bun/bunx: 2 tests passed. The first private-copy round trip imported 281 files and exported all 281 byte-identically; re-import reported 281 unchanged and zero writes. Final lexical ranking and native semantic edit safeguards are being rechecked before final acceptance."
   "2026-10-19T13:32:38.899Z",codex-agent,"All six feature-linked pm test commands passed. Baseline revert proof run after restoring all sources: 3 passed, zero failed. Production audit, duplication and docstrings are clean in preliminary checks. Full isolated npm and Bun release gates follow on the implementation commit."
+  "2026-10-19T13:41:11.116Z",codex-agent,"Accepted private-copy aggregate: 281 imported; re-import 281 unchanged, zero created or updated; 281 exports byte-identical by recursive diff. Index 1498 of 1500 estimated tokens, 248 omitted. Recall token/reference-rank pairs in the requested query order: 759/1, 752/1, 751/omitted-from-three, 737/1, 738/3. Verification checked 280 facts: 198 stale, failing claims file=377 flag=249 symbol=34. Consolidation dry run: merge=0 supersedes=1 archive=189; no apply. Private scratch data removed."
+  "2026-10-19T13:41:15.027Z",codex-agent,"Both isolated release gates passed on the completed implementation: npm run release:check and bun run release:check, each 12 stages, 79 unit/tooling tests and 2 packed consumers, zero failed. Coverage across all 19 authored source files: 100 percent statements, branches, functions and lines (1440/1440 statements and lines, 673/673 branches, 72/72 functions). Docstrings 65 declarations; duplication zero; production vulnerabilities zero; 42 packed files all allowlisted. Fresh no-local clone: health 10 checks and validate 10 checks, zero warnings. Four behavioral revert proofs failed under reversion and passed after restoration."
 files[15]{path,scope}:
   eslint.config.ts,project
   index.ts,project

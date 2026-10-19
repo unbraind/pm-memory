@@ -99,7 +99,19 @@ Embedded SDK clients register the same persistent schema as installed hosts. The
 
 Synthetic tests use real temporary SDK trackers without SDK mocks. They cover duplicate boundaries, a realistic fake-secret fixture, process-concurrent counters, randomized Unicode budgets, idempotent import, byte-identical export, claim verification, read-only consolidation and installed native output. Behavioral mutation proofs cover duplicate refusal, budget packing and source byte preservation. Tooling, scripts and the package entry point are included in all four 100% coverage thresholds; no source exemptions are configured.
 
-Private-copy aggregate results are recorded here after the local acceptance run. No source content, file identities or tracker snapshots are published.
+The local private-copy acceptance run imported 281 files (280 active facts plus one index artifact). Re-import reported 281 unchanged, zero imported and zero updated. All 281 exported files were byte-identical by recursive diff. The 1,500-token index used 1,498 estimated tokens and omitted 248 facts.
+
+| Recall query | Packet tokens / 800 | Reference rank in packet |
+| --- | --- | --- |
+| codex forecast | 759 | 1 |
+| merge driver | 752 | 1 |
+| release workflow | 751 | Omitted; three other rows returned |
+| coderabbit | 737 | 1 |
+| pm-web hosted | 738 | 3 |
+
+Reference candidates were selected before recall by strongest title word overlap, then smallest body vocabulary, then stable key order. These are retrieval measurements rather than a semantic correctness certification. In particular, the selected release-workflow reference did not fit among the returned rows at this budget; increase the budget or narrow the query when that context is needed.
+
+Local verification checked 280 facts and marked 198 stale, with 377 failing file claims, 249 failing flag claims and 34 failing symbol claims. Offline URL and package-version claims remained unknown. Consolidation proposed 0 duplicate merges, 1 supersession and 189 unused-stale archives. It performed no consolidation writes. The private scratch copy and tracker were removed. No source content, file identities or tracker snapshots are published.
 
 ## Exit codes
 

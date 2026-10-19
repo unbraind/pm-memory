@@ -6,9 +6,7 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:35.244Z"
-updated_at: "2026-10-19T13:32:31.725Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-19T13:41:28.500Z"
 author: codex-agent
 estimated_minutes: 90
 acceptance_criteria: Unique slugs; append-only updates; normalized title and body similarity refuses near duplicates with remedies; boundary revert proof.
