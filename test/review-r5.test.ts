@@ -44,13 +44,14 @@ test('punctuated import paths and path slugs resolve the same wiki aliases idemp
   const source = join(root, 'source'); await mkdir(source);
   await writeFile(join(source, '!My Note!.md'), '---\nname: canonical\n---\nCanonical instructions\n');
   await writeFile(join(source, '!Other Note!.md'), 'Another instruction\n');
-  await writeFile(join(source, 'references.md'), 'See [[my-note]] and [[other-note]]\n');
-  assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unresolved_links, 0);
+  await writeFile(join(source, '_Hidden!.md'), 'Additional portable guidance\n');
+  await writeFile(join(source, 'references.md'), 'See [[my-note]], [[other-note]] and [[_hidden]]\n');
+  await assert.doesNotReject(async () => { assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unresolved_links, 0); });
   const rows = await store.read();
   const references = rows.find(row => row.slug === 'references')!;
   assert.deepEqual(new Set(references.links), new Set(rows.filter(row => row.slug !== 'references').map(row => row.id)));
   const before = await snapshot(options.workspace);
-  assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unchanged, 3);
+  assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unchanged, 4);
   assert.deepEqual(await snapshot(options.workspace), before);
 });
 

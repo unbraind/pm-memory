@@ -7,13 +7,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-19T23:00:17.417Z"
+updated_at: "2026-10-19T23:07:33.456Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[29]:
+comments[31]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -102,6 +102,12 @@ comments[29]:
   - created_at: "2026-10-19T23:00:17.409Z"
     author: codex-agent
     text: "Behavioural revert proofs: isolated scratch copy, current regression tests retained, one changed function group restored from starting head per case, all restored afterwards. Ten intended assertion failures: proposals -> supersession targets survive duplicate merges; credentialUrl -> credential URI authorities; sourceDocument/importDir -> punctuated import paths; exportDir -> agents directory round trips; searchClaims -> text evidence refuses raced symlinks; verify -> network verification releases writers and reports skipped snapshots; consolidate -> pending merge receipts refuse intervening edits; publish -> export refuses symlink roots including ancestor traversal; privacy audit Git invocation -> privacy audit uses its own repository; README export/home-path contract -> README path and export contracts. Exact runner form: node --test --test-name-pattern=\"<named test prefix>\" <test file>. Files: test/review-r5.test.ts, test/review-r4.test.ts, test/review-followup.test.ts, test/transfer.test.ts. Baseline targeted suite passed 36/36 with zero failures or skips; skipped-snapshot proof was rerun with explicit deep-equality assertion so missing API data yields an assertion failure. No SDK mocks or private memory corpus used."
+  - created_at: "2026-10-19T23:07:15.654Z"
+    author: codex-agent
+    text: "Final alias self-review also found that a filename whose normalized stem starts with an underscore violates the slug contract. Such files now use the existing hashed fallback key and retain their normalized wiki alias. The punctuated-path real-tracker regression includes that case and explicitly asserts successful import. The first exploratory full run passed 132/132 tests but its coverage run overlapped the export ancestor edit and produced inconsistent source offsets; in-flight verification was stopped before further source changes, and both full gates will be rerun on an immutable commit at unchanged thresholds."
+  - created_at: "2026-10-19T23:07:33.441Z"
+    author: codex-agent
+    text: "Eleventh revert proof: node --test --test-name-pattern=\"punctuated import paths\" test/review-r5.test.ts passes with the enriched four-file fixture; restoring only sourceDocument from 9757875 triggers the intended doesNotReject assertion for an underscore-leading filename. The original alias-normalization revert proof remains recorded above. Final source is now frozen for immutable npm and Bun release checks."
 files[26]{path,scope}:
   eslint.config.ts,project
   index.ts,project
