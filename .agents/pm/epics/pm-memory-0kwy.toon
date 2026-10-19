@@ -7,13 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-19T20:01:02.529Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-19T20:18:28.005Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[21]:
+comments[22]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -78,6 +76,9 @@ comments[21]:
   - created_at: "2026-10-19T20:01:02.502Z"
     author: codex-agent
     text: The identity gate flagged the literal opening delimiter of a test regex followed by root as an absolute-home prefix. The assertions now match the complete Verification root error text. This changes no production behavior or policy threshold. The unpublished local source commit is amended to avoid preserving the false-positive line in commit ancestry; every existing pm history record remains unchanged.
+  - created_at: "2026-10-19T20:18:22.419Z"
+    author: codex-agent
+    text: "Both complete release gates passed at implementation head f261a9f in isolated HOME and Git identity environments: npm run release:check and bun run release:check each completed all 12 stages, 119 of 119 unit/tooling tests, zero failures/skips/cancellations, and 2 of 2 real packed npx/bunx consumers. All 19 configured sources meet unchanged 100 percent statement, branch, function and line thresholds: 1818 statements and lines, 1083 branches, 93 functions. Docstrings cover 79 declarations; duplication is zero; production vulnerabilities are zero; all 42 packed files are allowlisted. The final linked pm runner passed 13 of 13 regressions. Revert evidence maps all 10 unresolved threads, with additional final export and root-refusal checks recorded above; restored baselines pass. Fresh-clone health passed 10 of 10 checks with zero warnings. Implementation commits are d1a70f0 and f261a9f. No private memory corpus was read or copied. Open follow-ups are pm-memory-c3gv for the separate already-resolved-thread receipt revision concern and the unchanged pm-memory-eafx development-only advisory. Thread replies, resolution, merging and releases are held; remote CI will be checked after pushing the completion receipt."
 files[24]{path,scope}:
   eslint.config.ts,project
   index.ts,project
