@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { after, test } from "node:test";
@@ -657,6 +657,6 @@ test('identity privacy distinguishes relative labels from absolute home prefixes
 /** Environment boundaries remove inherited policy without discarding unrelated values. */
 test('npm subprocess policy isolates user configuration case-insensitively', () => {
   const value = npmEnvironment({ PATH: 'safe', npm_config_allow_scripts: 'all', NPM_CONFIG_USERCONFIG: 'private', npm_config_userconfig: 'private' });
-  assert.equal(value.PATH, 'safe'); assert.equal(value.npm_config_userconfig, '/dev/null');
+  assert.equal(value.PATH, 'safe'); assert.equal(value.npm_config_userconfig, devNull);
   assert.equal(value.NPM_CONFIG_USERCONFIG, undefined); assert.equal(value.npm_config_allow_scripts, undefined);
 });

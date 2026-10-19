@@ -1,9 +1,9 @@
-import { lstat, readdir, readFile, mkdir, writeFile, realpath } from 'node:fs/promises';
-import { basename, isAbsolute, join, resolve } from 'node:path';
+import { lstat, readdir, readFile, mkdir, writeFile, mkdtemp, rename, rm, access } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { metadata, Store } from './store.ts';
-import { active } from './memory.ts';
 import type { Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
 
 /** A parsed source document with its exact original bytes retained separately. */
@@ -104,7 +104,8 @@ export async function importDir(path: string, options: MemoryOptions & { from: H
     for (const source of parsed) {
       const previous = initial.find(item => item.slug === source.slug);
       if (previous?.original === source.original) { unchanged++; continue; }
-      const fields = { slug: source.slug, kind: source.kind, why: source.why, how: source.how, pinned: false, source: `${options.from}:relative-file`, recalls: previous?.recalls ?? 0, verdict: 'unknown', verified_at: '', original: source.original, path: source.path, edited: false, artifact: source.artifact };
+      const fields = { slug: source.slug, kind: source.kind, why: source.why, how: source.how, pinned: false, source: `${options.from}:relative-file`, recalls: previous?.recalls ?? 0, verdict: 'unknown', verified_at: '', original: source.original, path: source.path, edited: false, artifact: source.artifact, changed_at: new Date().toISOString() };
+      if (previous !== undefined && sameContent(previous, source)) fields.changed_at = previous.updated;
       if (previous === undefined) {
         await store.client.run('create', { options: { title: source.title, body: source.body, description: source.description, type: 'Knowledge', allowDuplicate: true, ...metadata(fields) } }); imported++;
       } else {
@@ -131,16 +132,50 @@ function generated(item: Memory, to: Harness, memories: readonly Memory[]): Buff
   const content = to === 'claude-code' ? `---\nname: ${JSON.stringify(item.slug)}\ndescription: ${JSON.stringify(item.description || item.why)}\nmetadata:\n  type: ${item.kind}\n---\n\n${item.body}\n\n**Why:** ${item.why}\n**How to apply:** ${item.how}\n${links}\n` : `## ${item.title}\n\n${item.body}\n\n**Why:** ${item.why}\n**How to apply:** ${item.how}\n${links}\n`;
   return Buffer.from(content);
 }
-/** Confine destination writes through real directories; never follow an existing symlink. */
+/** Inspect destination parents without creating directories or following symlinks. */
 async function destination(root: string, name: string): Promise<string> {
   const target = resolve(root, safePath(name));
   let current = root;
   for (const part of name.split('/').slice(0, -1)) {
     current = join(current, part);
-    try { await mkdir(current); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-    if (!(await lstat(current)).isDirectory()) throw new MemoryError('path', 'Export parent is not a regular directory', 'Choose an empty export directory');
+    try {
+      if (!(await lstat(current)).isDirectory()) throw new MemoryError('path', 'Export parent is not a regular directory', 'Choose an empty export directory');
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   }
   return target;
+}
+/** Publish a fully planned directory with one rename; failed staging leaves the destination intact. */
+async function publish(root: string, outputs: Map<string, Buffer>): Promise<void> {
+  await destination(dirname(root), `${basename(root)}/placeholder`);
+  let existing = false;
+  try {
+    await lstat(root);
+    existing = true;
+    await access(root, constants.W_OK);
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  let identical = existing;
+  for (const [name, bytes] of outputs) {
+    const target = await destination(root, name);
+    try {
+      if (!(await lstat(target)).isFile() || !(await readFile(target)).equals(bytes)) throw new MemoryError('conflict', 'Export would overwrite an existing file', 'Choose an empty export directory');
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; identical = false; }
+  }
+  if (identical) return;
+  if (existing && (await readdir(root)).length > 0) throw new MemoryError('conflict', 'Export would overwrite a nonempty directory', 'Choose an empty export directory');
+  const staging = await mkdtemp(join(dirname(root), '.pm-memory-export-'));
+  try {
+    for (const [name, bytes] of outputs) {
+      const target = resolve(staging, name);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, bytes, { flag: 'wx' });
+    }
+    await rename(staging, root);
+  } finally { await rm(staging, { recursive: true, force: true }); }
+}
+/** Preserve a current original index only when it names exactly the emitted fact paths. */
+function currentIndex(original: Buffer, paths: readonly string[]): boolean {
+  const links = [...original.toString('utf8').matchAll(/^[ \t]*[-*][ \t]+\[[^\]\r\n]*\]\(([^)\r\n]+)\)/gm)].map(match => match[1].replace(/^\.\//, ''));
+  return links.length === paths.length && new Set(links).size === paths.length && paths.every(path => links.includes(path));
 }
 /** Export exact imported bytes when semantically unchanged, with conflict-safe native generation otherwise. */
 export async function exportDir(path: string, options: MemoryOptions & { to: Exclude<Harness, 'cursor'> }): Promise<{ exported: number; byte_preserved: number }> {
@@ -148,36 +183,36 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
   const store = new Store(options);
   return store.write(async () => {
     const memories = await store.read();
-    const outputs = new Map<string, Buffer>(); let byte_preserved = 0;
+    const outputs = new Map<string, Buffer>(); const emitted: { item: Memory; name: string }[] = []; let byte_preserved = 0;
     for (const item of memories) {
+      if (item.status === 'canceled') continue;
       await store.history(item.id);
       let name: string; let bytes: Buffer;
       if (item.path !== '' && !item.edited && item.source === `${options.to}:relative-file` && sameContent(item, sourceDocument(item.path, Buffer.from(item.original, 'base64'), options.to))) {
         name = safePath(item.path); bytes = Buffer.from(item.original, 'base64'); byte_preserved++;
-      } else if (!item.artifact && item.status !== 'canceled') {
+      } else if (!item.artifact) {
         name = options.to === 'claude-code' ? `${item.slug}.md` : `memories/${item.slug}.md`;
         bytes = generated(item, options.to, memories);
       } else continue;
       if (outputs.has(name)) throw new MemoryError('conflict', 'Export names collide', 'Rename the conflicting memory slug');
       outputs.set(name, bytes);
+      if (!item.artifact) emitted.push({ item, name });
     }
-    if (options.to === 'claude-code' && !outputs.has('MEMORY.md')) outputs.set('MEMORY.md', Buffer.from(active(memories).map(item => `- [${item.title}](${item.slug}.md)`).join('\n') + '\n'));
-    if (options.to === 'agents-md' && !outputs.has('AGENTS.md')) outputs.set('AGENTS.md', Buffer.concat([...outputs.values()]));
-    await mkdir(path, { recursive: true });
-    if (!(await lstat(path)).isDirectory()) throw new MemoryError('path', 'Export root is not a regular directory', 'Choose an empty export directory');
-    const root = await realpath(path);
-    const planned: { path: string; bytes: Buffer; exists: boolean }[] = [];
-    for (const [name, bytes] of outputs) {
-      const target = await destination(root, name);
-      let exists = false;
-      try {
-        const stat = await lstat(target);
-        if (!stat.isFile() || !(await readFile(target)).equals(bytes)) throw new MemoryError('conflict', 'Export would overwrite an existing file', 'Choose an empty export directory');
-        exists = true;
-      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-      planned.push({ path: target, bytes, exists });
+    if (options.to === 'claude-code') {
+      const original = outputs.get('MEMORY.md');
+      if (original === undefined || !currentIndex(original, emitted.map(row => row.name))) {
+        outputs.set('MEMORY.md', Buffer.from(emitted.map(({ item, name }) => `- [${item.title}](${name})`).join('\n') + '\n'));
+        if (original !== undefined) byte_preserved--;
+      }
+    } else {
+      const original = outputs.get('AGENTS.md');
+      const additions = [...outputs.entries()].filter(([name]) => name !== 'AGENTS.md').map(([, bytes]) => bytes);
+      if (original === undefined || additions.length > 0) {
+        outputs.set('AGENTS.md', Buffer.concat([...(original === undefined ? [] : [original, Buffer.from('\n')]), ...additions]));
+        if (original !== undefined) byte_preserved--;
+      }
     }
-    for (const output of planned) if (!output.exists) await writeFile(output.path, output.bytes, { flag: 'wx' });
+    await publish(resolve(path), outputs);
     return { exported: outputs.size, byte_preserved };
   });
 }

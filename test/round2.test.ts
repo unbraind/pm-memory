@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, writeFile, readFile, chmod } from 'node:fs/promises';
-import { join, delimiter } from 'node:path';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { get, importDir, exportDir, remember, recall, verify, MemoryError, packetTokens } from '../index.ts';
 import { extractClaims, checkClaim, directoryEvidence } from '../src/verify.ts';
 import { proposals } from '../src/consolidate.ts';
@@ -24,7 +24,7 @@ test('verify classifier resolves nested repositories and repeatable roots with c
   assert.ok(result.results.find(row => row.slug === 'nested')!.claims.every(claim => claim.verdict !== 'stale'));
   for (const value of ['release.yml', 'tsconfig.json', 'index.ts', 'src/index.ts', 'shared.ts', '--sort']) assert.equal(result.results.find(row => row.slug === 'nested')!.claims.find(claim => claim.value === value)!.verdict, 'verified');
   assert.equal(result.results.find(row => row.slug === 'runtime')!.verdict, 'unknown');
-  assert.match(result.results.find(row => row.slug === 'missing')!.claims[0].reason!, /^missing path src\/deleted.ts under roots$/);
+  assert.match(result.results.find(row => row.slug === 'missing')!.claims[0].reason!, /not found under the given roots \(add --root if it lives elsewhere\)/);
   assert.deepEqual(extractClaims('randomUUID() fetch() require() JSON.stringify() Math.random()'), []);
   assert.deepEqual(extractClaims('Check `deleted-dir/`'), []);
   assert.equal(extractClaims('https://example.test/docs/file.ts').filter(claim => claim.type === 'file').length, 0);
@@ -115,26 +115,6 @@ test('bounded evidence failures remain unknown or refuse, and contextual missing
   await remember('Check `source.ts` absentContextSymbol() --tags', { ...options, kind: 'project', slug: 'symbol' });
   const checked = await verify({ ...options, root });
   assert.equal(checked.stale, 1); assert.match(checked.results[0].claims.find(claim => claim.type === 'symbol')!.reason!, /symbol absent in \d+ files searched/);
-});
-
-/** Real executable failures exercise bounded ripgrep evidence without replacing any SDK surface. */
-test('unavailable or interrupted ripgrep never fabricates stale source evidence', async t => {
-  const { root, options } = await tracker(t);
-  await writeFile(join(root, 'source.ts'), 'known source');
-  await remember('Check `source.ts` absentContextSymbol()', { ...options, kind: 'project', slug: 'symbol' });
-  const bin = join(root, 'bin'); await mkdir(bin); const executable = join(bin, 'rg');
-  const previous = process.env.PATH; process.env.PATH = `${bin}${delimiter}${previous}`;
-  t.after(() => { process.env.PATH = previous; });
-  await writeFile(executable, '#!/bin/sh\nif [ "$1" = "--files" ]; then echo ./source.ts; else exit 2; fi\n'); await chmod(executable, 0o755);
-  const checked = await verify({ ...options, root });
-  assert.equal(checked.results[0].verdict, 'unknown');
-  assert.equal((await checkClaim({ type: 'symbol', value: 'absent()' }, root, false)).verdict, 'unknown');
-  await writeFile(executable, '#!/bin/sh\nexit 2\n');
-  await assert.rejects(verify({ ...options, root }), /grep could not complete/);
-  await writeFile(executable, '#!/bin/sh\nkill -TERM $$\n');
-  await assert.rejects(verify({ ...options, root }), /grep could not complete/);
-  process.env.PATH = join(bin, 'missing');
-  await assert.rejects(verify({ ...options, root }), /grep could not complete/);
 });
 
 test('ranking distinguishes title, description, slug and body evidence', async t => {

@@ -73,7 +73,7 @@ function stubPm(name: string, status: number, body = ""): string {
  * @param extraEnv - Lifecycle variables such as `npm_command`.
  */
 function prepare(cwd: string, path: string, extraEnv: NodeJS.ProcessEnv = {}): SpawnSyncReturns<string> {
-  return spawnSync(process.execPath, [launcher], { cwd, encoding: "utf8", env: { ...process.env, PATH: path, ...extraEnv, PM_PATH: join(cwd, ".agents", "pm") } });
+  return spawnSync(process.execPath, [launcher], { cwd, encoding: "utf8", env: { ...process.env, PATH: path, PM_PATH: join(cwd, ".agents", "pm"), ...extraEnv } });
 }
 
 /** The merge drivers registered in a checkout's LOCAL Git config, by name. */
@@ -90,8 +90,9 @@ function registeredDrivers(cwd: string): string[] {
 test("a full install registers every merge driver .gitattributes declares", posixOnly, () => {
   const directory = checkout("full", "pinned");
   assert.deepEqual(registeredDrivers(directory), []);
-  const result = prepare(directory, hostPath, { PM_PATH: join(root, ".agents", "pm") });
+  const result = prepare(directory, hostPath);
   assert.equal(result.status, 0, result.stderr);
+  assert.ok(result.stdout.includes(join(directory, ".agents", "pm")));
   assert.ok(declaredDrivers.length > 0, ".gitattributes declares no pm merge drivers");
   assert.deepEqual(registeredDrivers(directory), declaredDrivers);
 });
@@ -152,3 +153,13 @@ for (const command of ["pack", "publish"]) {
     assert.deepEqual(registeredDrivers(directory), []);
   });
 }
+
+/** Caller environment overrides reach the launcher and its child without touching another tracker. */
+test("prepare forwards an explicit tracker override", posixOnly, () => {
+  const directory = checkout("override", "pinned");
+  const path = stubPm("override", 0, 'printf "%s\\n" "$PM_PATH"');
+  const expected = join(directory, "alternate-tracker");
+  const result = prepare(directory, path, { PM_PATH: expected });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), expected);
+});

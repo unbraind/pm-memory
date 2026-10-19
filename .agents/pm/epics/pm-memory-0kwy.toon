@@ -6,11 +6,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-19T14:38:39.142Z"
+updated_at: "2026-10-19T16:14:09.979Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Seven commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[9]{created_at,author,text}:
+comments[12]{created_at,author,text}:
   "2026-10-19T12:57:31.272Z",codex-agent,"Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
   "2026-10-19T13:08:07.483Z",codex-agent,"Implementation covers all seven commands and shared SDK entry points. Embedded SDK generic field writes require active extension registration; native registered schema options through client.run preserve in-process operation without extension recursion. Source copy remains private and external. Tests exercise real trackers, full host output and independent process recallers."
   "2026-10-19T13:24:52.194Z",codex-agent,"Packed distribution acceptance passed for both npm/npx and Bun/bunx: 2 tests passed. The first private-copy round trip imported 281 files and exported all 281 byte-identically; re-import reported 281 unchanged and zero writes. Final lexical ranking and native semantic edit safeguards are being rechecked before final acceptance."
@@ -20,7 +22,10 @@ comments[9]{created_at,author,text}:
   "2026-10-19T13:55:58.723Z",codex-agent,"Round two: conservative evidence classification across bounded repeated roots, frontmatter identity and alias links, compact ranked recall plus full get, aggregate privacy diagnostics, descriptive help and age-gated archival. Local-only work; synthetic regressions and private aggregate proof before both release gates."
   "2026-10-19T14:32:17.864Z",codex-agent,"Isolated npm release gate passed: 88 tests, 0 failures, 100% statements/branches/functions/lines across 19 configured source files, zero production vulnerabilities, zero duplication, 2 packed consumers accepted through npx and bunx including detailed import help, repeated verification roots, nested basename evidence and full get. Bun release gate pending. Linked round-two regression runner passed 9/9."
   "2026-10-19T14:38:35.200Z",codex-agent,"Both final release gates passed in isolated HOME/Git identity environments: npm run release:check and bun run release:check each ran 88 tests with zero failures/skips plus 2 packed npx/bunx consumers. Both report 100% statement, branch, function and line coverage across all 19 configured source files; zero production vulnerabilities; zero duplication; 42 allowlisted packed files. Three behavioral revert proofs and the 9/9 linked regression runner are recorded. All private proof artifacts deleted. Local-only review; no push or repository creation."
-files[16]{path,scope}:
+  "2026-10-19T15:52:22.211Z",codex-agent,"Review round 1: verified all 17 unresolved threads at 3df1e75. Plan bounded in-process verification, raw-field privacy, semantic timestamps, recoverable consolidation, current atomic exports, attribution and regression proofs. No private source data is required."
+  "2026-10-19T16:02:15.658Z",codex-agent,"Implemented all 17 thread fixes and both orchestrator findings. Verification streams indexed regular files with 64 MiB run and 8 MiB file caps, 100000 entries per root, conservative refusals, no rg dependency. Content age uses memory_changed_at with created_at fallback. Merge receipts survive failures; exports stage then rename and regenerate stale indexes. SDK gap: the injected host client asserts pm-extension without an author flag; a native dispatcher adapter clears that fallback and preserves the documented author chain. Focused attribution, 100k URL and bounded streaming regressions pass."
+  "2026-10-19T16:14:09.979Z",codex-agent,"Behavioral revert proof ledger: 22 targeted regressions fail with the corresponding behavior reverted and pass after restoration. Cases cover URL complexity, the fresh README invocation, matching subjects, surviving merge targets, durable merge receipts, raw-field privacy, canceled slug reuse, semantic age, canceled imports, current export paths/indexes, atomic refusal/failure cleanup, excluded exported evidence, safe gh arguments, reverse collisions, prepare environment precedence, portable null devices, archive/artifact assertions, independent inventory/text search without rg, SDK author precedence, root-remedy text, and formatting-only import timestamps. The 100k adversarial scan runs in a child process; a two-second scan deadline kills the reverted regex, while the fixed scan stays below 500 ms. Synthetic OS hooks prove devNull portability. Restored regression baselines pass; the linked pm runner passed 19 of 19. Full npm execution passed 106 of 106 tests; the first strict coverage attempt exposed two missing export destination branches, now covered by empty-target publication and nonempty-target refusal scenarios. No thresholds changed."
+files[23]{path,scope}:
   eslint.config.ts,project
   index.ts,project
   LICENSE,project
@@ -28,19 +33,27 @@ files[16]{path,scope}:
   package.json,project
   scripts,project
   src/commands.ts,project
+  src/consolidate.ts,project
+  src/core.ts,project
+  src/memory.ts,project
   src/store.ts,project
+  src/transfer.ts,project
   src/types.ts,project
+  src/verify.ts,project
   test/commands.test.ts,project
   test/edges.test.ts,project
   test/helpers.ts,project
   test/install.acceptance.ts,project
   test/prepare-merge-driver.test.ts,project
+  test/privacy-process.ts,project
+  test/review-r1.test.ts,project
   test/tooling.test.ts,project
   tsconfig.json,project
-tests[3]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "npm run release:check",project,codex-agent,"2026-10-19T13:20:31.542Z",local_mutation,feat/memory
   "bun run release:check",project,codex-agent,"2026-10-19T13:20:36.924Z",local_mutation,feat/memory
   node --test test/round2.test.ts,project,codex-agent,"2026-10-19T14:07:52.071Z",local_mutation,feat/memory
+  node --test test/review-r1.test.ts test/commands.test.ts test/round3.test.ts,project,codex-agent,"2026-10-19T16:02:09.834Z",local_mutation,review/memory-r1
 docs[3]{path,scope}:
   ARCHITECTURE.md,project
   CHANGELOG.md,project

@@ -61,7 +61,8 @@ test('export detects path collisions for original artifacts and generated memori
   await store.fields(ordered[0].id, { path: `${ordered[1].slug}.md` });
   await store.fields(ordered[1].id, { edited: true });
   await assert.rejects(exportDir(join(root, 'generated-collision'), { ...options, to: 'claude-code' }), /collide/);
-  await store.fields(ordered[0].id, { path: `${ordered[1].slug}.md` });
+  await store.fields(ordered[0].id, { edited: true });
+  await store.fields(ordered[1].id, { edited: false, path: `${ordered[0].slug}.md` });
   await assert.rejects(exportDir(join(root, 'reverse-collision'), { ...options, to: 'claude-code' }), /collide/);
 });
 

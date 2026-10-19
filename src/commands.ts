@@ -11,7 +11,7 @@ import { MEMORY_FIELDS } from './store.ts';
 /** Dispatch native command operands to the documented in-process API. */
 export async function runCommand(command: string, ctx: CommandHandlerContext): Promise<unknown> {
   try {
-    const base = { workspace: ctx.pm_root, author: ctx.global.author };
+    const base = { workspace: ctx.pm_root, ...(ctx.global.author === undefined ? {} : { author: ctx.global.author }), client: ctx.sdk?.client };
     const options = ctx.options;
     if (command === 'remember') return await remember(text(ctx.args[0]), { ...base, kind: kind(options.kind), slug: options.slug === undefined ? undefined : text(options.slug), update: options.update === undefined ? undefined : text(options.update), why: options.why === undefined ? undefined : text(options.why), how: options.how === undefined ? undefined : text(options.how), pin: options.pin === true ? true : undefined, forceNew: options.forceNew === true, allowEmail: options.allowEmail === true, links: options.link === undefined ? [] : (Array.isArray(options.link) ? options.link : [options.link]).map(text) });
     if (command === 'recall') return await recall(text(ctx.args[0]), { ...base, budget: options.budget === undefined ? undefined : Number(options.budget), kind: options.kind === undefined ? undefined : kind(options.kind) });
@@ -44,7 +44,7 @@ const OPTIONS: Record<string, string> = {
   root: 'Search a source tree including nested repositories; repeat for more roots (example: --root . --root ../shared)',
   network: 'Check exact package versions and HTTP URLs online (example: verify --network)',
   apply: 'Apply reviewed consolidation proposals (example: consolidate --apply)',
-  'min-age-days': 'Minimum updated_at age for archive proposals, default 30 (example: --min-age-days 60)',
+  'min-age-days': 'Minimum content-change age for archive proposals, default 30 (example: --min-age-days 60)',
 };
 /** Build uniform typed flags with native repeatable link and root handling. */
 function flags(strings: string[], booleans: string[]): FlagDefinition[] {

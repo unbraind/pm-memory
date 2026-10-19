@@ -8,7 +8,9 @@ export const DUPLICATE_THRESHOLD = 0.82;
 /** Create or update one fact under a process-safe uniqueness lock, preserving native history. */
 export async function remember(fact: string, options: RememberOptions): Promise<{ id: string; slug: string; updated: boolean }> {
   text(fact); kind(options.kind);
-  privacy(JSON.stringify({ fact, why: options.why, how: options.how, tags: options.tags, slug: options.slug, update: options.update, links: options.links }), options.allowEmail);
+  for (const value of [fact, options.why, options.how, options.slug, options.update, ...(options.tags ?? []), ...(options.links ?? [])]) {
+    if (value !== undefined) privacy(value, options.allowEmail);
+  }
   if (options.update !== undefined && options.slug !== undefined && options.update !== options.slug) throw new MemoryError('invalid', 'Conflicting update and slug', 'Supply only the existing --update slug');
   const key = slug(options.update ?? options.slug ?? `memory-${digest(fact).slice(0, 16)}`);
   const store = new Store(options);
@@ -17,7 +19,7 @@ export async function remember(fact: string, options: RememberOptions): Promise<
     const previous = memories.find(item => item.slug === key);
     if (options.update !== undefined && previous === undefined) throw new MemoryError('missing', 'Update slug does not exist', 'Use remember --slug to create a new memory');
     const title = fact.trim().split('\n')[0].slice(0, 160).toWellFormed();
-    const duplicate = memories.find(item => item.slug !== key && !item.artifact && similarity(`${title}\n${fact}`, `${item.title}\n${item.body}`) >= DUPLICATE_THRESHOLD);
+    const duplicate = active(memories).find(item => item.slug !== key && similarity(`${title}\n${fact}`, `${item.title}\n${item.body}`) >= DUPLICATE_THRESHOLD);
     if (previous === undefined && duplicate !== undefined && !options.forceNew) throw new MemoryError('duplicate', `Near duplicate of ${duplicate.slug}`, `Use --update ${duplicate.slug} or --force-new with a distinct --slug`);
     const targets: string[] = [];
     for (const reference of options.links ?? []) {
@@ -25,14 +27,15 @@ export async function remember(fact: string, options: RememberOptions): Promise<
       await store.client.get(target); targets.push(target);
     }
     await store.register();
-    const fields = { slug: key, kind: options.kind, why: options.why ?? previous?.why ?? '', how: options.how ?? previous?.how ?? '', pinned: options.pin ?? previous?.pinned ?? false, source: previous?.source ?? 'native:item', verdict: 'unknown', verified_at: '', recalls: previous?.recalls ?? 0, edited: true };
+    const fields = { slug: key, kind: options.kind, why: options.why ?? previous?.why ?? '', how: options.how ?? previous?.how ?? '', pinned: options.pin ?? previous?.pinned ?? false, source: previous?.source ?? 'native:item', verdict: 'unknown', verified_at: '', recalls: previous?.recalls ?? 0, edited: true, changed_at: new Date().toISOString() };
+    if (previous !== undefined && previous.title === title && previous.body === fact && previous.kind === fields.kind && previous.why === fields.why && previous.how === fields.how && previous.pinned === fields.pinned && (options.tags === undefined || JSON.stringify(previous.tags) === JSON.stringify(options.tags))) fields.changed_at = previous.updated;
     let id: string;
     if (previous === undefined) {
       const created = await store.client.run('create', { options: { title, body: fact, type: 'Knowledge', tags: (options.tags ?? []).join(','), allowDuplicate: true, ...metadata(fields) } });
       id = parseMutationReceipt(created).id;
     } else {
       await store.history(previous.id);
-      await store.client.update(previous.id, { title, body: fact, ...(options.tags === undefined ? {} : { tags: options.tags.join(',') }), message: 'Revise durable agent memory' });
+      await store.client.update(previous.id, { title, body: fact, ...(previous.status === 'canceled' ? { status: 'open' } : {}), ...(options.tags === undefined ? {} : { tags: options.tags.join(',') }), message: 'Revise durable agent memory' });
       await store.fields(previous.id, fields); id = previous.id;
     }
     for (const target of targets) await store.link(id, target);

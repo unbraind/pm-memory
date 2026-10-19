@@ -1,3 +1,4 @@
+import { createReadStream } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { realpath, stat, readdir } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep, join, basename, extname, posix } from 'node:path';
@@ -80,23 +81,35 @@ interface Evidence {
   suffixes: Map<string, string>;
   /** Root-relative source names, with ignored trees pruned at every depth. */
   files: string[][];
-  /** Directory and symlink names include entries omitted by ripgrep file enumeration. */
+  /** Directory and symlink names supplement regular file evidence. */
   directories: string[][];
   /** Batched textual presence; undefined means a bounded search could not finish. */
   matches?: Map<string, boolean | undefined>;
 }
-/** Enumerate directories and symlink names with a hard limit and no symlink traversal. */
-export async function directoryEvidence(root: string, limit = 100000): Promise<string[]> {
-  const pending = ['']; const result: string[] = [];
-  while (pending.length > 0) {
-    const directory = pending.pop()!;
-    for (const entry of await readdir(join(root, directory), { withFileTypes: true })) if ((entry.isDirectory() || entry.isSymbolicLink()) && !EXCLUDED.has(entry.name)) {
-      const path = directory === '' ? entry.name : `${directory}/${entry.name}`;
-      result.push(path); if (entry.isDirectory()) pending.push(path);
-      if (result.length > limit) throw new MemoryError('verify', 'Directory evidence exceeds the bounded search limit', 'Supply narrower --root trees');
+/** Walk the source tree once without following symlinks or consulting external tools. */
+async function inventory(root: string, limit: number): Promise<{ files: string[]; directories: string[] }> {
+  const pending = ['']; const files: string[] = []; const directories: string[] = [];
+  try {
+    while (pending.length > 0) {
+      const directory = pending.pop()!;
+      for (const entry of await readdir(join(root, directory), { withFileTypes: true })) {
+        if (EXCLUDED.has(entry.name)) continue;
+        const path = directory === '' ? entry.name : `${directory}/${entry.name}`;
+        if (entry.isDirectory() || entry.isSymbolicLink()) directories.push(path);
+        else if (entry.isFile()) files.push(path);
+        if (entry.isDirectory()) pending.push(path);
+        if (files.length + directories.length > limit) throw new MemoryError('verify', 'Directory evidence exceeds the bounded search limit', 'Supply narrower --root trees');
+      }
     }
+  } catch (error) {
+    if (error instanceof MemoryError) throw error;
+    throw new MemoryError('verify', 'Directory evidence could not be read', 'Check source permissions and symlink loops before verification');
   }
-  return result;
+  return { files, directories };
+}
+/** Enumerate directory and symlink names with a hard entry limit and no symlink traversal. */
+export async function directoryEvidence(root: string, limit = 100000): Promise<string[]> {
+  return (await inventory(root, limit)).directories;
 }
 /** Build a bounded suffix index once, including root prefixes for truncated home paths. */
 export function suffixIndex(roots: string[], inventories: string[][], limit = 1000000): Map<string, string> {
@@ -119,14 +132,17 @@ async function evidence(input: string | readonly string[]): Promise<Evidence> {
   if (roots.length === 0) throw new MemoryError('verify', 'No verification roots supplied', 'Supply at least one --root');
   const files: string[][] = []; const directories: string[][] = [];
   for (const root of roots) {
-    if (!(await stat(root)).isDirectory()) throw new MemoryError('verify', 'Verification root is not a directory', 'Supply an existing source --root');
-    const listed = spawnSync('rg', ['--files', '--hidden', '--no-ignore', ...[...EXCLUDED].flatMap(name => ['--glob', `!**/${name}/**`]), '.'], { cwd: root, encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024 });
-    if (listed.error !== undefined || listed.status === null || listed.status > 1) throw new MemoryError('verify', 'Workspace grep could not complete', 'Install ripgrep and check the supplied --root');
-    files.push(listed.stdout.split('\n').filter(Boolean).map(path => path.replace(/^\.\//, '')));
-    directories.push(await directoryEvidence(root));
+    try {
+      if (!(await stat(root)).isDirectory()) throw new MemoryError('verify', 'Verification root is not a directory', 'Supply an existing source --root');
+    } catch (error) {
+      if (error instanceof MemoryError) throw error;
+      throw new MemoryError('verify', 'Verification root could not be read', 'Supply an existing source --root and check permissions or symlink loops');
+    }
+    const listed = await inventory(root, 100000);
+    files.push(listed.files); directories.push(listed.directories);
   }
   const suffixes = suffixIndex(roots, files.map((paths, index) => [...paths, ...directories[index]]));
-  return { roots, files: files.map(paths => paths.filter(path => !path.split('/').includes('.agents'))), directories, suffixes };
+  return { roots, files: files.map(paths => paths.filter(path => !path.split('/').some(part => part === '.agents' || part === 'memories') && !/\.(?:md|mdx|mdc)$/i.test(path))), directories, suffixes };
 }
 /** Resolve portable paths by full suffix, retaining basename-only matches as ambiguity. */
 async function fileClaim(input: Claim, source: Evidence): Promise<ClaimResult> {
@@ -151,22 +167,31 @@ async function fileClaim(input: Claim, source: Evidence): Promise<ClaimResult> {
   if (extname(name) !== '' && source.suffixes.has(name)) return { ...claim, verdict: 'unknown', reason: `basename found elsewhere: ${source.suffixes.get(name)!}` };
   const home = input.home === true || input.value.startsWith(homedir() + '/') || input.value.startsWith('~/');
   if (home && !source.roots.some(root => { const anchor = portablePath(root); return anchor === '' || portable === anchor || portable.startsWith(anchor + '/'); })) return { ...claim, verdict: 'unknown', reason: 'Home path is outside the declared roots' };
-  return { ...claim, verdict: 'stale', reason: `missing path ${value} under roots` };
+  return { ...claim, verdict: 'stale', reason: `Path ${value} not found under the given roots (add --root if it lives elsewhere)` };
 }
-/** Search all lexical claims together, bounding output and avoiding a source-tree scan per claim. */
-function searchClaims(claims: Claim[], source: Evidence): void {
-  const needles = [...new Set(claims.filter(claim => claim.type === 'symbol' || claim.type === 'flag').map(claim => claim.type === 'symbol' ? claim.value.slice(0, -2) : claim.value))].sort((a, b) => b.length - a.length);
+/** Stream each indexed source once, with bounded bytes and overlap for cross-chunk literals. */
+export async function searchClaims(claims: Claim[], source: Evidence, maxBytes = 64 * 1024 * 1024, maxFileBytes = 8 * 1024 * 1024): Promise<void> {
+  const needles = [...new Set(claims.filter(claim => claim.type === 'symbol' || claim.type === 'flag').map(claim => claim.type === 'symbol' ? claim.value.slice(0, -2) : claim.value))];
   source.matches = new Map(needles.map(needle => [needle, false]));
   if (needles.length === 0) return;
-  for (let index = 0; index < source.roots.length; index++) for (let start = 0; start < source.files[index].length; start += 1000) {
-    const result = spawnSync('rg', ['--only-matching', '--no-line-number', '--no-heading', '--no-filename', '--fixed-strings', ...needles.flatMap(needle => ['--regexp', needle]), '--', ...source.files[index].slice(start, start + 1000)], { cwd: source.roots[index], encoding: 'utf8', timeout: 30000, maxBuffer: 32 * 1024 * 1024 });
-    if (result.error !== undefined || result.status === null || result.status > 1) {
-      for (const needle of needles) if (source.matches.get(needle) !== true) source.matches.set(needle, undefined);
-      return;
+  const patterns = needles.map(needle => Buffer.from(needle));
+  const overlap = Math.max(...patterns.map(pattern => pattern.length)) - 1;
+  let bytes = 0; let complete = true;
+  outer: for (let index = 0; index < source.roots.length; index++) for (const file of source.files[index]) {
+    let fileBytes = 0; let tail = Buffer.alloc(0);
+    try {
+      for await (const value of createReadStream(join(source.roots[index], file), { highWaterMark: 65536 })) {
+        const chunk = value as Buffer; bytes += chunk.length; fileBytes += chunk.length;
+        if (bytes > maxBytes || fileBytes > maxFileBytes) { complete = false; break outer; }
+        const window = Buffer.concat([tail, chunk]);
+        for (const [position, pattern] of patterns.entries()) if (window.includes(pattern)) source.matches.set(needles[position], true);
+        tail = overlap === 0 ? Buffer.alloc(0) : window.subarray(-overlap);
+      }
+    } catch {
+      throw new MemoryError('verify', 'Source evidence could not be read', 'Check source permissions and symlink loops before verification');
     }
-    const matched = new Set(result.stdout.split('\n'));
-    for (const needle of needles) if ([...matched].some(value => value.includes(needle))) source.matches.set(needle, true);
   }
+  if (!complete) for (const needle of needles) if (source.matches.get(needle) !== true) source.matches.set(needle, undefined);
 }
 /** Check source text against bounded enumerated files; unknown-context flags never imply staleness. */
 function grepClaim(claim: Claim, source: Evidence): ClaimResult {
@@ -177,27 +202,20 @@ function grepClaim(claim: Claim, source: Evidence): ClaimResult {
   }
   if (source.matches?.get(needle) === true) return { ...claim, verdict: 'verified' };
   const count = source.files.reduce((sum, files) => sum + files.length, 0);
-  if (source.matches === undefined) for (let index = 0; index < source.roots.length; index++) {
-    const files = source.files[index];
-    for (let start = 0; start < files.length; start += 1000) {
-      const result = spawnSync('rg', ['--quiet', '--fixed-strings', '--', needle, ...files.slice(start, start + 1000)], { cwd: source.roots[index], timeout: 30000 });
-      if (result.error !== undefined || result.status === null || result.status > 1) return { ...claim, verdict: 'unknown', reason: 'Source search did not complete' };
-      if (result.status === 0) return { ...claim, verdict: 'verified' };
-    }
-  }
-  return claim.type === 'symbol' && claim.context !== undefined && (source.matches === undefined || source.matches.get(needle) === false) ? { ...claim, verdict: 'stale', reason: `symbol absent in ${count} files searched` } : { ...claim, verdict: 'unknown', reason: 'No command or source context establishes absence' };
+  return claim.type === 'symbol' && claim.context !== undefined && source.matches?.get(needle) === false ? { ...claim, verdict: 'stale', reason: `symbol absent in ${count} files searched` } : { ...claim, verdict: 'unknown', reason: 'No command or source context establishes absence' };
 }
 /** Check one claim with optional shared local evidence and explicitly enabled network evidence. */
 export async function checkClaim(claim: Claim, root: string | readonly string[], network: boolean, source?: Evidence): Promise<ClaimResult> {
   if (claim.type === 'file') return fileClaim(claim, source ?? await evidence(root));
   if (claim.type === 'symbol' || claim.type === 'flag') {
     const local = source ?? await evidence(root);
+    if (local.matches === undefined) await searchClaims([claim], local);
     const contextual = claim.context === undefined || (await fileClaim({ type: 'file', value: claim.context }, local)).verdict === 'verified';
     return grepClaim(contextual ? claim : { ...claim, context: undefined }, local);
   }
   let verdict: Verdict = 'unknown';
   if (network && claim.type === 'repo') {
-    const result = spawnSync('gh', ['repo', 'view', claim.value, '--json', 'nameWithOwner'], { encoding: 'utf8', timeout: 10000 });
+    const result = spawnSync('gh', ['repo', 'view', '--json', 'nameWithOwner', '--', claim.value], { encoding: 'utf8', timeout: 10000 });
     if (result.status === 0) verdict = 'verified';
   } else if (network && claim.type === 'package' && /@\d+\.\d+\.\d+/.test(claim.value)) {
     const result = spawnSync('npm', ['view', claim.value, 'version', '--json', '--fetch-retries=0', '--fetch-timeout=5000'], { encoding: 'utf8', timeout: 10000, env: { ...process.env, npm_config_ignore_scripts: 'true' } });
@@ -217,7 +235,7 @@ export async function verify(options: MemoryOptions & { root?: string | readonly
   return store.write(async () => {
     const memories = active(await store.read()).filter(item => options.slug === undefined || item.slug === options.slug);
     if (options.slug !== undefined && memories.length === 0) throw new MemoryError('missing', 'Memory slug does not exist', 'Use memory index to select an active slug');
-    searchClaims(memories.flatMap(item => extractClaims([item.title, item.body, item.why, item.how].join('\n'))), source);
+    await searchClaims(memories.flatMap(item => extractClaims([item.title, item.body, item.why, item.how].join('\n'))), source);
     const results: { slug: string; verdict: Verdict; claims: ClaimResult[] }[] = [];
     if (memories.length > 0) await store.register();
     const checked = new Map<string, ClaimResult>();

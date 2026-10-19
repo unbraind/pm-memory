@@ -1,7 +1,7 @@
 import { jaccardSimilarity } from '@unbrained/pm-cli/sdk';
 import { active, DUPLICATE_THRESHOLD } from './memory.ts';
 import { words, MemoryError } from './core.ts';
-import { Store } from './store.ts';
+import { metadata, Store } from './store.ts';
 import type { Memory, MemoryOptions, Proposal } from './types.ts';
 
 /** Precomputed lexical evidence reused across every consolidation pair. */
@@ -30,7 +30,7 @@ function opposite(left: Signals, right: Signals): boolean {
   const overlap = jaccardSimilarity(left.title, right.title) >= 0.5 || jaccardSimilarity(left.slug, right.slug) >= 0.5;
   /** Require one unambiguous opposing signal in each memory. */
   const exclusive = (yes: string, no: string): boolean => (left.body.has(yes) && !left.body.has(no) && right.body.has(no) && !right.body.has(yes)) || (left.body.has(no) && !left.body.has(yes) && right.body.has(yes) && !right.body.has(no));
-  return overlap && ([['enable', 'disable'], ['required', 'forbidden']].some(([yes, no]) => exclusive(yes, no)) || (exclusive('always', 'never') && jaccardSimilarity(left.guidance, right.guidance) >= DUPLICATE_THRESHOLD));
+  return overlap && ([['enable', 'disable'], ['required', 'forbidden']].some(([yes, no]) => exclusive(yes, no) && jaccardSimilarity(left.guidance.filter(word => word !== yes && word !== no), right.guidance.filter(word => word !== yes && word !== no)) >= DUPLICATE_THRESHOLD) || (exclusive('always', 'never') && jaccardSimilarity(left.guidance, right.guidance) >= DUPLICATE_THRESHOLD));
 }
 /** Detect explicit opposite guidance only when headings or slug tokens overlap strongly. */
 export function contradicts(left: Memory, right: Memory): boolean { return opposite(signals(left), signals(right)); }
@@ -41,20 +41,27 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
   const result: Proposal[] = [];
   for (let i = 0; i < rows.length; i++) {
     const older = rows[i].item;
-    if (older.verdict === 'stale' && older.recalls === 0 && !older.pinned && /^(?:missing path \S+ under roots|symbol absent in \d+ files searched|Exact package version absent in registry|HTTP endpoint returned 404 or 410)(?:; |$)/.test(older.reason ?? '') && Date.now() - Date.parse(older.updated) >= minAgeDays * 86400000) result.push({ action: 'archive', slug: older.slug, reason: `Stale: ${older.reason}; never recalled, not pinned, at least ${minAgeDays} days old` });
+    if (older.verdict === 'stale' && older.recalls === 0 && !older.pinned && /^(?:missing path \S+ under roots|Path \S+ not found under the given roots \(add --root if it lives elsewhere\)|symbol absent in \d+ files searched|Exact package version absent in registry|HTTP endpoint returned 404 or 410)(?:; |$)/.test(older.reason ?? '') && Date.now() - Date.parse(older.updated) >= minAgeDays * 86400000) result.push({ action: 'archive', slug: older.slug, reason: `Stale: ${older.reason}; never recalled, not pinned, at least ${minAgeDays} days old` });
     for (const candidate of rows.slice(i + 1)) {
       const newer = candidate.item;
       if (opposite(rows[i], candidate)) result.push({ action: 'supersedes', slug: older.slug, target: newer.slug, reason: 'Overlapping identity with explicit opposite guidance; review evidence before applying' });
       else if (jaccardSimilarity(rows[i].content, candidate.content) >= DUPLICATE_THRESHOLD) result.push({ action: 'merge', slug: older.slug, target: newer.slug, reason: 'Normalized title and body similarity meets duplicate threshold' });
     }
   }
-  return result;
+  const merges = result.filter(proposal => proposal.action === 'merge');
+  const selected = new Map(merges.map(proposal => [proposal.slug, proposal]));
+  const targets = new Set([...selected.values()].map(proposal => proposal.target));
+  return result.filter(proposal => !(proposal.action === 'archive' && targets.has(proposal.slug)) && !(proposal.action === 'merge' && (targets.has(proposal.slug) || selected.get(proposal.slug) !== proposal)));
 }
 /** Preview consolidation without writes; explicitly applied actions preserve all content and audited history. */
 export async function consolidate(options: MemoryOptions & { apply?: boolean; minAgeDays?: number }): Promise<{ applied: boolean; proposals: Proposal[] }> {
   const store = new Store(options);
   return store.write(async () => {
-    const memories = await store.read(); const planned = proposals(memories, options.minAgeDays);
+    const memories = await store.read();
+    const pending = memories.filter(item => item.merge !== '').map(item => ({ action: 'merge' as const, slug: item.slug, target: JSON.parse(item.merge).target as string, reason: 'Resume recorded memory merge' }));
+    const reserved = new Set<string | undefined>(pending.flatMap(proposal => [proposal.slug, proposal.target]));
+    const planned = [...pending, ...proposals(memories, options.minAgeDays).filter(proposal => !reserved.has(proposal.slug) && !reserved.has(proposal.target))];
+    if (options.apply === true && planned.length > 0) await store.register();
     if (options.apply === true) for (const proposal of planned) {
       const older = memories.find(item => item.slug === proposal.slug)!;
       await store.history(older.id);
@@ -67,10 +74,16 @@ export async function consolidate(options: MemoryOptions & { apply?: boolean; mi
         await store.link(target.id, older.id, proposal.action === 'supersedes' ? 'supersedes' : 'related');
         await store.client.comments(target.id, { add: `Memory ${proposal.action}: ${older.slug}; ${proposal.reason}. Original content retained in its Knowledge item and append-only history.`, ifAbsent: true });
         if (proposal.action === 'merge') {
-          const current = (await store.client.get(target.id, { full: true })).item;
-          await store.client.update(target.id, { body: `${String(current.body)}\n\n### Consolidated context (${older.slug})\n${older.body}\n\n**Why:** ${older.why}\n**How to apply:** ${older.how}`, message: 'Retain merged memory content' });
-          await store.fields(target.id, { edited: true, verdict: 'unknown', verified_at: '' });
+          let receipt: { target: string; body: string; changed_at: string };
+          if (older.merge !== '') receipt = JSON.parse(older.merge) as typeof receipt;
+          else {
+            const current = (await store.client.get(target.id, { full: true })).item;
+            receipt = { target: target.slug, body: `${String(current.body)}\n\n### Consolidated context (${older.slug})\n${older.body}\n\n**Why:** ${older.why}\n**How to apply:** ${older.how}`, changed_at: new Date().toISOString() };
+            await store.fields(older.id, { merge: JSON.stringify(receipt) });
+          }
+          await store.client.run('update', { id: target.id, options: { body: receipt.body, ...metadata({ edited: true, verdict: 'unknown', verified_at: '', changed_at: receipt.changed_at }), message: 'Retain merged memory content' } });
           await store.client.update(older.id, { status: 'canceled', closeReason: `Merged context linked to ${target.slug}; content retained`, message: 'Consolidate duplicate memory' });
+          await store.fields(older.id, { merge: '' });
         }
       }
     }

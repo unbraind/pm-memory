@@ -70,24 +70,21 @@ test('round three never treats repository or package-subpath claims as local fil
   const result = await verify({ ...options, root }); assert.equal(result.stale, 0); assert.equal(result.results[0].verdict, 'unknown');
   assert.deepEqual(result.results[0].claims.map(claim => claim.type), ['repo', 'package']);
   const bin = join(root, 'bin'); await mkdir(bin);
-  await writeFile(join(bin, 'gh'), '#!/bin/sh\nif [ "$3" = "owner/present" ] && [ "$1" = repo ] && [ "$2" = view ] && [ "$4" = --json ]; then echo present; else exit 1; fi\n'); await chmod(join(bin, 'gh'), 0o755);
+  await writeFile(join(bin, 'gh'), '#!/bin/sh\nif [ "$6" = "owner/present" ] && [ "$1" = repo ] && [ "$2" = view ] && [ "$3" = --json ] && [ "$5" = -- ]; then echo present; else exit 1; fi\n'); await chmod(join(bin, 'gh'), 0o755);
   const priorPath = process.env.PATH;
   t.after(() => { process.env.PATH = priorPath; });
   process.env.PATH = [bin, priorPath].join(delimiter);
   assert.equal((await checkClaim({ type: 'repo', value: 'owner/present' }, root, false)).verdict, 'unknown');
   assert.equal((await checkClaim({ type: 'repo', value: 'owner/present' }, root, true)).verdict, 'verified');
   assert.equal((await checkClaim({ type: 'repo', value: 'owner/absent' }, root, true)).verdict, 'unknown');
+  assert.equal((await checkClaim({ type: 'repo', value: '-bmain/x' }, root, true)).verdict, 'unknown');
   assert.equal((await checkClaim({ type: 'package', value: '@scope/pkg/sdk/contracts' }, root, true)).verdict, 'unknown');
 });
 
 
 test('round three indexed paths that disappear remain unknown', async t => {
-  const { root } = await tracker(t); const bin = join(root, 'bin'); await mkdir(bin);
-  const executable = join(bin, 'rg');
-  await writeFile(executable, '#!/bin/sh\necho ./src/raced.ts\n'); await chmod(executable, 0o755);
-  const savedPath = process.env.PATH;
-  process.env.PATH = [bin, savedPath].join(delimiter);
-  t.after(() => { process.env.PATH = savedPath; });
-  const result = await checkClaim({ type: 'file', value: 'src/raced.ts' }, root, false);
+  const { root } = await tracker(t);
+  const source = { roots: [root], files: [[]], directories: [[]], suffixes: new Map([['src/raced.ts', 'src/raced.ts']]) };
+  const result = await checkClaim({ type: 'file', value: 'src/raced.ts' }, root, false, source);
   assert.equal(result.verdict, 'unknown'); assert.equal(result.reason, 'Indexed path changed during verification');
 });

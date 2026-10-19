@@ -1,3 +1,5 @@
+import type { PmClient } from '@unbrained/pm-cli/sdk';
+
 /** Supported semantic memory classes shared by every harness. */
 export const KINDS = ['user', 'feedback', 'project', 'reference'] as const;
 /** One supported memory class. */
@@ -12,6 +14,8 @@ export interface MemoryOptions {
   workspace: string;
   /** Attributable mutation identity. */
   author?: string;
+  /** Host-bound client preserving native attribution and mutation policy. */
+  client?: PmClient;
 }
 /** Inputs accepted by the remember API. */
 export interface RememberOptions extends MemoryOptions {
@@ -60,8 +64,10 @@ export interface Memory {
   pinned: boolean;
   /** Harness and relative path class. */
   source: string;
-  /** Last semantic or operational mutation time. */
+  /** Last content-change time, independent of recall and verification writes. */
   updated: string;
+  /** Durable pending merge receipt; empty after completion. */
+  merge: string;
   /** Number of emitted recall appearances. */
   recalls: number;
   /** Evidence state. */

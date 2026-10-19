@@ -36,7 +36,7 @@ test('verification differentiates stale, verified and unknown with native audit 
   const outside = await tracker(t); await writeFile(join(outside.root, 'outside.ts'), 'outside');
   await symlink(join(outside.root, 'outside.ts'), join(root, 'src', 'link.ts'));
   assert.equal((await checkClaim({ type: 'file', value: 'src/link.ts' }, root, false)).verdict, 'unknown');
-  await assert.rejects(checkClaim({ type: 'symbol', value: 'nope()' }, join(root, 'absent'), false), /ENOENT/);
+  await assert.rejects(checkClaim({ type: 'symbol', value: 'nope()' }, join(root, 'absent'), false), /Verification root could not be read/);
 });
 
 test('network URL evidence uses a real HTTP server and classifies unavailable or denied endpoints as unknown', async t => {

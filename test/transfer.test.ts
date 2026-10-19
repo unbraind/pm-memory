@@ -9,7 +9,7 @@ import { tracker, snapshot } from './helpers.ts';
 
 /** A synthetic source directory includes CRLF, BOM, YAML nesting, wiki links and a non-fact index. */
 const FIXTURE: Record<string, string> = {
-  'MEMORY.md': '# Durable memory\r\n\r\n- [Build](build.md)\r\n',
+  'MEMORY.md': '# Durable memory\r\n\r\n- [Build](build.md)\r\n- [Review](review.md)\r\n- [Standing](nested/standing.md)\r\n- [Plain](plain.md)\r\n',
   'build.md': '\uFEFF---\r\nname: "Build instructions"\r\ndescription: "Deterministic build"\r\nmetadata:\r\n  type: project\r\n---\r\n\r\nRun the clean build.\r\n**Why:** Provenance matters\r\n**How to apply:** Run checks\r\nSee [[review]] and [[absent]].\r\n',
   'review.md': '---\nname: Review instructions\nmetadata:\n  type: feedback\n---\n\nUse two independent checks. See [[build]] and [[review]].\n',
   'nested/standing.md': '---\nname: Standing preference\ntype: user\n---\nUse small context packets.\n',
@@ -66,9 +66,11 @@ test('native memories export portable Claude Code and AGENTS.md files with links
   const cursor = join(root, 'cursor'); await mkdir(cursor); await writeFile(join(cursor, 'memory.mdc'), '---\ndescription: Context\n---\n# Cursor guidance\nUse typed memory.');
   assert.equal((await importDir(cursor, { ...next.options, from: 'cursor' })).imported, 1);
   await store.client.update(second.id, { status: 'canceled', closeReason: 'Synthetic archive' });
-  await exportDir(join(root, 'archived'), { ...options, to: 'claude-code' });
+  const archived = join(root, 'archived'); await exportDir(archived, { ...options, to: 'claude-code' });
+  await assert.rejects(readFile(join(archived, 'review.md')), { code: 'ENOENT' });
   await store.fields(first.id, { artifact: true });
-  await exportDir(join(root, 'artifact'), { ...options, to: 'agents-md' });
+  const artifact = join(root, 'artifact'); await exportDir(artifact, { ...options, to: 'agents-md' });
+  assert.doesNotMatch(await readFile(join(artifact, 'AGENTS.md'), 'utf8'), /Standing safety guidance/);
 });
 
 test('import preflight refuses secrets, malformed data, collisions, unsupported formats and non-regular inputs without writes', async t => {
