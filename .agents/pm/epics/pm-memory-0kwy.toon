@@ -7,13 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-19T23:07:33.456Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-19T23:17:07.683Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[31]:
+comments[33]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -108,6 +106,12 @@ comments[31]:
   - created_at: "2026-10-19T23:07:33.441Z"
     author: codex-agent
     text: "Eleventh revert proof: node --test --test-name-pattern=\"punctuated import paths\" test/review-r5.test.ts passes with the enriched four-file fixture; restoring only sourceDocument from 9757875 triggers the intended doesNotReject assertion for an underscore-leading filename. The original alias-normalization revert proof remains recorded above. Final source is now frozen for immutable npm and Bun release checks."
+  - created_at: "2026-10-19T23:17:03.803Z"
+    author: codex-agent
+    text: "Final immutable source head 887695514cd067b3bea42b7eb4fc70a81f685dc3: npm run release:check in an independent no-local clone under isolated HOME/Git settings and bun run release:check under isolated HOME/Git settings each passed all 12 stages, 132/132 unit/tooling tests and 2/2 packed npm/npx and native Bun/bunx consumers, zero failures/cancellations/skips. All 19 configured sources achieved 100% statements, branches, functions and lines: 1884 statements/lines, 97 functions, 1139 npm branches and 1140 Bun branches. All 80 declarations documented; zero duplication; zero production advisories; 42 allowlisted packed files. PM linked runner passed 36/36 regressions. Independent clone strict health passed 10/10 checks with zero warnings. No new pm CLI/SDK defects found. Existing development-only advisory remains tracked by pm-memory-eafx. Legacy pending merge receipts intentionally refuse until reconciled; no history rewriting or private corpus access."
+  - created_at: "2026-10-19T23:17:04.930Z"
+    author: codex-agent
+    text: "Final revert accounting: 12 nonredundant isolated cases, each with an intended assertion failure. Separate README export-parent and home-path paragraph reverts each fail their own contract assertion. Current four-file alias fixture also fails when only importDir is reverted to the starting head. Exact commands: node --test --test-name-pattern=\"supersession targets survive\" test/review-r5.test.ts; node --test --test-name-pattern=\"credential URI authorities\" test/review-r5.test.ts; node --test --test-name-pattern=\"punctuated import paths\" test/review-r5.test.ts (importDir and sourceDocument separately); node --test --test-name-pattern=\"agents directory round trips\" test/review-r5.test.ts; node --test --test-name-pattern=\"text evidence refuses raced\" test/review-followup.test.ts; node --test --test-name-pattern=\"network verification releases\" test/review-r4.test.ts; node --test --test-name-pattern=\"pending merge receipts\" test/review-r5.test.ts; node --test --test-name-pattern=\"export refuses symlink roots\" test/transfer.test.ts; node --test --test-name-pattern=\"privacy audit uses\" test/review-r5.test.ts; node --test --test-name-pattern=\"README path and export\" test/review-r5.test.ts (export and home paragraphs separately). All mutations stayed in scratch copies and were removed afterwards."
 files[26]{path,scope}:
   eslint.config.ts,project
   index.ts,project
