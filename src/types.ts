@@ -114,9 +114,13 @@ export interface Packet {
 /** Claim extractor output; values are never shell-interpolated. */
 export interface Claim {
   /** Evidence checker to invoke. */
-  type: 'file' | 'symbol' | 'flag' | 'package' | 'url';
+  type: 'file' | 'symbol' | 'flag' | 'package' | 'url' | 'repo';
   /** Exact extracted claim. */
   value: string;
+  /** Conservative context marker for nonasserted path mentions. */
+  uncertainty?: string;
+  /** Home anchoring retained without storing an absolute path. */
+  home?: boolean;
   /** Source-file context for otherwise ambiguous symbols. */
   context?: string;
 }

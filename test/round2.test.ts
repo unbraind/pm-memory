@@ -18,7 +18,7 @@ test('verify classifier resolves nested repositories and repeatable roots with c
   for (const dir of ['node_modules/dependency', 'dist', 'coverage', '.git']) await writeFile(join(root, `fleet/nested/${dir}/excluded.ts`), 'excludedSymbol --excluded-flag');
   await remember('Nested evidence `release.yml` `tsconfig.json` `index.ts` `src/index.ts` localFunction() --local-flag --sort --stdout --merged --pm-root `shared.ts`', { ...options, kind: 'project', slug: 'nested' });
   await remember('Runtime guidance randomUUID() setTimeout() unknownRuntime() --unknown-context', { ...options, kind: 'project', slug: 'runtime' });
-  await remember('Missing explicit source `src/deleted.ts`', { ...options, kind: 'project', slug: 'missing' });
+  await remember('Use explicit source `src/deleted.ts`', { ...options, kind: 'project', slug: 'missing' });
   const result = await verify({ ...options, root: [root, join(root, 'fleet/nested'), other.root] });
   assert.equal(result.stale, 1);
   assert.ok(result.results.find(row => row.slug === 'nested')!.claims.every(claim => claim.verdict !== 'stale'));
@@ -26,11 +26,12 @@ test('verify classifier resolves nested repositories and repeatable roots with c
   assert.equal(result.results.find(row => row.slug === 'runtime')!.verdict, 'unknown');
   assert.match(result.results.find(row => row.slug === 'missing')!.claims[0].reason!, /^missing path src\/deleted.ts under roots$/);
   assert.deepEqual(extractClaims('randomUUID() fetch() require() JSON.stringify() Math.random()'), []);
-  assert.equal(extractClaims('Check `deleted-dir/`')[0].value, 'deleted-dir/');
+  assert.deepEqual(extractClaims('Check `deleted-dir/`'), []);
   assert.equal(extractClaims('https://example.test/docs/file.ts').filter(claim => claim.type === 'file').length, 0);
   await assert.rejects(verify({ ...options, root: [] }), /No verification roots/);
   assert.equal((await checkClaim({ type: 'symbol', value: 'absentSymbol()', context: join(root, 'ephemeral.ts') }, root, false)).verdict, 'unknown');
-  for (const value of [join(root, 'gone.ts'), '~/notes.ts']) assert.equal((await checkClaim({ type: 'file', value }, root, false)).verdict, 'unknown');
+  assert.equal((await checkClaim({ type: 'file', value: join(root, 'gone.ts') }, root, false)).verdict, 'unknown');
+  assert.equal((await checkClaim({ type: 'file', value: '~/notes.ts' }, root, false)).verdict, 'unknown');
   assert.equal(extractClaims(`Check \`${join(root, 'ephemeral.ts')}\``)[0].value, join(root, 'ephemeral.ts'));
   assert.equal((await checkClaim({ type: 'file', value: 'fleet/nested/dist/excluded.ts' }, root, false)).verdict, 'unknown');
   assert.equal((await checkClaim({ type: 'file', value: 'empty-dir/' }, root, false)).verdict, 'verified');

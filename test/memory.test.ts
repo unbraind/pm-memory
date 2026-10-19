@@ -143,3 +143,14 @@ test('store refuses incompatible schema, duplicate keys, corrupt counters and mi
   await store.fields(second.id, { verdict: 'verified' });
   await writeFile(getHistoryPath(options.workspace, first.id), ''); await assert.rejects(store.history(first.id), refused);
 });
+
+
+test('one scoring pass preserves slug ties when the clock advances between memories', async t => {
+  const { options, store } = await tracker(t);
+  await remember('Synthetic equal-score guidance', { ...options, kind: 'project', slug: 'base' });
+  const base = { ...(await store.read())[0], updated: '2020-01-01T00:00:00.000Z' };
+  const alpha = { ...base, slug: 'alpha' }; const beta = { ...base, slug: 'beta' };
+  let clock = Date.parse('2026-01-01T00:00:00.000Z');
+  const timer = t.mock.method(Date, 'now', () => { clock += 86400000; return clock; });
+  try { assert.deepEqual(rank([beta, alpha], 'unmatched-word').map(item => item.slug), ['alpha', 'beta']); } finally { timer.mock.restore(); }
+});

@@ -43,6 +43,7 @@ export async function remember(fact: string, options: RememberOptions): Promise<
 export function active(memories: readonly Memory[]): Memory[] { return memories.filter(item => item.status !== 'canceled' && !item.artifact); }
 /** Rank normalized lexical evidence with inverse document frequency, length normalization and bounded priors. */
 export function scored(memories: readonly Memory[], query: string): { item: Memory; score: number }[] {
+  const now = Date.now();
   const terms = [...words(query)];
   const documents = memories.map(item => words([item.slug, item.title, item.description, item.body, item.why, item.how, ...item.tags].join(' ')));
   const scores = memories.map((item, index) => {
@@ -50,7 +51,7 @@ export function scored(memories: readonly Memory[], query: string): { item: Memo
     const hook = words(item.description);
     const key = words(item.slug);
     const lexical = terms.reduce((sum, term) => sum + (documents[index].has(term) ? (heading.has(term) ? 5 : hook.has(term) ? 2 : key.has(term) ? 1.5 : 1) * Math.log(1 + memories.length / (1 + documents.filter(doc => doc.has(term)).length)) / (1 + Math.log(1 + documents[index].size) / 10) : 0), 0);
-    const ageDays = Math.max(0, (Date.now() - Date.parse(item.updated)) / 86400000);
+    const ageDays = Math.max(0, (now - Date.parse(item.updated)) / 86400000);
     return { item, score: lexical * 10 + (item.pinned ? 0.5 : 0) + 0.2 / (1 + ageDays) };
   });
   return scores.sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug));
