@@ -10,6 +10,8 @@ interface Signals {
   item: Memory;
   /** Normalized semantic body words. */
   body: Set<string>;
+  /** Guidance words excluding standing frequency modifiers. */
+  guidance: string[];
   /** Distinct title word sequence. */
   title: string[];
   /** Distinct slug word sequence. */
@@ -19,12 +21,16 @@ interface Signals {
 }
 /** Prepare each potentially large memory body once instead of once per pair. */
 function signals(item: Memory): Signals {
-  return { item, body: words(item.body), title: [...words(item.title)], slug: [...words(item.slug)], content: [...words(`${item.title}\n${item.body}`)] };
+  const normalized = item.body.replace(/\b(?:never|do not|don't|must not|should not)\s+(enable|disable)\b/gi, (_match, verb: string) => verb.toLowerCase() === 'enable' ? 'disable' : 'enable').replace(/\b(?:not|never)\s+(?:required|forbidden)\b/gi, '');
+  const body = words(normalized);
+  return { item, body, guidance: [...body].filter(word => word !== 'always' && word !== 'never'), title: [...words(item.title)], slug: [...words(item.slug)], content: [...words(`${item.title}\n${item.body}`)] };
 }
 /** Detect opposite explicit guidance using cached lexical evidence. */
 function opposite(left: Signals, right: Signals): boolean {
   const overlap = jaccardSimilarity(left.title, right.title) >= 0.5 || jaccardSimilarity(left.slug, right.slug) >= 0.5;
-  return overlap && [['enable', 'disable'], ['always', 'never'], ['required', 'forbidden']].some(([yes, no]) => (left.body.has(yes) && right.body.has(no)) || (left.body.has(no) && right.body.has(yes)));
+  /** Require one unambiguous opposing signal in each memory. */
+  const exclusive = (yes: string, no: string): boolean => (left.body.has(yes) && !left.body.has(no) && right.body.has(no) && !right.body.has(yes)) || (left.body.has(no) && !left.body.has(yes) && right.body.has(yes) && !right.body.has(no));
+  return overlap && ([['enable', 'disable'], ['required', 'forbidden']].some(([yes, no]) => exclusive(yes, no)) || (exclusive('always', 'never') && jaccardSimilarity(left.guidance, right.guidance) >= DUPLICATE_THRESHOLD));
 }
 /** Detect explicit opposite guidance only when headings or slug tokens overlap strongly. */
 export function contradicts(left: Memory, right: Memory): boolean { return opposite(signals(left), signals(right)); }

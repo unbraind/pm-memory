@@ -9,7 +9,7 @@ import { tracker, snapshot } from './helpers.ts';
 test('consolidation dry-run is byte-for-byte read only; explicit apply archives stale and links duplicates and contradictions', async t => {
   const { options, store } = await tracker(t);
   const old = await remember('Feature policy\nAlways enable the feature.', { ...options, kind: 'project', slug: 'feature-old' });
-  await remember('Feature policy\nNever disable the feature.', { ...options, kind: 'project', slug: 'feature-new', forceNew: true });
+  await remember('Feature policy\nDisable the feature.', { ...options, kind: 'project', slug: 'feature-new', forceNew: true });
   const duplicate = await remember('Repeated durable guidance about builds', { ...options, kind: 'reference', slug: 'duplicate-one' });
   const survivor = await remember('Repeated durable guidance about builds', { ...options, kind: 'reference', slug: 'duplicate-two', forceNew: true });
   const stale = await remember('Unused stale context', { ...options, kind: 'project', slug: 'stale' }); await store.fields(stale.id, { verdict: 'stale' });

@@ -84,3 +84,26 @@ test('authored and tracker files contain no absolute temporary or private home p
     assert.equal(forbidden.test(content), false, `Private absolute path in ${file}`);
   }
 });
+
+/** Opposite frequency words require matching guidance, and negation can reverse toggle polarity. */
+test('consolidation respects equivalent negations and refuses ambiguous opposite-word mixtures', async t => {
+  const { options, store } = await tracker(t);
+  await remember('Policy fixture', { ...options, kind: 'project', slug: 'policy' });
+  const base = (await store.read())[0];
+  for (const [yes, no] of [['enable', 'disable'], ['required', 'forbidden'], ['always', 'never']]) {
+    for (let mask = 0; mask < 16; mask++) {
+      const a = Boolean(mask & 1), b = Boolean(mask & 2), c = Boolean(mask & 4), d = Boolean(mask & 8);
+      const left = { ...base, body: [a ? yes : '', b ? no : '', 'tests'].join(' ') };
+      const right = { ...base, body: [c ? yes : '', d ? no : '', 'tests'].join(' ') };
+      assert.equal(contradicts(left, right), (a && !b && d && !c) || (b && !a && c && !d));
+    }
+  }
+  for (const [left, right, expected] of [
+    ['Always enable the feature', 'Never disable the feature', false],
+    ['Do not enable the feature', 'Enable the feature', true],
+    ['Must not disable the feature', 'Disable the feature', true],
+    ['Not required for tests', 'Forbidden for tests', false],
+    ['Always run tests', 'Never skip tests', false],
+    ['Always run tests', 'Never run tests', true],
+  ] as const) assert.equal(contradicts({ ...base, body: left }, { ...base, body: right }), expected);
+});
