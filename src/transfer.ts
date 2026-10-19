@@ -187,6 +187,8 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
   const store = new Store(options);
   return store.write(async () => {
     const memories = await store.read();
+    const indexName = options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md';
+    const names = new Set([indexName.toLowerCase()]);
     const outputs = new Map<string, Buffer>(); const emitted: { item: Memory; name: string }[] = []; let byte_preserved = 0;
     for (const item of memories) {
       if (item.status === 'canceled') continue;
@@ -198,7 +200,10 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
         name = options.to === 'claude-code' ? `${item.slug}.md` : `memories/${item.slug}.md`;
         bytes = generated(item, options.to, memories);
       } else continue;
-      if (outputs.has(name)) throw new MemoryError('conflict', 'Export names collide', 'Rename the conflicting memory slug');
+      const folded = name.toLowerCase();
+      const originalIndex = name === indexName && item.path === name && !item.edited;
+      if (outputs.has(name) || (names.has(folded) && !originalIndex)) throw new MemoryError('conflict', 'Export names collide', 'Rename the conflicting memory slug or source path, including reserved index names');
+      names.add(folded);
       outputs.set(name, bytes);
       if (!item.artifact) emitted.push({ item, name });
     }

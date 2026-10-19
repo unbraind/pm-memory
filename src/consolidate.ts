@@ -49,7 +49,8 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
       else if (jaccardSimilarity(rows[i].content, candidate.content) >= DUPLICATE_THRESHOLD) result.push({ action: 'merge', slug: older.slug, target: newer.slug, reason: 'Normalized title and body similarity meets duplicate threshold' });
     }
   }
-  const merges = result.filter(proposal => proposal.action === 'merge');
+  const superseded = new Set(result.filter(proposal => proposal.action === 'supersedes').map(proposal => proposal.slug));
+  const merges = result.filter(proposal => proposal.action === 'merge' && !superseded.has(proposal.slug));
   const selected = new Map(merges.map(proposal => [proposal.slug, proposal]));
   const targets = new Set([...selected.values()].map(proposal => proposal.target));
   const archived = new Set(result.filter(proposal => proposal.action === 'archive' && !targets.has(proposal.slug)).map(proposal => proposal.slug));

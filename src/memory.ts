@@ -18,7 +18,7 @@ export async function remember(fact: string, options: RememberOptions): Promise<
     const memories = await store.read();
     const previous = memories.find(item => item.slug === key);
     if (options.update !== undefined && previous === undefined) throw new MemoryError('missing', 'Update slug does not exist', 'Use remember --slug to create a new memory');
-    const title = fact.trim().split('\n')[0].slice(0, 160).toWellFormed();
+    const title = fact.trim().split(/\r?\n/)[0].slice(0, 160).toWellFormed();
     const duplicate = active(memories).find(item => item.slug !== key && similarity(`${title}\n${fact}`, `${item.title}\n${item.body}`) >= DUPLICATE_THRESHOLD);
     if (previous === undefined && duplicate !== undefined && !options.forceNew) throw new MemoryError('duplicate', `Near duplicate of ${duplicate.slug}`, `Use --update ${duplicate.slug} or --force-new with a distinct --slug`);
     const targets: string[] = [];
@@ -27,8 +27,10 @@ export async function remember(fact: string, options: RememberOptions): Promise<
       await store.client.get(target); targets.push(target);
     }
     await store.register();
-    const fields = { slug: key, kind: options.kind, why: options.why ?? previous?.why ?? '', how: options.how ?? previous?.how ?? '', pinned: options.pin ?? previous?.pinned ?? false, source: previous?.source ?? 'native:item', verdict: 'unknown', verified_at: '', recalls: previous?.recalls ?? 0, edited: true, changed_at: new Date().toISOString() };
-    if (previous !== undefined && previous.title === title && previous.body === fact && previous.kind === fields.kind && previous.why === fields.why && previous.how === fields.how && previous.pinned === fields.pinned && (options.tags === undefined || JSON.stringify(previous.tags) === JSON.stringify(options.tags))) fields.changed_at = previous.updated;
+    const why = options.why ?? previous?.why ?? ''; const how = options.how ?? previous?.how ?? ''; const pinned = options.pin ?? previous?.pinned ?? false;
+    const unchanged = previous !== undefined && previous.title === title && previous.body === fact.trim() && previous.kind === options.kind && previous.why === why && previous.how === how && previous.pinned === pinned && (options.tags === undefined || JSON.stringify(previous.tags) === JSON.stringify(options.tags));
+    const fields: Record<string, string | number | boolean> = { slug: key, kind: options.kind, why, how, pinned, source: previous?.source ?? 'native:item', recalls: previous?.recalls ?? 0, changed_at: unchanged ? previous.updated : new Date().toISOString() };
+    if (!unchanged) Object.assign(fields, { verdict: 'unknown', verified_at: '', edited: true });
     let id: string;
     if (previous === undefined) {
       const created = await store.client.run('create', { options: { title, body: fact, type: 'Knowledge', tags: (options.tags ?? []).join(','), allowDuplicate: true, ...metadata(fields) } });

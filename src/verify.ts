@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { realpath, stat, lstat, readdir, open } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep, join, basename, extname, posix } from 'node:path';
 import { homedir } from 'node:os';
@@ -7,7 +7,7 @@ import { GLOBAL_FLAG_CONTRACTS, PM_CORE_COMMAND_NAMES, resolveSubcommandFlagCont
 import { MemoryError, slug } from './core.ts';
 import { active } from './memory.ts';
 import { Store } from './store.ts';
-import type { Claim, ClaimResult, MemoryOptions, Verdict } from './types.ts';
+import type { Claim, ClaimResult, Memory, MemoryOptions, Verdict } from './types.ts';
 
 /** Dependency and generated trees never contribute evidence. */
 const EXCLUDED = new Set(['.git', 'node_modules', 'dist', 'coverage']);
@@ -216,6 +216,12 @@ function grepClaim(claim: Claim, source: Evidence): ClaimResult {
   const count = source.files.reduce((sum, files) => sum + files.length, 0);
   return claim.type === 'symbol' && claim.context !== undefined && source.matches?.get(needle) === false ? { ...claim, verdict: 'stale', reason: `symbol absent in ${count} files searched` } : { ...claim, verdict: 'unknown', reason: 'No command or source context establishes absence' };
 }
+/** Run bounded network evidence tools without blocking the event loop. */
+function commandEvidence(command: string, args: string[], env = process.env): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  return new Promise(resolve => {
+    execFile(command, args, { encoding: 'utf8', timeout: 10000, env }, (error, stdout, stderr) => resolve({ ok: error === null, stdout, stderr }));
+  });
+}
 /** Check one claim with optional shared local evidence and explicitly enabled network evidence. */
 export async function checkClaim(claim: Claim, root: string | readonly string[], network: boolean, source?: Evidence): Promise<ClaimResult> {
   if (claim.type === 'file') return fileClaim(claim, source ?? await evidence(root));
@@ -227,12 +233,12 @@ export async function checkClaim(claim: Claim, root: string | readonly string[],
   }
   let verdict: Verdict = 'unknown';
   if (network && claim.type === 'repo') {
-    const result = spawnSync('gh', ['repo', 'view', '--json', 'nameWithOwner', '--', claim.value], { encoding: 'utf8', timeout: 10000 });
-    if (result.status === 0) verdict = 'verified';
+    const result = await commandEvidence('gh', ['repo', 'view', '--json', 'nameWithOwner', '--', claim.value]);
+    if (result.ok) verdict = 'verified';
   } else if (network && claim.type === 'package' && /@\d+\.\d+\.\d+/.test(claim.value)) {
-    const result = spawnSync('npm', ['view', claim.value, 'version', '--json', '--fetch-retries=0', '--fetch-timeout=5000'], { encoding: 'utf8', timeout: 10000, env: { ...process.env, npm_config_ignore_scripts: 'true' } });
-    if (result.status === 0 && result.stdout.includes(claim.value.slice(claim.value.lastIndexOf('@') + 1))) verdict = 'verified';
-    if (result.status !== 0 && /E404|ETARGET/.test(result.stderr)) verdict = 'stale';
+    const result = await commandEvidence('npm', ['view', claim.value, 'version', '--json', '--fetch-retries=0', '--fetch-timeout=5000'], { ...process.env, npm_config_ignore_scripts: 'true' });
+    if (result.ok && result.stdout.includes(claim.value.slice(claim.value.lastIndexOf('@') + 1))) verdict = 'verified';
+    if (!result.ok && /E404|ETARGET/.test(result.stderr)) verdict = 'stale';
   } else if (network && claim.type === 'url') {
     try { const response = await fetch(claim.value, { method: 'HEAD', signal: AbortSignal.timeout(5000), redirect: 'follow' }); verdict = response.ok ? 'verified' : response.status === 404 || response.status === 410 ? 'stale' : 'unknown'; }
     catch { verdict = 'unknown'; }
@@ -244,21 +250,28 @@ export async function verify(options: MemoryOptions & { root?: string | readonly
   if (options.slug !== undefined) slug(options.slug);
   const roots = options.root ?? process.cwd(); const source = await evidence(roots);
   const store = new Store(options);
+  const memories = active(await store.read()).filter(item => options.slug === undefined || item.slug === options.slug);
+  if (options.slug !== undefined && memories.length === 0) throw new MemoryError('missing', 'Memory slug does not exist', 'Use memory index to select an active slug');
+  await searchClaims(memories.flatMap(item => extractClaims([item.title, item.body, item.why, item.how].join('\n'))), source);
+  const checked = new Map<string, ClaimResult>();
+  const planned: { item: Memory; claims: ClaimResult[]; verdict: Verdict }[] = [];
+  for (const item of memories) {
+    const claims: ClaimResult[] = [];
+    for (const claim of extractClaims([item.title, item.body, item.why, item.how].join('\n'))) {
+      const key = JSON.stringify(claim);
+      if (!checked.has(key)) checked.set(key, await checkClaim(claim, roots, options.network === true, source));
+      claims.push(checked.get(key)!);
+    }
+    const verdict: Verdict = claims.some(claim => claim.verdict === 'stale') ? 'stale' : claims.length > 0 && claims.every(claim => claim.verdict === 'verified') ? 'verified' : 'unknown';
+    planned.push({ item, claims, verdict });
+  }
   return store.write(async () => {
-    const memories = active(await store.read()).filter(item => options.slug === undefined || item.slug === options.slug);
-    if (options.slug !== undefined && memories.length === 0) throw new MemoryError('missing', 'Memory slug does not exist', 'Use memory index to select an active slug');
-    await searchClaims(memories.flatMap(item => extractClaims([item.title, item.body, item.why, item.how].join('\n'))), source);
+    const current = new Map(active(await store.read()).map(item => [item.id, item]));
     const results: { slug: string; verdict: Verdict; claims: ClaimResult[] }[] = [];
-    if (memories.length > 0) await store.register();
-    const checked = new Map<string, ClaimResult>();
-    for (const item of memories) {
-      const claims: ClaimResult[] = [];
-      for (const claim of extractClaims([item.title, item.body, item.why, item.how].join('\n'))) {
-        const key = JSON.stringify(claim);
-        if (!checked.has(key)) checked.set(key, await checkClaim(claim, roots, options.network === true, source));
-        claims.push(checked.get(key)!);
-      }
-      const verdict = claims.some(claim => claim.verdict === 'stale') ? 'stale' : claims.length > 0 && claims.every(claim => claim.verdict === 'verified') ? 'verified' : 'unknown';
+    if (planned.length > 0) await store.register();
+    for (const { item, claims, verdict } of planned) {
+      const now = current.get(item.id);
+      if (now === undefined || now.updated !== item.updated || JSON.stringify([now.title, now.body, now.why, now.how]) !== JSON.stringify([item.title, item.body, item.why, item.how])) continue;
       await store.fields(item.id, { verdict, reason: claims.filter(claim => claim.verdict === 'stale').map(claim => claim.reason!).join('; '), verified_at: new Date().toISOString() });
       results.push({ slug: item.slug, verdict, claims });
     }

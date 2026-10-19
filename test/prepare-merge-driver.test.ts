@@ -13,6 +13,7 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import test, { after } from "node:test";
+import { gitEnvironment } from "../scripts/environment.ts";
 
 // npm runs tests from the package root, which is also where it runs `prepare`.
 const root = process.cwd();
@@ -38,7 +39,7 @@ const declaredDrivers = [
 function checkout(name: string, pmOps: "absent" | "pinned" | "stale"): string {
   const directory = join(scratch, name);
   mkdirSync(join(directory, ".agents", "pm"), { recursive: true });
-  assert.equal(spawnSync("git", ["init", "-q"], { cwd: directory }).status, 0);
+  assert.equal(spawnSync("git", ["init", "-q"], { cwd: directory, env: gitEnvironment(process.env) }).status, 0);
   writeFileSync(join(directory, "package.json"), JSON.stringify({ name, type: "module" }));
   copyFileSync(join(root, ".gitattributes"), join(directory, ".gitattributes"));
   copyFileSync(join(root, ".agents", "pm", "settings.json"), join(directory, ".agents", "pm", "settings.json"));
@@ -73,13 +74,14 @@ function stubPm(name: string, status: number, body = ""): string {
  * @param extraEnv - Lifecycle variables such as `npm_command`.
  */
 function prepare(cwd: string, path: string, extraEnv: NodeJS.ProcessEnv = {}): SpawnSyncReturns<string> {
-  return spawnSync(process.execPath, [launcher], { cwd, encoding: "utf8", env: { ...process.env, PATH: path, PM_PATH: join(cwd, ".agents", "pm"), ...extraEnv } });
+  return spawnSync(process.execPath, [launcher], { cwd, encoding: "utf8", env: { ...gitEnvironment(process.env), PATH: path, PM_PATH: join(cwd, ".agents", "pm"), ...extraEnv } });
 }
 
 /** The merge drivers registered in a checkout's LOCAL Git config, by name. */
 function registeredDrivers(cwd: string): string[] {
   const config = spawnSync("git", ["config", "--local", "--name-only", "--get-regexp", "^merge\\..*\\.driver$"], {
     cwd,
+    env: gitEnvironment(process.env),
     encoding: "utf8",
   });
   // git exits 1 when no key matches, which is a genuine "none registered".
@@ -162,4 +164,25 @@ test("prepare forwards an explicit tracker override", posixOnly, () => {
   const result = prepare(directory, path, { PM_PATH: expected });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), expected);
+});
+
+/** Poisoned hook variables must never redirect fixture commands to the caller repository. */
+test("fixture Git commands ignore inherited repository overrides", posixOnly, () => {
+  const decoy = checkout("decoy", "absent");
+  const before = readFileSync(join(decoy, ".git", "config"));
+  const poison = { GIT_DIR: join(decoy, ".git"), GIT_WORK_TREE: decoy, GIT_INDEX_FILE: join(decoy, "alternate-index") };
+  const previous = Object.fromEntries(Object.keys(poison).map(key => [key, process.env[key]]));
+  Object.assign(process.env, poison);
+  try {
+    const directory = checkout("poisoned", "pinned");
+    assert.deepEqual(registeredDrivers(directory), []);
+    const result = prepare(directory, hostPath);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(registeredDrivers(directory), declaredDrivers);
+    assert.deepEqual(readFileSync(join(decoy, ".git", "config")), before);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
 });
