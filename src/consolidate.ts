@@ -44,6 +44,7 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
     if (older.verdict === 'stale' && older.recalls === 0 && !older.pinned && /^(?:missing path \S+ under roots|Path \S+ not found under the given roots \(add --root if it lives elsewhere\)|symbol absent in \d+ files searched|Exact package version absent in registry|HTTP endpoint returned 404 or 410)(?:; |$)/.test(older.reason ?? '') && Date.now() - Date.parse(older.updated) >= minAgeDays * 86400000) result.push({ action: 'archive', slug: older.slug, reason: `Stale: ${older.reason}; never recalled, not pinned, at least ${minAgeDays} days old` });
     for (const candidate of rows.slice(i + 1)) {
       const newer = candidate.item;
+      if (newer.supersedes?.includes(older.id)) continue;
       if (opposite(rows[i], candidate)) result.push({ action: 'supersedes', slug: older.slug, target: newer.slug, reason: 'Overlapping identity with explicit opposite guidance; review evidence before applying' });
       else if (jaccardSimilarity(rows[i].content, candidate.content) >= DUPLICATE_THRESHOLD) result.push({ action: 'merge', slug: older.slug, target: newer.slug, reason: 'Normalized title and body similarity meets duplicate threshold' });
     }
@@ -51,7 +52,8 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
   const merges = result.filter(proposal => proposal.action === 'merge');
   const selected = new Map(merges.map(proposal => [proposal.slug, proposal]));
   const targets = new Set([...selected.values()].map(proposal => proposal.target));
-  return result.filter(proposal => !(proposal.action === 'archive' && targets.has(proposal.slug)) && !(proposal.action === 'merge' && (targets.has(proposal.slug) || selected.get(proposal.slug) !== proposal)));
+  const archived = new Set(result.filter(proposal => proposal.action === 'archive' && !targets.has(proposal.slug)).map(proposal => proposal.slug));
+  return result.filter(proposal => !(proposal.action === 'supersedes' && archived.has(proposal.target!)) && !(proposal.action === 'archive' && targets.has(proposal.slug)) && !(proposal.action === 'merge' && (targets.has(proposal.slug) || selected.get(proposal.slug) !== proposal)));
 }
 /** Preview consolidation without writes; explicitly applied actions preserve all content and audited history. */
 export async function consolidate(options: MemoryOptions & { apply?: boolean; minAgeDays?: number }): Promise<{ applied: boolean; proposals: Proposal[] }> {

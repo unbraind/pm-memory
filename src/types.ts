@@ -86,6 +86,8 @@ export interface Memory {
   artifact: boolean;
   /** Native relationship targets used by generated export. */
   links: string[];
+  /** Native supersession targets, distinct from general related links. */
+  supersedes?: string[];
 }
 /** A ranked, bounded recall row. */
 export interface RecallRow {

@@ -1,6 +1,6 @@
-import { createReadStream } from 'node:fs';
+import { constants } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { realpath, stat, readdir } from 'node:fs/promises';
+import { realpath, stat, lstat, readdir, open } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep, join, basename, extname, posix } from 'node:path';
 import { homedir } from 'node:os';
 import { GLOBAL_FLAG_CONTRACTS, PM_CORE_COMMAND_NAMES, resolveSubcommandFlagContractsForCommand } from '@unbrained/pm-cli/sdk';
@@ -28,7 +28,8 @@ function temporary(value: string): boolean {
 /** Context that explicitly describes absence, examples or planned work cannot establish current use. */
 function uncertainSentence(content: string, index: number): boolean {
   if ((content.slice(0, index).match(/^(?:```|~~~)/gm)?.length ?? 0) % 2 === 1) return true;
-  if (/^\s*(?:```|~~~)/.test(content.slice(content.indexOf('\n', index) + 1))) return true;
+  const next = content.indexOf('\n', index);
+  if (next >= 0 && /^\s*(?:```|~~~)/.test(content.slice(next + 1))) return true;
   const line = content.slice(content.lastIndexOf('\n', index) + 1, content.indexOf('\n', index) < 0 ? content.length : content.indexOf('\n', index));
   if (line.includes('node_modules/') || /gitignore.*(?:block|pattern)|(?:block|pattern).*gitignore/i.test(line)) return true;
   return /(?<![\w/.-])(?:deleted|removed|gone|missing|absent|nonexistent|obsolete|historical|hypothetical|example|e\.g\.|fixture|temporary|scratch(?:pad)?|retired|rename|renamed|propos(?:e|ed|al)|planned|would|could|does not exist|no longer|do not use|never use|don't use|not in|tmp)(?![\w/-]|\.\w)/i.test(line.replace(/`[^`]*`|[\w$]+\(\)/g, ''));
@@ -92,6 +93,7 @@ async function inventory(root: string, limit: number): Promise<{ files: string[]
   try {
     while (pending.length > 0) {
       const directory = pending.pop()!;
+      if (!(await lstat(join(root, directory))).isDirectory()) continue;
       for (const entry of await readdir(join(root, directory), { withFileTypes: true })) {
         if (EXCLUDED.has(entry.name)) continue;
         const path = directory === '' ? entry.name : `${directory}/${entry.name}`;
@@ -180,13 +182,20 @@ export async function searchClaims(claims: Claim[], source: Evidence, maxBytes =
   outer: for (let index = 0; index < source.roots.length; index++) for (const file of source.files[index]) {
     let fileBytes = 0; let tail = Buffer.alloc(0);
     try {
-      for await (const value of createReadStream(join(source.roots[index], file), { highWaterMark: 65536 })) {
-        const chunk = value as Buffer; bytes += chunk.length; fileBytes += chunk.length;
-        if (bytes > maxBytes || fileBytes > maxFileBytes) { complete = false; break outer; }
-        const window = Buffer.concat([tail, chunk]);
-        for (const [position, pattern] of patterns.entries()) if (window.includes(pattern)) source.matches.set(needles[position], true);
-        tail = overlap === 0 ? Buffer.alloc(0) : window.subarray(-overlap);
-      }
+      const root = await realpath(source.roots[index]);
+      const path = await realpath(join(root, file));
+      const rel = relative(root, path);
+      if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new MemoryError('verify', 'Source escapes the declared root', 'Keep source evidence inside its declared root');
+      const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        for await (const value of handle.createReadStream({ highWaterMark: 65536, autoClose: false })) {
+          const chunk = value as Buffer; bytes += chunk.length; fileBytes += chunk.length;
+          if (bytes > maxBytes || fileBytes > maxFileBytes) { complete = false; break outer; }
+          const window = Buffer.concat([tail, chunk]);
+          for (const [position, pattern] of patterns.entries()) if (window.includes(pattern)) source.matches.set(needles[position], true);
+          tail = overlap === 0 ? Buffer.alloc(0) : window.subarray(-overlap);
+        }
+      } finally { await handle.close(); }
     } catch {
       throw new MemoryError('verify', 'Source evidence could not be read', 'Check source permissions and symlink loops before verification');
     }

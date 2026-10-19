@@ -49,11 +49,12 @@ export function scored(memories: readonly Memory[], query: string): { item: Memo
   const now = Date.now();
   const terms = [...words(query)];
   const documents = memories.map(item => words([item.slug, item.title, item.description, item.body, item.why, item.how, ...item.tags].join(' ')));
+  const idf = new Map(terms.map(term => [term, Math.log(1 + memories.length / (1 + documents.filter(doc => doc.has(term)).length))]));
   const scores = memories.map((item, index) => {
     const heading = words(item.title);
     const hook = words(item.description);
     const key = words(item.slug);
-    const lexical = terms.reduce((sum, term) => sum + (documents[index].has(term) ? (heading.has(term) ? 5 : hook.has(term) ? 2 : key.has(term) ? 1.5 : 1) * Math.log(1 + memories.length / (1 + documents.filter(doc => doc.has(term)).length)) / (1 + Math.log(1 + documents[index].size) / 10) : 0), 0);
+    const lexical = terms.reduce((sum, term) => sum + (documents[index].has(term) ? (heading.has(term) ? 5 : hook.has(term) ? 2 : key.has(term) ? 1.5 : 1) * idf.get(term)! / (1 + Math.log(1 + documents[index].size) / 10) : 0), 0);
     const ageDays = Math.max(0, (now - Date.parse(item.updated)) / 86400000);
     return { item, score: lexical * 10 + (item.pinned ? 0.5 : 0) + 0.2 / (1 + ageDays) };
   });
@@ -77,12 +78,10 @@ export async function recall(query: string, options: MemoryOptions & { budget?: 
     const memories = active(await store.read()).filter(item => options.kind === undefined || item.kind === options.kind);
     const rows: RecallRow[] = scored(memories, query).map(({ item, score }) => ({ slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
     const packet = recallPacket(rows, memories, query, limit);
-    if (packet.memories!.length > 0) await store.register();
-    for (const row of packet.memories!) {
-      const item = memories.find(memory => memory.slug === row.slug)!;
-      if (item.recalls === Number.MAX_SAFE_INTEGER) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
-      await store.fields(item.id, { recalls: item.recalls + 1 });
-    }
+    const emitted = packet.memories!.map(row => memories.find(memory => memory.slug === row.slug)!);
+    if (emitted.some(item => item.recalls === Number.MAX_SAFE_INTEGER)) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
+    if (emitted.length > 0) await store.register();
+    for (const item of emitted) await store.fields(item.id, { recalls: item.recalls + 1 });
     return packet;
   });
 }

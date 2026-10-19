@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile, mkdir, writeFile, mkdtemp, rename, rm, access } from 'node:fs/promises';
+import { lstat, readdir, readFile, mkdir, writeFile, mkdtemp, rename, rm, access, chmod } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { parse } from 'yaml';
@@ -162,6 +162,7 @@ async function publish(root: string, outputs: Map<string, Buffer>): Promise<void
   }
   if (identical) return;
   if (existing && (await readdir(root)).length > 0) throw new MemoryError('conflict', 'Export would overwrite a nonempty directory', 'Choose an empty export directory');
+  await mkdir(dirname(root), { recursive: true });
   const staging = await mkdtemp(join(dirname(root), '.pm-memory-export-'));
   try {
     for (const [name, bytes] of outputs) {
@@ -169,13 +170,16 @@ async function publish(root: string, outputs: Map<string, Buffer>): Promise<void
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, bytes, { flag: 'wx' });
     }
+    await chmod(staging, 0o777 & ~process.umask());
     await rename(staging, root);
   } finally { await rm(staging, { recursive: true, force: true }); }
 }
 /** Preserve a current original index only when it names exactly the emitted fact paths. */
 function currentIndex(original: Buffer, paths: readonly string[]): boolean {
-  const links = [...original.toString('utf8').matchAll(/^[ \t]*[-*][ \t]+\[[^\]\r\n]*\]\(([^)\r\n]+)\)/gm)].map(match => match[1].replace(/^\.\//, ''));
-  return links.length === paths.length && new Set(links).size === paths.length && paths.every(path => links.includes(path));
+  try {
+    const links = [...original.toString('utf8').matchAll(/^[ \t]*[-*][ \t]+\[[^\]\r\n]*\]\((?:<([^<>\r\n]+)>|([^)\r\n]+))\)/gm)].map(match => decodeURIComponent(match[1] ?? match[2]).replace(/^\.\//, ''));
+    return links.length === paths.length && new Set(links).size === paths.length && paths.every(path => links.includes(path));
+  } catch { return false; }
 }
 /** Export exact imported bytes when semantically unchanged, with conflict-safe native generation otherwise. */
 export async function exportDir(path: string, options: MemoryOptions & { to: Exclude<Harness, 'cursor'> }): Promise<{ exported: number; byte_preserved: number }> {
@@ -201,7 +205,10 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     if (options.to === 'claude-code') {
       const original = outputs.get('MEMORY.md');
       if (original === undefined || !currentIndex(original, emitted.map(row => row.name))) {
-        outputs.set('MEMORY.md', Buffer.from(emitted.map(({ item, name }) => `- [${item.title}](${name})`).join('\n') + '\n'));
+        outputs.set('MEMORY.md', Buffer.from(emitted.map(({ item, name }) => {
+          const encoded = name.split('/').map(part => encodeURIComponent(part)).join('/').replace(/[()]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+          return `- [${item.title.replace(/[[\]\r\n]/g, ' ')}](${encoded === name ? name : `<${encoded}>`})`;
+        }).join('\n') + '\n'));
         if (original !== undefined) byte_preserved--;
       }
     } else {
