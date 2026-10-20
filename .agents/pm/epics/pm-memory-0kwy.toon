@@ -7,13 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-20T06:17:05.533Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-20T06:22:44.794Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[66]:
+comments[67]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -213,6 +211,9 @@ comments[66]:
   - created_at: "2026-10-20T06:17:05.513Z"
     author: codex-agent
     text: "Stable-source normal npm run release:check passed all 12 stages: 155/155 suite tests and 2/2 packed npm/npx and Bun/bunx consumer tests, zero failures/cancellations/skips. Coverage: 1968/1968 statements and lines, 1237/1237 branches, 101/101 functions across 19 intended source files (100% each). Duplication 0/4867 lines across 42 sources; all 84 declarations documented; production audit zero vulnerabilities; 42 packed files allowlisted. Final-source behavioral revert proofs repeated successfully, each 0 pass/1 assertion failure. Source/tests/docs/dependency hashes frozen for remaining gates. Existing history prefixes preserved. Proceeding with Bun and isolated HOME/Git npm gates before push."
+  - created_at: "2026-10-20T06:22:43.740Z"
+    author: codex-agent
+    text: "Final review-round acceptance: normal npm run release:check, isolated HOME/Git bun run release:check, and isolated HOME/Git npm run release:check in an independent clone all exited 0. Each passed 12/12 stages, 155/155 suite tests and 2/2 packed npm/npx plus Bun/bunx consumer tests, zero suite failures/cancellations/skips. All three reported 100% statements/branches/functions/lines: 1968/1968 statements and lines, 1237/1237 branches, 101/101 functions across 19 source files; 0/4867 duplicate lines across 42 sources; 84 documented declarations; zero production vulnerabilities; 42 allowlisted packed files. Early concurrent-edit coverage diagnostics were discarded; accepted runs used frozen source/tests/docs/dependency hashes. Strict health passes 10 checks with zero warnings, including an independent clone. Validation accepts all 9 items with the same 11 pre-existing linked-test branch-provenance advisories. Existing development-only dependency advisories remain tracked on pm-memory-eafx. No new PM CLI/SDK defect found. Both unresolved findings fixed; four final-source revert mutants each failed with one assertion failure, and restored regressions pass 4/4. No private corpus access or history rewriting; threads remain untouched. Releasing claim for orchestrator verification; item remains in progress."
 files[34]{path,scope}:
   eslint.config.ts,project
   index.ts,project
