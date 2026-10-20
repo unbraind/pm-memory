@@ -77,7 +77,7 @@ export function packetTokens(value: unknown): number {
   return estimatePmOutputTokens(Math.max(Buffer.byteLength(JSON.stringify(value, null, 2) + '\n'), Buffer.byteLength(encode(value) + '\n')));
 }
 /** Stabilize the self-accounting receipt before deciding whether a candidate fits. */
-function accounted(packet: Packet): Packet {
+export function accounted(packet: Packet): Packet {
   let count = packetTokens(packet);
   while (count !== packet.estimated_tokens) { packet.estimated_tokens = count; count = packetTokens(packet); }
   return packet;

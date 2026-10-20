@@ -55,11 +55,23 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
     const older = memories.find(memory => memory.id === id);
     if (older !== undefined) superseded.add(older.slug);
   }
-  const merges = result.filter(proposal => proposal.action === 'merge' && !superseded.has(proposal.slug));
+  const archived = new Set(result.filter(proposal => proposal.action === 'archive').map(proposal => proposal.slug));
+  const merges = result.filter(proposal => proposal.action === 'merge' && !superseded.has(proposal.slug) && !superseded.has(proposal.target!));
   const selected = new Map(merges.map(proposal => [proposal.slug, proposal]));
-  const targets = new Set([...selected.values()].map(proposal => proposal.target));
-  const archived = new Set(result.filter(proposal => proposal.action === 'archive' && !targets.has(proposal.slug)).map(proposal => proposal.slug));
-  return result.filter(proposal => !(proposal.action === 'supersedes' && archived.has(proposal.target!)) && !(proposal.action === 'archive' && targets.has(proposal.slug)) && !(proposal.action === 'merge' && (archived.has(proposal.slug) || targets.has(proposal.slug) || selected.get(proposal.slug) !== proposal)));
+  const targets = new Set(merges.map(proposal => proposal.target));
+  const reserved = new Set<string>();
+  const accepted = new Set<Proposal>();
+  // Preserve link-only supersession first, then surviving merges, then unused stale archives.
+  const priority = { supersedes: 0, merge: 1, archive: 2 };
+  for (const proposal of [...result].sort((a, b) => priority[a.action] - priority[b.action])) {
+    if (proposal.action === 'supersedes' && archived.has(proposal.target!)) continue;
+    if (proposal.action === 'merge' && (archived.has(proposal.slug) || targets.has(proposal.slug) || selected.get(proposal.slug) !== proposal)) continue;
+    const endpoints = proposal.target === undefined ? [proposal.slug] : [proposal.slug, proposal.target];
+    if (endpoints.some(endpoint => reserved.has(endpoint))) continue;
+    for (const endpoint of endpoints) reserved.add(endpoint);
+    accepted.add(proposal);
+  }
+  return result.filter(proposal => accepted.has(proposal));
 }
 /** Durable merge evidence binds replay to the original source and both target states. */
 interface MergeReceipt {
@@ -96,6 +108,7 @@ export async function consolidate(options: MemoryOptions & { apply?: boolean; mi
     const memories = await store.read();
     const pending = memories.filter(item => item.merge !== '').map(item => ({ action: 'merge' as const, slug: item.slug, target: mergeReceipt(item, memories).target, reason: 'Resume recorded memory merge' }));
     const reserved = new Set<string | undefined>(pending.flatMap(proposal => [proposal.slug, proposal.target]));
+    if (reserved.size !== pending.length * 2) throw new MemoryError('conflict', 'Pending memory merges reuse an action endpoint', 'Reconcile or clear overlapping memory_merge receipts through audited pm updates before retrying');
     const planned = [...pending, ...proposals(memories, options.minAgeDays).filter(proposal => !reserved.has(proposal.slug) && !reserved.has(proposal.target))];
     if (options.apply === true && planned.length > 0) await store.register();
     if (options.apply === true) for (const proposal of planned) {

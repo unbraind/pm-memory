@@ -1,6 +1,6 @@
 import { parseMutationReceipt } from '@unbrained/pm-cli/sdk';
 import type { Memory, MemoryOptions, Packet, RememberOptions, RecallRow } from './types.ts';
-import { budget, digest, kind, MemoryError, pack, privacy, similarity, slug, text, words } from './core.ts';
+import { accounted, budget, digest, kind, MemoryError, pack, privacy, similarity, slug, text, words } from './core.ts';
 import { metadata, Store } from './store.ts';
 
 /** Inclusive similarity threshold for a title-plus-body normalized token set. */
@@ -99,9 +99,16 @@ export function recallPacket(rows: RecallRow[], memories: readonly Memory[], que
     if (pack([compact[0]], limit, firstRender).memories!.length === 0) throw new MemoryError('budget', 'Budget cannot hold the top memory row', 'Increase --budget to at least 200');
   }
   let packet = pack([], limit, render);
-  for (let length = 1; length <= compact.length; length++) {
-    const next = pack(compact.slice(0, length), limit, (selected) => render(selected, rows.length - selected.length));
-    if (next.memories!.length !== length) break;
+  /** Account each complete candidate once, retaining its stabilized token receipt. */
+  const fit = (selected: RecallRow[], omitted: number): Packet | undefined => {
+    const candidate = accounted({ ...render(selected, omitted), estimated_tokens: 0 });
+    return candidate.estimated_tokens <= limit ? candidate : undefined;
+  };
+  const chosen: RecallRow[] = [];
+  for (const row of compact) {
+    const next = fit([...chosen, row], rows.length - chosen.length - 1);
+    if (next === undefined) break;
+    chosen.push(row);
     packet = next;
   }
   for (let index = 0; index < packet.memories!.length; index++) {
@@ -110,8 +117,8 @@ export function recallPacket(rows: RecallRow[], memories: readonly Memory[], que
     for (let size = content.length; size > 0; size = Math.floor(size / 2)) {
       const selected = packet.memories!.map(row => ({ ...row }));
       selected[index].text = content.slice(0, size).toWellFormed() + (size < [item.body, item.why, item.how].filter(Boolean).join('\n').length ? ' […truncated; use pm memory get]' : '');
-      const next = pack(selected, limit, (rows) => render(rows, packet.omitted));
-      if (next.memories!.length === selected.length) { packet = next; break; }
+      const next = fit(selected, packet.omitted);
+      if (next !== undefined) { packet = next; break; }
     }
   }
   return packet;

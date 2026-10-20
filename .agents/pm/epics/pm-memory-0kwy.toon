@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-20T04:27:14.073Z"
+updated_at: "2026-10-20T05:20:17.354Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[56]:
+comments[62]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -181,7 +181,25 @@ comments[56]:
   - created_at: "2026-10-20T04:27:13.271Z"
     author: codex-agent
     text: "Final round acceptance: npm run release:check passed normally and with isolated HOME/Git identity; bun run release:check passed with isolated HOME/Git identity. All three full runs exited 0 at unchanged thresholds, each with 146/146 suite tests and 2/2 packed npm/npx and Bun/bunx consumer tests, zero failures/cancellations/skips. All 19 intended source files measured at 100% statements/branches/functions/lines (1923 statements/lines, 1185 branches, 99 functions). Duplication 0% (0/4598 lines across 40 sources); all 82 declarations documented; production vulnerabilities zero; 42 allowlisted packed files; matching packed artifact hashes; changelog current and one publish invocation attested. PM-linked focused regressions passed 10/10; all three behavioral revert proofs failed as intended. Strict health passed 10/10 with zero warnings. Validation passes all 9 items with 11 existing branch-provenance advisories. Existing development-only advisory remains on pm-memory-eafx; no new PM CLI/SDK bug found. No pins, workflow, template or thresholds changed. No private corpus accessed, no thread replies/resolutions, no merge or release. Release claim and retain in_progress for orchestrator verification; verify the committed head in an independent clone before push."
-files[30]{path,scope}:
+  - created_at: "2026-10-20T05:09:39.676Z"
+    author: codex-agent
+    text: "Review round at head 6c1c28e: fetched all unresolved threads and all their comments with complete pagination. Three findings remain: overlapping consolidation roles, repeated recall packet serialization, and excluded context files falsely establishing symbol absence. Latest CodeRabbit review has no Outside diff range section. Plan: causal regression tests, one randomized action-role invariant, self-review related logic, unchanged npm and Bun release gates, isolated identity gate, explicit staging and push."
+  - created_at: "2026-10-20T05:12:25.209Z"
+    author: codex-agent
+    text: "Verified all three unresolved threads. PRRT_kwDOVPw2oc6uM_57: proposals now reserve each action endpoint once, with link-only supersession before merge/archive selection. PRRT_kwDOVPw2oc6uM_6A: recallPacket accounts each fully rendered prefix/excerpt candidate once. PRRT_kwDOVPw2oc6uM_6F: symbol absence requires a context in the actual searched file set. New test/review-r9.test.ts passes 4/4: randomized invariant covers 500 deterministic memory sets and 2250 actions; packet serialization counts for 12/24/48 rows are 72/124/265."
+  - created_at: "2026-10-20T05:12:28.086Z"
+    author: codex-agent
+    text: "Behavioral revert proofs on test/review-r9.test.ts: reverting only proposals to head 6c1c28e makes node --test --test-name-pattern='stale supersession sources|randomized consolidation invariant' test/review-r9.test.ts fail 2/2; randomized sample 0 repeats one endpoint in archive and supersedes. Reverting only recallPacket makes node --test --test-name-pattern='recall accounts complete candidates' test/review-r9.test.ts fail 1/1: 12 rows require 622 packet serializations versus 72 fixed. Reverting only checkClaim makes node --test --test-name-pattern='excluded context files' test/review-r9.test.ts fail 1/1: excluded Markdown context returns stale instead of unknown. All fixed functions restored after each proof."
+  - created_at: "2026-10-20T05:14:25.486Z"
+    author: codex-agent
+    text: "Self-review found the same endpoint conflict possible in durable pending receipts. Added preflight refusal for overlapping or self-referential pending merges, before registration, links, comments or writes. Real tracker regression captures an actual merge receipt and constructs both conflicting cases; dry-run and apply refuse with unchanged tracker bytes. Reverting only consolidate makes node --test --test-name-pattern='pending merge endpoints' test/review-r9.test.ts fail 1/1 (missing rejection), then restored. Focused suite now passes 5/5. Architecture documents accounting, searched contexts, deterministic endpoint reservation and pending recovery refusals."
+  - created_at: "2026-10-20T05:20:15.186Z"
+    author: codex-agent
+    text: "Final review-round acceptance: normal npm run release:check, isolated HOME/Git npm run release:check, and isolated HOME/Git bun run release:check each passed all 12 stages, 151/151 suite tests and 2/2 real packed npm/npx and Bun/bunx consumers, with zero suite failures, cancellations or skips. Coverage is 100% statements/branches/functions/lines across all 19 intended source files: 1945 statements/lines, 1209 branches, 100 functions. Duplication is 0% (0/4751 lines across 41 sources), all 83 declarations documented, production vulnerabilities zero, all 42 packed files allowlisted. PM-linked regressions pass 5/5. All four behavioral function revert proofs failed as intended. Randomized invariant passes 500 deterministic memory sets, 2250 actions, no repeated endpoint."
+  - created_at: "2026-10-20T05:20:16.284Z"
+    author: codex-agent
+    text: "Final self-review covers every changed source function and related consolidation, packet-accounting and context-evidence paths. No unresolved finding rejected. Latest substantive review has no Outside diff range section. Strict PM health passes 10/10 with zero warnings; validation passes all 9 items with the same 11 existing branch-provenance advisories. Existing development-only advisories remain tracked on pm-memory-eafx. No new PM CLI/SDK defect found; one incorrect files invocation was corrected using the supported glob option. Existing history remains byte-prefix intact, new tracked content contains no absolute local paths, and no private corpus was accessed. No dependency pins, workflows or thresholds changed. Release claim and retain in_progress for orchestrator verification. Verify committed-head identity and strict health in an independent clone before push; leave threads untouched and do not merge or release."
+files[31]{path,scope}:
   eslint.config.ts,project
   index.ts,project
   LICENSE,project
@@ -210,9 +228,10 @@ files[30]{path,scope}:
   test/review-r6.test.ts,project
   test/review-r7.test.ts,project
   test/review-r8.test.ts,project
+  test/review-r9.test.ts,project
   test/tooling.test.ts,project
   tsconfig.json,project
-tests[10]:
+tests[11]:
   - command: "npm run release:check"
     scope: project
     provenance:
@@ -289,6 +308,13 @@ tests[10]:
     provenance:
       author: codex-agent
       created_at: "2026-10-20T04:21:41.875Z"
+      source_kind: local_mutation
+      source_ref: review/memory-r1
+  - command: node --test test/review-r9.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-20T05:12:36.984Z"
       source_kind: local_mutation
       source_ref: review/memory-r1
 docs[3]{path,scope}:

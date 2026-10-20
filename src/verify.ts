@@ -232,7 +232,9 @@ export async function checkClaim(claim: Claim, root: string | readonly string[],
   if (claim.type === 'symbol' || claim.type === 'flag') {
     const local = source ?? await evidence(root);
     if (local.matches === undefined) await searchClaims([claim], local);
-    const contextual = claim.context === undefined || (await fileClaim({ type: 'file', value: claim.context }, local)).verdict === 'verified';
+    const indexed = claim.context === undefined ? undefined : local.suffixes.get(posix.normalize(portablePath(claim.context)).replace(/^\.\//, '').replace(/\/$/, ''));
+    const searched = indexed !== undefined && local.files.some(files => files.includes(indexed));
+    const contextual = claim.context === undefined || searched && (await fileClaim({ type: 'file', value: claim.context }, local)).verdict === 'verified';
     return grepClaim(contextual ? claim : { ...claim, context: undefined }, local);
   }
   let verdict: Verdict = 'unknown';
