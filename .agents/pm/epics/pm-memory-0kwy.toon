@@ -7,13 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-20T03:21:52.479Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-20T03:39:47.220Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[50]:
+comments[52]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -165,6 +163,12 @@ comments[50]:
   - created_at: "2026-10-20T03:21:52.445Z"
     author: codex-agent
     text: "Repeated behavioural proofs with the strengthened final regression: reverting only importDir to 4852aa1 yields Missing expected rejection (0 pass / 1 fail); reverting only evidence to 4852aa1 yields stale count 0 instead of 1 (0 pass / 1 fail); reverting only evidence to 3ebe34c yields stale count 2 instead of 1 (0 pass / 1 fail). Exact commands: node --test --test-name-pattern=\"import refuses multiline\" test/review-r7.test.ts and node --test --test-name-pattern=\"verification excludes custom tracker\" test/review-r7.test.ts. Restored focused suite passes 3/3; typecheck passed. All reverts were isolated to the named function, and tests import source directly."
+  - created_at: "2026-10-20T03:32:17.178Z"
+    author: codex-agent
+    text: "Final corrected source snapshot 820b7ea: isolated npm run release:check completed with exit 0. Suite 143/143, packed npm/npx and Bun/bunx consumers 2/2, zero failures/cancellations/skips. Coverage 100% statements/branches/functions/lines over 19 files; 0% duplication (0/4519 lines across 39 sources); 82/82 declarations documented; production audit zero; 42 allowlisted packed files; changelog current; one publish invocation attested. Corrected snapshot independent-clone strict health passes 10/10 with zero warnings. PM-linked node --test test/review-r7.test.ts on the strengthened final tests passes 3/3, with result tracking disabled by existing policy. Full Bun release gate is running sequentially on the same corrected snapshot. Earlier interrupted or superseded gates are not counted as final acceptance."
+  - created_at: "2026-10-20T03:39:45.816Z"
+    author: codex-agent
+    text: "Final acceptance on corrected source 820b7ea: both full npm run release:check under isolated HOME/Git identity and full bun run release:check in an independent clone exited 0. Each ran 143/143 suite tests and 2/2 packed npm/npx and Bun/bunx consumers, with zero failures/cancellations/skips. Both measured all 19 intended source files at 100% statements/branches/functions/lines, 0% duplication across 39 sources (0/4519 lines), 82 documented declarations, zero production vulnerabilities, 42 allowlisted packed files, current changelog and one attested publish invocation. The packed artifact hash agreed across final gates. Final PM-linked regressions pass 3/3; three isolated behavioural reversions fail as intended. Both original unresolved findings are valid and fixed. Self-review preserved explicit tracker path evidence while excluding tracker text. No private memory data accessed or copied, no thread replies or resolutions, no merge or release. No new pm CLI/SDK defect found. Existing development-only advisory remains on pm-memory-eafx; dependency pins unchanged. Release this claim for orchestrator verification without closing the item; exact pushed head will be checked in CI and an independent clone."
 files[29]{path,scope}:
   eslint.config.ts,project
   index.ts,project
