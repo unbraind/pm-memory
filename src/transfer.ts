@@ -121,7 +121,7 @@ export async function importDir(path: string, options: MemoryOptions & { from: H
         await store.client.run('create', { options: { title: source.title, body: source.body, description: source.description, type: 'Knowledge', allowDuplicate: true, ...metadata(fields) } }); imported++;
       } else {
         await store.history(previous.id);
-        await store.client.update(previous.id, { title: source.title, description: source.description, body: source.body, message: 'Revise imported memory source' });
+        await store.client.update(previous.id, { title: source.title, description: source.description, body: source.body, ...(previous.status === 'canceled' ? { status: 'open' } : {}), message: 'Revise imported memory source' });
         await store.fields(previous.id, fields); updated++;
       }
     }
