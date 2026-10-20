@@ -1,0 +1,30 @@
+id: pm-memory-rt3s
+title: Import and export
+description: ""
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-19T12:57:55.557Z"
+updated_at: "2026-10-19T14:38:46.559Z"
+author: codex-agent
+estimated_minutes: 120
+acceptance_criteria: "Claude Code, AGENTS.md and Cursor imports are idempotent; native links; byte-identical export for synthetic and private copied corpus; export revert proof."
+parent: pm-memory-0kwy
+comments[6]{created_at,author,text}:
+  "2026-10-19T13:24:57.287Z",codex-agent,"Synthetic CRLF, BOM, nested YAML, wiki links and empty files round-trip byte-identically. Direct native pm semantic edits invalidate original-byte reuse and refuse conflicting re-import; operational recall and verification fields preserve original bytes. Import and export evidence is entirely synthetic or aggregate-only."
+  "2026-10-19T13:32:36.788Z",codex-agent,"Behavioral revert proof: replace only original-byte decoding in export with regenerated content. npm run build passes; node --test --test-name-pattern=\"Claude Code import is idempotent\" test/transfer.test.ts fails with AssertionError and exit 1. Restoring byte decoding passes. Combined restored proof run: 3 tests passed, zero failed."
+  "2026-10-19T13:41:23.251Z",codex-agent,"Accepted private round-trip aggregate: 281 imported and 281 unchanged on repeat; 281 byte-identical exports. No private source content or identifiers are retained in the package. Packed npm/npx and Bun/bunx consumers both passed."
+  "2026-10-19T14:00:44.929Z",codex-agent,"Frontmatter kebab-case names are canonical keys; retained relative filenames provide legacy aliases and byte-preserving export. Descriptions now populate the native description field. Regression covers cross-file name links, aliases, missing targets and idempotence."
+  "2026-10-19T14:07:32.510Z",codex-agent,"Behavioral revert proof: reverting only sourceDocument to the review baseline makes the link regression fail (1 failed, 0 passed), reporting 3 unresolved references instead of 1. Restored code passes the focused suite."
+  "2026-10-19T14:30:04.512Z",codex-agent,"Final private proof: 281 files imported; 281 unchanged on re-import; 281 exports byte-identical. Unresolved occurrences fell from 129 to 36; independent canonical-name and file-alias audit confirms all 36 point to absent targets (33 unique targets). Private scratch artifacts deleted."
+files[3]{path,scope}:
+  src/transfer.ts,project
+  test/round2.test.ts,project
+  test/transfer.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/transfer.test.ts,project,codex-agent,"2026-10-19T13:19:13.248Z",local_mutation,feat/memory
+docs[2]{path,scope}:
+  ARCHITECTURE.md,project
+  README.md,project
+body: ""

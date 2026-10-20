@@ -1,0 +1,43 @@
+id: pm-memory-4tbo
+title: Verify checkable claims
+description: ""
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-19T12:58:09.669Z"
+updated_at: "2026-10-19T15:20:49.257Z"
+author: codex-agent
+estimated_minutes: 60
+acceptance_criteria: "Root-confined file, symbol and flag checks; optional npm and URL network checks; verified, stale and unknown receipts persisted."
+parent: pm-memory-0kwy
+comments[15]{created_at,author,text}:
+  "2026-10-19T14:00:35.952Z",codex-agent,"Classifier now resolves nested basename/path evidence across repeated roots, consults SDK command flags, skips standard runtime calls, treats absolute/home paths and ambiguous flags as unknown, and persists explicit stale reasons. Synthetic classifier regression added; private precision proof pending."
+  "2026-10-19T14:07:24.740Z",codex-agent,"Behavioral revert proof: reverting only extractClaims to the review baseline makes the classifier regression fail (1 failed, 0 passed): runtime globals become claims again. Restored code passes the focused suite (6 passed, 0 failed)."
+  "2026-10-19T14:17:16.130Z",codex-agent,Independent private sampling exposed empty/nested directory references that file-only enumeration missed. Added a bounded directory inventory and an empty-directory regression. Runtime/flag false positives remain unknown; final private proof and precision sample are being refreshed.
+  "2026-10-19T14:23:06.931Z",codex-agent,"Final review also marks explicit paths inside excluded dependency/build/metadata trees unknown, since those trees are deliberately outside search evidence. This keeps a search exclusion from becoming an absence claim. Regression added; final release gates use an isolated identity environment."
+  "2026-10-19T14:29:57.929Z",codex-agent,"Final private proof: 111/280 memories stale versus 198 in the review snapshot (196 in a fresh v1 replay). Fixed-seed independent samples: v1 11/20 supported absences (55%); round two 20/20 (100%), with all 43 sampled claims independently absent. Final failing claims: 237 file, 0 flag, 0 symbol. Empty directories and excluded trees handled conservatively. Private copy, tracker and exports deleted after audit."
+  "2026-10-19T14:51:31.842Z",codex-agent,"Round three: replace path-shaped token assumptions with contextual claim classification, portable suffix resolution and basename ambiguity. Reproduce the previous verifier on a fresh private copy, judge a stratified sample by surrounding assertions, report aggregate counts only, and delete private evidence. Local work only; no agents or remote publication."
+  "2026-10-19T14:56:25.794Z",codex-agent,"Baseline reproduced on a fresh private copy: 280 active memories, 111 stale memories, 101 unknown memories and 239 failing claims. The earlier 20/20 source-absence audit is withdrawn as semantic precision evidence. The replacement audit will read surrounding assertions and independently check all-root full/suffix evidence, with basename matches treated as unknown."
+  "2026-10-19T15:04:56.002Z",codex-agent,"Semantic inspection exposed additional nonassertions: directory-name pairs in prose, abbreviated paths, wildcard and brace patterns, illustrative command snippets, dependency exports and ignore patterns. Added conservative context rules and synthetic positive/negative fixtures. The final measured sample will be drawn after these fixes, using a separate bounded traversal and sentence review. Both classifier and path-resolution behavioural reverts failed assertions and were restored."
+  "2026-10-19T15:07:23.131Z",codex-agent,"Regression coverage includes every classifier rule with positive/negative fixtures, basename ambiguity, nested suffixes, truncated home prefixes, root-directory matches, tracker-runtime names, symlink escape and raced-away paths. Packed npx/bunx acceptance now exercises typed nonfile claims and suffix/basename outcomes. The shared index retains tracker path names while continuing to exclude tracker contents from symbol/flag searches."
+  "2026-10-19T15:12:23.112Z",codex-agent,"Private-copy result: 280 active memories; baseline 111 stale and 101 unknown, final 48 stale and 216 unknown. Stale claims fell from 239 to 101. Fixed-seed stratified sentence audit: 28/30 true stale, 2/30 false stale (93.3%); files 27/29 and contextual symbols 1/1. File strata: 13 basenames, 13 extension-bearing paths, 3 directories. True stale requires an assertion of existence/use and no full-relative or suffix match anywhere under the declared roots; extension-bearing basename matches also preclude stale. A separate bounded filesystem traversal found no full/suffix or basename matches in the sample. The two false verdicts demonstrate that absence alone is insufficient. No private content retained in public evidence."
+  "2026-10-19T15:12:25.107Z",codex-agent,"Behavioural revert proof against b958419: reverting only extractClaims makes the typed-nonfile regression fail with stale=1 instead of 0. Reverting only fileClaim to its previous implementation, with a signature-only adapter for the new Claim argument, makes the suffix/runtime regression fail with stale=1 instead of 0. Both are assertion failures, not build/import errors. Restored fixes pass all 24 focused tests with verifier statements/branches/functions/lines at 100/100/100/100. The linked round-three test ran through pm: 4/4 passed."
+  "2026-10-19T15:14:37.121Z",codex-agent,"The isolated npm release gate passed all 92 tests but correctly refused 99.79% overall branch coverage: two existing ranking/index tie branches remained uncovered, while verifier coverage is 100% in every dimension. Adding deterministic equality fixtures before rerunning both full gates; thresholds remain unchanged. The private export comparison also passed: all 281 files byte-identical after verification."
+  "2026-10-19T15:15:45.204Z",codex-agent,"Correction to the previous gate comment: the first isolated npm run had 91/92 tests passing, not all 92. The existing equal-score ranking assertion failed because Date.now could change between records; the missed ranking/index branches followed that failure. Fix tracked on pm-memory-lc64, with one timestamp per scoring pass and a deterministic advancing-clock regression. Verification code and private aggregate results are unchanged."
+  "2026-10-19T15:20:03.326Z",codex-agent,"Final gates: npm run release:check and bun run release:check both passed with isolated HOME and Git identity settings. Each run: 93/93 suite tests and 2/2 packed consumers through npx and bunx; 19 authored source files at 100% statements, branches, functions and lines; zero duplicate lines and zero production audit vulnerabilities. Health and validation both report ok:true. Private import/export comparison: 281/281 files byte-identical. Semantic precision remains sampled: 28/30 true stale, including 27/29 file claims; two false verdicts remain a documented heuristic risk. Local commit only, no remote publication."
+  "2026-10-19T15:20:49.257Z",codex-agent,"Private scratch cleanup completed and absence independently checked: source copy, scratch tracker, export, sentence samples and logs deleted. Final tracker health and validation both ok:true; final authored/tracker privacy test passed; changelog regenerated and checked. Items remain in progress for orchestrator review and were released without closing."
+files[6]{path,scope}:
+  src/types.ts,project
+  src/verify.ts,project
+  test/install.acceptance.ts,project
+  test/round2.test.ts,project
+  test/round3.test.ts,project
+  test/verify.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/verify.test.ts,project,codex-agent,"2026-10-19T13:19:29.265Z",local_mutation,feat/memory
+  node --test test/round3.test.ts,project,codex-agent,"2026-10-19T15:02:24.352Z",local_mutation,feat/memory
+docs[2]{path,scope}:
+  ARCHITECTURE.md,project
+  README.md,project
+body: ""

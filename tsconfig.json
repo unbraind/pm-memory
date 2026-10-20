@@ -18,7 +18,10 @@
     "types": [
       "node"
     ],
-    "erasableSyntaxOnly": true
+    "erasableSyntaxOnly": true,
+    "lib": [
+      "ES2024"
+    ]
   },
   "include": [
     "src/**/*.ts",
