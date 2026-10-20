@@ -39,14 +39,25 @@ export function slug(value: string): string {
 export function digest(value: string): string { return createHash('sha256').update(value).digest('hex'); }
 /** Refuse credentials, private keys and unapproved email addresses before persistence. */
 export function privacy(value: string, allowEmail = false): void {
-  const secret = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----|\b(?:sk|pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\b(?:gh[pousr]_[a-z0-9]{16,}|github_pat_[a-z0-9_]{16,}|AKIA[A-Z0-9]{16})\b|\beyJ[a-z0-9_-]{12,}\.[a-z0-9_-]{12,}\.[a-z0-9_-]{8,}|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
+  const secret = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----|\b(?:sk|pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\b(?:gh[pousr]_[a-z0-9]{16,}|github_pat_[a-z0-9_]{16,}|AKIA[A-Z0-9]{16})\b|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
   const assignments = [...value.matchAll(/\b(password|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)];
   const literal = assignments.some(([, name, separator, assigned]) => {
     if (/^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/.test(assigned)) return false;
     return !(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned));
   });
-  if (secret.test(value) || literal || credentialUrl(value)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
-  if (!allowEmail && /\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}\b/i.test(value)) throw new MemoryError('privacy', 'Email address refused', 'Remove addresses or explicitly use --allow-email');
+  if (secret.test(value) || literal || credentialJwt(value) || credentialUrl(value)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
+  if (!allowEmail && /\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}\b/i.test(value)) throw new MemoryError('privacy', 'Email address refused', 'Remove addresses or explicitly use --allow-email');
+}
+/** Consume each JWT header run once and anchor the remaining segments without restarting. */
+function credentialJwt(value: string): boolean {
+  const tail = /[a-z0-9_-]{12,}\.[a-z0-9_-]{8,}\b/iy;
+  for (const match of value.matchAll(/\beyJ[a-z0-9_-]*/gi)) {
+    const end = match.index + match[0].length;
+    if (match[0].length < 15 || value[end] !== '.') continue;
+    tail.lastIndex = end + 1;
+    if (tail.test(value)) return true;
+  }
+  return false;
 }
 /** Scan each URL authority once; delimiter positions avoid ambiguous regex backtracking. */
 function credentialUrl(value: string): boolean {

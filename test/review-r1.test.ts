@@ -13,9 +13,8 @@ import { rank } from '../src/memory.ts';
 import { checkClaim, directoryEvidence, searchClaims } from '../src/verify.ts';
 import { tracker, snapshot } from './helpers.ts';
 
-/** Adversarial URL authorities must not trigger superlinear credential scanning. */
-test('privacy scans 100k adversarial URL characters within a fixed time bound', { timeout: 20000 }, async t => {
-  const input = 'http://!:' + '!:'.repeat(50000);
+// Each scanner must finish under an independent operating-system deadline.
+for (const [label, input] of [['URL', 'http://!:' + '!:'.repeat(50000)], ['base64 email', 'aB+/'.repeat(50000)], ['JWT header', 'eyJ-'.repeat(50000)]]) test(`privacy scans adversarial ${label} characters within a fixed time bound`, { timeout: 20000 }, async t => {
   const child = spawn(process.execPath, [fileURLToPath(new URL('./privacy-process.ts', import.meta.url))]);
   t.after(() => { child.kill('SIGKILL'); });
   const elapsed = await new Promise<number>((resolve, reject) => {

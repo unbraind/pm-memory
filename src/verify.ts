@@ -147,7 +147,7 @@ async function evidence(input: string | readonly string[]): Promise<Evidence> {
     files.push(listed.files); directories.push(listed.directories);
   }
   const suffixes = suffixIndex(roots, files.map((paths, index) => [...paths, ...directories[index]]));
-  return { roots, files: files.map(paths => paths.filter(path => !path.split('/').some(part => part === '.agents' || part === 'memories') && !/\.(?:md|mdx|mdc)$/i.test(path))), directories, suffixes };
+  return { roots, files: files.map(paths => paths.filter(path => !path.split('/').includes('.agents') && !/\.(?:md|mdx|mdc)$/i.test(path))), directories, suffixes };
 }
 /** Resolve portable paths by full suffix, retaining basename-only matches as ambiguity. */
 async function fileClaim(input: Claim, source: Evidence): Promise<ClaimResult> {

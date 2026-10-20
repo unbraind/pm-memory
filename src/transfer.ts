@@ -1,5 +1,6 @@
 import { lstat, readdir, readFile, mkdir, writeFile, mkdtemp, rename, rm, access, chmod } from 'node:fs/promises';
 import { constants } from 'node:fs';
+import type { Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
@@ -146,11 +147,15 @@ async function destination(root: string, name: string): Promise<string> {
   }
   return target;
 }
+/** Permit directory ancestors and POSIX root-owned system links, never destination links. */
+export function exportAncestor(stat: Stats, platform = process.platform): boolean {
+  return stat.isDirectory() || (stat.isSymbolicLink() && platform !== 'win32' && stat.uid === 0);
+}
 /** Publish a fully planned directory with one rename; failed staging leaves the destination intact. */
 async function publish(root: string, outputs: Map<string, Buffer>): Promise<void> {
   for (let parent = dirname(root); ; parent = dirname(parent)) {
     try {
-      if (!(await lstat(parent)).isDirectory()) throw new MemoryError('path', 'Export ancestor is not a regular directory', 'Choose a destination with regular directory ancestors');
+      if (!exportAncestor(await lstat(parent))) throw new MemoryError('path', 'Export ancestor is not a regular directory', 'Choose a destination with regular directory ancestors');
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     if (parent === dirname(parent)) break;
   }
@@ -226,9 +231,20 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       }
     } else {
       const original = outputs.get('AGENTS.md');
-      const additions = [...outputs.entries()].filter(([name, bytes]) => name !== 'AGENTS.md' && (original === undefined || !original.includes(bytes))).map(([, bytes]) => bytes);
-      if (original === undefined || additions.length > 0) {
-        outputs.set('AGENTS.md', Buffer.concat([...(original === undefined ? [] : [original, Buffer.from('\n')]), ...additions]));
+      let base = original;
+      for (const item of memories) {
+        if (base === undefined || item.source !== 'agents-md:relative-file' || item.path === 'AGENTS.md') continue;
+        const component = Buffer.from(item.original, 'base64');
+        if (component.length === 0 || outputs.get(item.path)?.equals(component) === true) continue;
+        let at = base.indexOf(component);
+        while (at >= 0) {
+          base = Buffer.concat([base.subarray(0, at), base.subarray(at + component.length)]);
+          at = base.indexOf(component);
+        }
+      }
+      const additions = [...outputs.entries()].filter(([name, bytes]) => name !== 'AGENTS.md' && (base === undefined || !base.includes(bytes))).map(([, bytes]) => bytes);
+      if (base === undefined || additions.length > 0 || base !== original) {
+        outputs.set('AGENTS.md', Buffer.concat([...(base === undefined ? [] : [base, Buffer.from('\n')]), ...additions]));
         if (original !== undefined) byte_preserved--;
       }
     }

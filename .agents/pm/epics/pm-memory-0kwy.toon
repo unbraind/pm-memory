@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-19T23:17:07.683Z"
+updated_at: "2026-10-20T00:38:53.822Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[33]:
+comments[41]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -112,7 +112,31 @@ comments[33]:
   - created_at: "2026-10-19T23:17:04.930Z"
     author: codex-agent
     text: "Final revert accounting: 12 nonredundant isolated cases, each with an intended assertion failure. Separate README export-parent and home-path paragraph reverts each fail their own contract assertion. Current four-file alias fixture also fails when only importDir is reverted to the starting head. Exact commands: node --test --test-name-pattern=\"supersession targets survive\" test/review-r5.test.ts; node --test --test-name-pattern=\"credential URI authorities\" test/review-r5.test.ts; node --test --test-name-pattern=\"punctuated import paths\" test/review-r5.test.ts (importDir and sourceDocument separately); node --test --test-name-pattern=\"agents directory round trips\" test/review-r5.test.ts; node --test --test-name-pattern=\"text evidence refuses raced\" test/review-followup.test.ts; node --test --test-name-pattern=\"network verification releases\" test/review-r4.test.ts; node --test --test-name-pattern=\"pending merge receipts\" test/review-r5.test.ts; node --test --test-name-pattern=\"export refuses symlink roots\" test/transfer.test.ts; node --test --test-name-pattern=\"privacy audit uses\" test/review-r5.test.ts; node --test --test-name-pattern=\"README path and export\" test/review-r5.test.ts (export and home paragraphs separately). All mutations stayed in scratch copies and were removed afterwards."
-files[26]{path,scope}:
+  - created_at: "2026-10-20T00:14:58.753Z"
+    author: codex-agent
+    text: "PR 1 review round: fetched all 6 unresolved threads with complete comments; latest substantive review has no Outside diff range findings. Remote head is current and already contains main. Validating archive precedence, bounded email scanning, aggregate component replacement, source inventory, and recall fixture coverage; checking ancestor symlink request against the existing safety contract. Full npm and Bun release gates remain unchanged."
+  - created_at: "2026-10-20T00:16:27.098Z"
+    author: codex-agent
+    text: "All six findings are valid. PRRT_kwDOVPw2oc6uJKHt: archive beats merge for one source; PRRT_kwDOVPw2oc6uJKH9: bound email scanning; PRRT_kwDOVPw2oc6uJKH_: permit POSIX root-owned ancestor links only; PRRT_kwDOVPw2oc6uJKIF: remove archived and revised aggregate components; PRRT_kwDOVPw2oc6uJKIL: retain memories source-directory evidence; PRRT_kwDOVPw2oc6uJKIP: isolate the recall archive guard in its fixture. The ancestor change preserves direct destination and user-owned link refusals and does not contradict a prior review thread. Added real-tracker regressions; preparing individual behavioural revert proofs."
+  - created_at: "2026-10-20T00:20:28.893Z"
+    author: codex-agent
+    text: "Behavioural revert proofs completed in isolated synthetic scratch copies, each with tests retained and one changed function restored: proposals archive filter -> archived merge sources fails; privacy -> base64 email process deadline fails; publish -> POSIX ancestor export fails; exportDir -> aggregate archive/revision assertion fails; evidence -> memories source symbol assertion fails. Sixth proof removes only the recalls === 0 guard and the strengthened consolidate fixture fails. Exact commands: node --test --test-name-pattern=\"archived merge sources\" test/review-r6.test.ts; node --test --test-name-pattern=\"base64 email\" test/review-r1.test.ts; node --test --test-name-pattern=\"export accepts POSIX\" test/review-r6.test.ts; node --test --test-name-pattern=\"agents aggregates remove\" test/review-r6.test.ts; node --test --test-name-pattern=\"source directories named memories\" test/review-r6.test.ts; node --test --test-name-pattern=\"consolidation dry-run\" test/consolidate.test.ts. All six exit 1 with the intended failure; restored focused tests pass. Self-review also reproduced a JWT-prefix scan exceeding a five-second process deadline and is addressing the same repeated-scan defect."
+  - created_at: "2026-10-20T00:22:01.607Z"
+    author: codex-agent
+    text: "The initial complete coverage run passed 137/137 tests, no failures or skips, 19 source files, 100/100/100/100 at unchanged thresholds. Self-review extensions now remove every obsolete component occurrence from an imported AGENTS aggregate, preserve empty/nonembedded components, and consume JWT header runs once with anchored tail checks so repeated JWT-like prefixes stay linear. Destination and user-owned ancestor link refusals remain covered. Typecheck, lint, zero-duplication and all 82 declaration docstrings pass. Final full gates will include these additional regressions."
+  - created_at: "2026-10-20T00:23:02.329Z"
+    author: codex-agent
+    text: "Final self-review revert proofs: all 8 isolated mutations fail with the intended assertion or process deadline. In addition to the six thread proofs, replacing only credentialJwt at the privacy call with the old unanchored JWT regex makes node --test --test-name-pattern=\"JWT header\" test/review-r1.test.ts fail its process deadline; restoring the linear scanner passes. Replacing only the aggregate removal loop with a single removal makes node --test --test-name-pattern=\"agents aggregates remove\" test/review-r6.test.ts fail because repeated obsolete guidance remains. Restoring the loop passes. Updated README and ARCHITECTURE contracts for component replacement, system-link ancestors and searchable source directories. No private memory corpus was accessed or copied in this round."
+  - created_at: "2026-10-20T00:23:31.785Z"
+    author: codex-agent
+    text: "PM-linked regression command node --test test/review-r6.test.ts test/consolidate.test.ts test/review-r1.test.ts passed 20/20 with zero failures, cancellations or skips. All final production changes have focused behavioural coverage. Running the unchanged full release check through npm under isolated HOME and Git identity, then through Bun; results and exact completion head will be recorded before push."
+  - created_at: "2026-10-20T00:38:10.999Z"
+    author: codex-agent
+    text: "Completion evidence: npm run release:check under isolated HOME with GIT_CONFIG_GLOBAL=/dev/null and GIT_CONFIG_NOSYSTEM=1 passed; bun run release:check passed. Each gate ran 140/140 suite tests and 2/2 real packed npm/npx and Bun/bunx consumers, zero failures/cancellations/skips, 19 source files, 100% statements/branches/functions/lines, zero duplicated lines across 38 sources, all 82 declarations documented, production audit zero vulnerabilities, 42 allowlisted packed files, current changelog and one attested publish invocation. Production code stayed unchanged across these gates. The final Windows fixture now uses a root-owned link so platform is the sole refusal guard; the PM-linked 20/20 regression run and typecheck pass after this test refinement. Ninth isolated proof: remove only platform !== win32 from exportAncestor; node --test --test-name-pattern=\"export accepts POSIX\" test/review-r6.test.ts fails its false-versus-true assertion, exit 1; restore and the linked run passes. Total 9/9 intended revert failures. The ownership test uses a real symlink with a simulated root-owned lstat result; I/O and trackers are real. JWT detection also agreed on 10000 synthetic comparison cases. No new PM CLI or SDK defect was found. Existing development-only advisory remains on pm-memory-eafx; no dependency pins changed. All six reviewed findings are fixed; no threads were replied to or resolved. Release this claim for orchestrator verification; do not close the item. Exact committed head will be validated by CI and fresh-clone health."
+  - created_at: "2026-10-20T00:38:53.800Z"
+    author: codex-agent
+    text: "Final tracker checks: pm health --strict-exit passes all 10 checks with zero warnings, pending merge decisions or history drift. pm validate --json is ok for all 9 items but reports 11 branch-provenance trust advisories on existing linked commands whose recorded source reference differs from the review branch. These are advisory command-trust warnings, distinct from tracker authority and release-gate results; existing provenance and append-only history are retained."
+files[28]{path,scope}:
   eslint.config.ts,project
   index.ts,project
   LICENSE,project
@@ -128,6 +152,7 @@ files[26]{path,scope}:
   src/types.ts,project
   src/verify.ts,project
   test/commands.test.ts,project
+  test/consolidate.test.ts,project
   test/edges.test.ts,project
   test/helpers.ts,project
   test/install.acceptance.ts,project
@@ -137,9 +162,10 @@ files[26]{path,scope}:
   test/review-r1.test.ts,project
   test/review-r4.test.ts,project
   test/review-r5.test.ts,project
+  test/review-r6.test.ts,project
   test/tooling.test.ts,project
   tsconfig.json,project
-tests[7]:
+tests[8]:
   - command: "npm run release:check"
     scope: project
     provenance:
@@ -196,6 +222,14 @@ tests[7]:
       source_ref: review/memory-r1
     updated_by: codex-agent
     updated_at: "2026-10-19T22:56:55.121Z"
+  - command: node --test test/review-r6.test.ts test/consolidate.test.ts test/review-r1.test.ts
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-20T00:18:05.814Z"
+      source_kind: local_mutation
+      source_ref: review/memory-r1
 docs[3]{path,scope}:
   ARCHITECTURE.md,project
   CHANGELOG.md,project

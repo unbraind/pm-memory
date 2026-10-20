@@ -59,7 +59,7 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
   const selected = new Map(merges.map(proposal => [proposal.slug, proposal]));
   const targets = new Set([...selected.values()].map(proposal => proposal.target));
   const archived = new Set(result.filter(proposal => proposal.action === 'archive' && !targets.has(proposal.slug)).map(proposal => proposal.slug));
-  return result.filter(proposal => !(proposal.action === 'supersedes' && archived.has(proposal.target!)) && !(proposal.action === 'archive' && targets.has(proposal.slug)) && !(proposal.action === 'merge' && (targets.has(proposal.slug) || selected.get(proposal.slug) !== proposal)));
+  return result.filter(proposal => !(proposal.action === 'supersedes' && archived.has(proposal.target!)) && !(proposal.action === 'archive' && targets.has(proposal.slug)) && !(proposal.action === 'merge' && (archived.has(proposal.slug) || targets.has(proposal.slug) || selected.get(proposal.slug) !== proposal)));
 }
 /** Durable merge evidence binds replay to the original source and both target states. */
 interface MergeReceipt {

@@ -14,7 +14,7 @@ test('consolidation dry-run is byte-for-byte read only; explicit apply archives 
   const survivor = await remember('Repeated durable guidance about builds', { ...options, kind: 'reference', slug: 'duplicate-two', forceNew: true });
   const stale = await remember('Unused stale context', { ...options, kind: 'project', slug: 'stale' }); await store.fields(stale.id, { verdict: 'stale', reason: 'missing path src/removed.ts under roots' });
   const pinned = await remember('Pinned stale context', { ...options, kind: 'user', slug: 'pinned', pin: true }); await store.fields(pinned.id, { verdict: 'stale', reason: 'missing path src/removed.ts under roots' });
-  const used = await remember('Used stale context', { ...options, kind: 'user', slug: 'used' }); await store.fields(used.id, { verdict: 'stale', recalls: 1 });
+  const used = await remember('Used stale context', { ...options, kind: 'user', slug: 'used' }); await store.fields(used.id, { verdict: 'stale', recalls: 1, reason: 'missing path src/removed.ts under roots' });
   const before = await snapshot(options.workspace); const history = await readFile(getHistoryPath(options.workspace, old.id));
   const dry = await consolidate({ ...options, minAgeDays: 0 }); assert.equal(dry.applied, false);
   assert.ok(dry.proposals.some(proposal => proposal.action === 'supersedes'));
