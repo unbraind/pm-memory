@@ -7,11 +7,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-20T00:38:53.822Z"
+updated_at: "2026-10-20T02:59:48.095Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[41]:
+comments[45]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -136,7 +138,19 @@ comments[41]:
   - created_at: "2026-10-20T00:38:53.800Z"
     author: codex-agent
     text: "Final tracker checks: pm health --strict-exit passes all 10 checks with zero warnings, pending merge decisions or history drift. pm validate --json is ok for all 9 items but reports 11 branch-provenance trust advisories on existing linked commands whose recorded source reference differs from the review branch. These are advisory command-trust warnings, distinct from tracker authority and release-gate results; existing provenance and append-only history are retained."
-files[28]{path,scope}:
+  - created_at: "2026-10-20T02:47:07.028Z"
+    author: codex-agent
+    text: "Review round: fetched all unresolved PR #1 threads and complete comments; two findings remain (PRRT_kwDOVPw2oc6uKOSA and PRRT_kwDOVPw2oc6uKOSL). Latest CodeRabbit review has no Outside diff range section. Remote head is current with main; strict health is clean. Plan: whole-file import privacy scanning with safe line diagnostics; exclude custom tracker storage from verification source text by resolved and real paths. Add synthetic real-tracker regressions, prove behavioural reverts independently, self-review related paths, and run unchanged full release gates before pushing."
+  - created_at: "2026-10-20T02:48:41.094Z"
+    author: codex-agent
+    text: "Implemented both verified findings. PRRT_kwDOVPw2oc6uKOSA: full decoded-file privacy preflight catches multiline assignments and authorization headers, preserves safe per-line diagnostics and uses a generic multiline location when needed. Tests cover every import harness, LF/CRLF, explicit email opt-in, mixed-file diagnostics and identical durable tracker bytes after refusal. PRRT_kwDOVPw2oc6uKOSL: source inventories exclude explicit tracker files by logical and real workspace paths, including custom directories, relative options, symlink aliases and roots inside the tracker; similarly named source siblings remain searchable. Self-review traced remember/import privacy entry points and CLI/SDK verification paths; no other split-line scanner or unbound verification caller exists in package operations."
+  - created_at: "2026-10-20T02:48:42.341Z"
+    author: codex-agent
+    text: "Behavioural revert proofs against parent 4852aa1: restored only importDir in src/transfer.ts, ran node --test --test-name-pattern=\"import refuses multiline\" test/review-r7.test.ts: 0 pass / 1 fail, Missing expected rejection. Restored fix; restored only evidence in src/verify.ts, ran node --test --test-name-pattern=\"verification excludes custom tracker\" test/review-r7.test.ts: 0 pass / 1 fail, stale count 0 instead of 1 because the tracker self-verified. Restored fix; node --test test/review-r7.test.ts: 3 pass / 0 fail. Tests import TypeScript sources directly; no stale dist involved."
+  - created_at: "2026-10-20T02:59:48.008Z"
+    author: codex-agent
+    text: "First full npm run release:check passed at unchanged thresholds: 143/143 suite tests and 2/2 packed npm/npx and Bun/bunx consumers; no failures, cancellations or skips. Coverage 100% statements/branches/functions/lines across 19 source files, 0% duplication (0/4516 lines across 39 sources), 82/82 declarations documented, production audit zero vulnerabilities, all 42 packed files allowlisted, changelog current, one publish invocation attested. PM-linked node --test test/review-r7.test.ts also passed 3/3; result tracking is disabled by existing policy so this comment preserves the receipt. Strict health passes all 10 checks, zero warnings; validation is ok for 9 items with the same 11 existing branch-provenance trust advisories. Isolated-identity npm and full Bun gates are pending on the same code snapshot."
+files[29]{path,scope}:
   eslint.config.ts,project
   index.ts,project
   LICENSE,project
@@ -163,9 +177,10 @@ files[28]{path,scope}:
   test/review-r4.test.ts,project
   test/review-r5.test.ts,project
   test/review-r6.test.ts,project
+  test/review-r7.test.ts,project
   test/tooling.test.ts,project
   tsconfig.json,project
-tests[8]:
+tests[9]:
   - command: "npm run release:check"
     scope: project
     provenance:
@@ -228,6 +243,13 @@ tests[8]:
     provenance:
       author: codex-agent
       created_at: "2026-10-20T00:18:05.814Z"
+      source_kind: local_mutation
+      source_ref: review/memory-r1
+  - command: node --test test/review-r7.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-20T02:48:43.515Z"
       source_kind: local_mutation
       source_ref: review/memory-r1
 docs[3]{path,scope}:

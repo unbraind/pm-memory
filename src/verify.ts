@@ -130,11 +130,12 @@ export function suffixIndex(roots: string[], inventories: string[][], limit = 10
   }
   return result;
 }
-/** Enumerate hidden and nested repositories without consulting gitignore or following symlinks. */
-async function evidence(input: string | readonly string[]): Promise<Evidence> {
+/** Enumerate source trees without following symlinks; tracker storage cannot verify its own text. */
+async function evidence(input: string | readonly string[], workspace?: string): Promise<Evidence> {
   const requested = [...new Set((typeof input === 'string' ? [input] : input).map(root => resolve(root)))];
   const roots = requested.filter(root => !requested.some(parent => parent !== root && root.startsWith(parent + sep)));
   if (roots.length === 0) throw new MemoryError('verify', 'No verification roots supplied', 'Supply at least one --root');
+  const trackers = workspace === undefined ? [] : [resolve(workspace), await realpath(workspace)];
   const files: string[][] = []; const directories: string[][] = [];
   for (const root of roots) {
     try {
@@ -144,7 +145,9 @@ async function evidence(input: string | readonly string[]): Promise<Evidence> {
       throw new MemoryError('verify', 'Verification root could not be read', 'Supply an existing source --root and check permissions or symlink loops');
     }
     const listed = await inventory(root, 100000);
-    files.push(listed.files); directories.push(listed.directories);
+    const actualRoot = await realpath(root);
+    files.push(listed.files.filter(path => !trackers.some(tracker => [resolve(root, path), resolve(actualRoot, path)].some(file => file.startsWith(tracker + sep)))));
+    directories.push(listed.directories);
   }
   const suffixes = suffixIndex(roots, files.map((paths, index) => [...paths, ...directories[index]]));
   return { roots, files: files.map(paths => paths.filter(path => !path.split('/').includes('.agents') && !/\.(?:md|mdx|mdc)$/i.test(path))), directories, suffixes };
@@ -249,7 +252,7 @@ export async function checkClaim(claim: Claim, root: string | readonly string[],
 /** Persist conservative verdicts and confident reasons, caching repeated claims for this run only. */
 export async function verify(options: MemoryOptions & { root?: string | readonly string[]; slug?: string; network?: boolean }): Promise<{ checked: number; stale: number; skipped: string[]; results: { slug: string; verdict: Verdict; claims: ClaimResult[] }[] }> {
   if (options.slug !== undefined) slug(options.slug);
-  const roots = options.root ?? process.cwd(); const source = await evidence(roots);
+  const roots = options.root ?? process.cwd(); const source = await evidence(roots, options.workspace);
   const store = new Store(options);
   const memories = active(await store.read()).filter(item => options.slug === undefined || item.slug === options.slug);
   if (options.slug !== undefined && memories.length === 0) throw new MemoryError('missing', 'Memory slug does not exist', 'Use memory index to select an active slug');

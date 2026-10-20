@@ -88,9 +88,17 @@ export async function importDir(path: string, options: MemoryOptions & { from: H
   harness(options.from);
   const input = await sources(path);
   const offenses: string[] = [];
-  for (const source of input) for (const [index, line] of source.bytes.toString('utf8').split(/\r?\n/).entries()) {
-    try { privacy(line, options.allowEmail); }
-    catch (error) { offenses.push(`${source.path}:line ${index + 1} (${(error as MemoryError).message})`); }
+  for (const source of input) {
+    const content = source.bytes.toString('utf8');
+    try { privacy(content, options.allowEmail); }
+    catch (error) {
+      const before = offenses.length;
+      for (const [index, line] of content.split(/\r?\n/).entries()) {
+        try { privacy(line, options.allowEmail); }
+        catch (error) { offenses.push(`${source.path}:line ${index + 1} (${(error as MemoryError).message})`); }
+      }
+      if (offenses.length === before) offenses.push(`${source.path}:multiline (${(error as MemoryError).message})`);
+    }
   }
   if (offenses.length > 0) throw new MemoryError('privacy', `Import refused: ${offenses.join('; ')}`, 'Edit each listed file to remove credentials or addresses; --allow-email permits email addresses only');
   const parsed = input.map(source => sourceDocument(source.path, source.bytes, options.from));
