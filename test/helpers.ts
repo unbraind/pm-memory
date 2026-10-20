@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+import type { SpawnSyncReturns } from 'node:child_process';
 import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -27,4 +29,11 @@ export async function snapshot(root: string): Promise<Record<string, string>> {
     }
   }
   await walk(root); return result;
+}
+
+/** Require a successful child test run, a positive pass count and the expected test name. */
+export function assertTestsPassed(result: SpawnSyncReturns<string>, expectedName: string): void {
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /\bpass [1-9]\d*\b/, result.stdout + result.stderr);
+  assert.ok(result.stdout.includes(expectedName), result.stdout + result.stderr);
 }

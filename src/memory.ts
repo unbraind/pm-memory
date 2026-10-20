@@ -18,6 +18,7 @@ export async function remember(fact: string, options: RememberOptions): Promise<
     const memories = await store.read();
     const previous = memories.find(item => item.slug === key);
     if (options.update !== undefined && previous === undefined) throw new MemoryError('missing', 'Update slug does not exist', 'Use remember --slug to create a new memory');
+    if (previous?.artifact === true) throw new MemoryError('conflict', `Slug ${key} belongs to an imported index artifact`, 'Choose a different --slug; index artifacts are not editable memories');
     const title = fact.trim().split(/\r?\n/)[0].slice(0, 160).toWellFormed();
     const duplicate = active(memories).find(item => item.slug !== key && similarity(`${title}\n${fact}`, `${item.title}\n${item.body}`) >= DUPLICATE_THRESHOLD);
     if (previous === undefined && duplicate !== undefined && !options.forceNew) throw new MemoryError('duplicate', `Near duplicate of ${duplicate.slug}`, `Use --update ${duplicate.slug} or --force-new with a distinct --slug`);

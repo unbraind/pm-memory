@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-20T03:39:47.220Z"
+updated_at: "2026-10-20T04:27:14.073Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[52]:
+comments[56]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -169,7 +169,19 @@ comments[52]:
   - created_at: "2026-10-20T03:39:45.816Z"
     author: codex-agent
     text: "Final acceptance on corrected source 820b7ea: both full npm run release:check under isolated HOME/Git identity and full bun run release:check in an independent clone exited 0. Each ran 143/143 suite tests and 2/2 packed npm/npx and Bun/bunx consumers, with zero failures/cancellations/skips. Both measured all 19 intended source files at 100% statements/branches/functions/lines, 0% duplication across 39 sources (0/4519 lines), 82 documented declarations, zero production vulnerabilities, 42 allowlisted packed files, current changelog and one attested publish invocation. The packed artifact hash agreed across final gates. Final PM-linked regressions pass 3/3; three isolated behavioural reversions fail as intended. Both original unresolved findings are valid and fixed. Self-review preserved explicit tracker path evidence while excluding tracker text. No private memory data accessed or copied, no thread replies or resolutions, no merge or release. No new pm CLI/SDK defect found. Existing development-only advisory remains on pm-memory-eafx; dependency pins unchanged. Release this claim for orchestrator verification without closing the item; exact pushed head will be checked in CI and an independent clone."
-files[29]{path,scope}:
+  - created_at: "2026-10-20T04:20:25.134Z"
+    author: codex-agent
+    text: "Review round: fetched all review threads and comments at head b8c1289; exactly three unresolved threads (PRRT_kwDOVPw2oc6uMSRi, PRRT_kwDOVPw2oc6uMSRo, PRRT_kwDOVPw2oc6uMSRv), no pagination gaps. Latest substantive CodeRabbit review has no Outside diff range section. All findings verified valid. Plan: actionable memory_merge conflicts, refuse remember writes to index artifacts, require positive child test pass counts; real-tracker regressions and behavioral revert proofs, self-review, unchanged npm/Bun and isolated-identity release gates."
+  - created_at: "2026-10-20T04:21:53.068Z"
+    author: codex-agent
+    text: "All three review findings fixed. PRRT_kwDOVPw2oc6uMSRi: both mergeReceipt refusal paths identify the source and memory_merge with audited pm update recovery; valid destinations are named and unavailable destinations use a safe label. PRRT_kwDOVPw2oc6uMSRo: remember rejects every imported index artifact slug before schema/history/content writes, including explicit update, forceNew and canceled artifacts. PRRT_kwDOVPw2oc6uMSRv: child assertions require a positive pass count AND the expected test name; Node 24 reports a file-level pass even for an empty name selection, so count alone is insufficient. Self-review covered all remember selectors and artifact lifecycle states, malformed/null/legacy receipts, dry-run refusals, safe destination diagnostics, and other filtered child test invocations; no additional affected filtered invocation was found."
+  - created_at: "2026-10-20T04:21:53.783Z"
+    author: codex-agent
+    text: "Behavioral revert proofs (each restored immediately): node --test --test-name-pattern=\"pending merge refusals\" test/review-r8.test.ts with only mergeReceipt reverted to b8c1289 failed the source-identification assertion (exit 1); node --test --test-name-pattern=\"remember refuses index artifact\" test/review-r8.test.ts with only remember reverted failed Missing expected rejection (exit 1); node --test --test-name-pattern=\"child test assertions\" test/review-r8.test.ts with only assertTestsPassed reduced to the prior status-only behavior failed Missing expected exception (exit 1). Fixed focused run: node --test test/review-r8.test.ts test/review-r5.test.ts passed 10/10, zero failures, skips or cancellations. New real-tracker regressions prove refusal leaves durable bytes unchanged and imported index export byte-identical; no SDK mocks or private corpus used."
+  - created_at: "2026-10-20T04:27:13.271Z"
+    author: codex-agent
+    text: "Final round acceptance: npm run release:check passed normally and with isolated HOME/Git identity; bun run release:check passed with isolated HOME/Git identity. All three full runs exited 0 at unchanged thresholds, each with 146/146 suite tests and 2/2 packed npm/npx and Bun/bunx consumer tests, zero failures/cancellations/skips. All 19 intended source files measured at 100% statements/branches/functions/lines (1923 statements/lines, 1185 branches, 99 functions). Duplication 0% (0/4598 lines across 40 sources); all 82 declarations documented; production vulnerabilities zero; 42 allowlisted packed files; matching packed artifact hashes; changelog current and one publish invocation attested. PM-linked focused regressions passed 10/10; all three behavioral revert proofs failed as intended. Strict health passed 10/10 with zero warnings. Validation passes all 9 items with 11 existing branch-provenance advisories. Existing development-only advisory remains on pm-memory-eafx; no new PM CLI/SDK bug found. No pins, workflow, template or thresholds changed. No private corpus accessed, no thread replies/resolutions, no merge or release. Release claim and retain in_progress for orchestrator verification; verify the committed head in an independent clone before push."
+files[30]{path,scope}:
   eslint.config.ts,project
   index.ts,project
   LICENSE,project
@@ -197,9 +209,10 @@ files[29]{path,scope}:
   test/review-r5.test.ts,project
   test/review-r6.test.ts,project
   test/review-r7.test.ts,project
+  test/review-r8.test.ts,project
   test/tooling.test.ts,project
   tsconfig.json,project
-tests[9]:
+tests[10]:
   - command: "npm run release:check"
     scope: project
     provenance:
@@ -269,6 +282,13 @@ tests[9]:
     provenance:
       author: codex-agent
       created_at: "2026-10-20T02:48:43.515Z"
+      source_kind: local_mutation
+      source_ref: review/memory-r1
+  - command: node --test test/review-r8.test.ts test/review-r5.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-20T04:21:41.875Z"
       source_kind: local_mutation
       source_ref: review/memory-r1
 docs[3]{path,scope}:

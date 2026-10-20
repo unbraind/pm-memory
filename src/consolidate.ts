@@ -84,9 +84,9 @@ function revision(item: Memory): string {
 function mergeReceipt(source: Memory, memories: readonly Memory[]): MergeReceipt {
   let receipt: MergeReceipt;
   try { receipt = JSON.parse(source.merge) as MergeReceipt; }
-  catch { throw new MemoryError('conflict', 'Invalid pending memory merge', 'Inspect the pending merge receipt before retrying'); }
+  catch { throw new MemoryError('conflict', `Invalid pending memory merge on ${source.slug}`, `Inspect memory_merge on ${source.slug}; reconcile or clear it through an audited pm update before retrying`); }
   const target = memories.find(item => item.slug === receipt?.target && item.status !== 'canceled');
-  if (target === undefined || typeof receipt.body !== 'string' || typeof receipt.changed_at !== 'string' || receipt.source_revision !== revision(source) || ![receipt.target_before, receipt.target_after].includes(revision(target))) throw new MemoryError('conflict', 'Pending memory merge revisions changed', 'Preserve intervening edits and reconcile the pending merge before retrying');
+  if (target === undefined || typeof receipt.body !== 'string' || typeof receipt.changed_at !== 'string' || receipt.source_revision !== revision(source) || ![receipt.target_before, receipt.target_after].includes(revision(target))) throw new MemoryError('conflict', `Pending memory merge ${source.slug} -> ${target?.slug ?? 'unavailable target'} revisions changed`, `Preserve intervening edits, then reconcile or clear memory_merge on ${source.slug} through an audited pm update before retrying`);
   return receipt;
 }
 /** Preview consolidation without writes; explicitly applied actions preserve all content and audited history. */

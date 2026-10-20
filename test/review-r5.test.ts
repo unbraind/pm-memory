@@ -7,7 +7,7 @@ import { remember, consolidate, importDir, exportDir } from '../index.ts';
 import { proposals } from '../src/consolidate.ts';
 import { privacy } from '../src/core.ts';
 import { gitEnvironment, testEnvironment } from '../scripts/environment.ts';
-import { tracker, snapshot } from './helpers.ts';
+import { tracker, snapshot, assertTestsPassed } from './helpers.ts';
 
 test('supersession targets survive duplicate merges on this and subsequent plans', async t => {
   const { options, store, client } = await tracker(t);
@@ -80,7 +80,7 @@ test('privacy audit uses its own repository even under inherited Git hook overri
     cwd: join(import.meta.dirname, '..'), encoding: 'utf8',
     env: { ...testEnvironment(gitEnvironment(process.env)), GIT_DIR: join(root, 'nonexistent.git'), GIT_WORK_TREE: root, GIT_INDEX_FILE: join(root, 'index') },
   });
-  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assertTestsPassed(result, 'authored and tracker files');
 });
 
 test('README path and export contracts match the implemented behaviour', async () => {
