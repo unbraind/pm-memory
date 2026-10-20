@@ -1,0 +1,30 @@
+id: pm-memory-6tl1
+title: Refuse private credentials
+description: ""
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-19T12:58:27.787Z"
+updated_at: "2026-10-19T14:38:52.808Z"
+author: codex-agent
+estimated_minutes: 45
+acceptance_criteria: Fail closed for credential-shaped values and private keys; emails require opt-in; real-looking synthetic memory fixture refuses a fake token.
+parent: pm-memory-0kwy
+comments[3]{created_at,author,text}:
+  "2026-10-19T13:08:12.765Z",codex-agent,"Privacy preflight distinguishes environment variable references and short plain token-accounting prose from credential-shaped literals. Password and key assignments, token prefixes, JWTs, private keys, authenticated URLs and unapproved emails refuse before persistence. Synthetic frontmatter containing a fake credential is covered."
+  "2026-10-19T14:01:04.911Z",codex-agent,Import preflight aggregates all offending relative filenames and line numbers with matched privacy classes before any writes; remedies identify editing and --allow-email. Native help now provides descriptions and realistic examples for every operand and option.
+  "2026-10-19T14:32:09.525Z",codex-agent,"Final synthetic and packed acceptance: import reports every offending relative file and line with the matched email/credential class before any writes, and names editing plus --allow-email remedies. Native import help now renders real source/format descriptions and examples. The pinned SDK supports argument and flag descriptions; no help-description gap."
+files[6]{path,scope}:
+  src/commands.ts,project
+  src/core.ts,project
+  src/transfer.ts,project
+  test/edges.test.ts,project
+  test/memory.test.ts,project
+  test/round2.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-name-pattern=\"core validation|privacy variable\" test/memory.test.ts test/edges.test.ts",project,codex-agent,"2026-10-19T13:20:21.148Z",local_mutation,feat/memory
+docs[2]{path,scope}:
+  ARCHITECTURE.md,project
+  README.md,project
+body: ""

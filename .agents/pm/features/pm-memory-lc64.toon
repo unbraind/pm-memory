@@ -1,0 +1,37 @@
+id: pm-memory-lc64
+title: Recall and index
+description: ""
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-19T12:57:44.557Z"
+updated_at: "2026-10-19T15:20:06.721Z"
+author: codex-agent
+estimated_minutes: 90
+acceptance_criteria: "Rank lexical relevance, recency and standing guidance; entire packets stay within budget; process-concurrent recall counters; random-set property tests and packer revert proof."
+parent: pm-memory-0kwy
+comments[9]{created_at,author,text}:
+  "2026-10-19T13:32:34.261Z",codex-agent,"Behavioral revert proof: revert only the packer acceptance predicate so oversized rows are accepted. npm run build passes; node --test --test-name-pattern=\"budget packer\" test/memory.test.ts fails with AssertionError and exit 1. Restoring the predicate passes. Two independent processes start behind a shared barrier and produce exactly six recall increments."
+  "2026-10-19T13:41:19.814Z",codex-agent,"Accepted aggregate recall packets stay under 800 estimated tokens. Four preselected references appeared at ranks 1, 1, 1 and 3; the release-workflow reference was omitted from its three returned rows. This budget tradeoff is documented rather than hidden. Index: 1498 of 1500 tokens. Random-set property and synchronized process-counter tests passed."
+  "2026-10-19T14:00:52.642Z",codex-agent,"Recall now packs compact scored rows first, preserves top rank at small budgets, spends spare space on marked excerpts, and exposes full content via memory get. Ranking includes descriptions and slugs. Regression covers huge top bodies at budgets 200 and 800."
+  "2026-10-19T14:07:42.329Z",codex-agent,"Behavioral revert proof: reverting only recall to the review baseline makes the 200-token top-1 regression fail (1 failed, 0 passed): a smaller fallback replaces the oversized highest-ranked memory. Restored code returns the top row and passes the focused suite."
+  "2026-10-19T14:17:19.838Z",codex-agent,"Private ranking review exposed equal title/description weighting that buried a relevant reference. Adjusted weights to title 5, description 2, slug 1.5, other text 1; added a synthetic field-priority regression. Final five-query rank measurements pending."
+  "2026-10-19T14:30:09.655Z",codex-agent,"Final private proof at budgets 800 and 200: reference ranks are 1,1,1,1,2 for the five prescribed queries at both budgets. Baseline replay ranks in packets were 1,1,omitted,1,2. Compact rows at 800 increased from 3 to 13; all packets fit, top-1 synthetic regression passes at 200. Index uses 1476/1500 estimated tokens. Aggregate table recorded in README."
+  "2026-10-19T15:15:43.292Z",codex-agent,"Release-gate regression: scoring sampled Date.now independently for each memory. Advancing time during a ranking pass can incorrectly break a score tie before the slug tie-breaker. Capture one timestamp per pass; a real SDK memory plus a controlled advancing clock proves that equal-timestamp memories keep stable slug order. No SDK mocks."
+  "2026-10-19T15:16:35.412Z",codex-agent,"Clock regression proof: the advancing-clock fixture passes with one timestamp per scoring pass, and fails with only scored reverted to b958419 (beta incorrectly precedes alpha). Both the direct and pm-linked regression pass after restoration. This removes the timing-dependent ranking failure without changing the tie contract."
+  "2026-10-19T15:20:04.485Z",codex-agent,"Final verification: the advancing-clock regression is included in both isolated release gates, each passing 93/93 suite tests plus 2/2 packed npx/bunx consumers with 100/100/100/100 coverage. The scoring-only revert fails the regression; restored implementation passes. Release-gate timing failure resolved."
+files[6]{path,scope}:
+  src/commands.ts,project
+  src/core.ts,project
+  src/memory.ts,project
+  test/memory.test.ts,project
+  test/recaller.ts,project
+  test/round2.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-name-pattern=\"independent process|budget property\" test/memory.test.ts",project,codex-agent,"2026-10-19T13:18:54.723Z",local_mutation,feat/memory
+  node --test --test-name-pattern=one.scoring.pass test/memory.test.ts,project,codex-agent,"2026-10-19T15:16:32.231Z",local_mutation,feat/memory
+docs[2]{path,scope}:
+  ARCHITECTURE.md,project
+  README.md,project
+body: ""

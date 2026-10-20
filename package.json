@@ -130,5 +130,9 @@
   "duplicationGate": {
     "threshold": 0,
     "minTokens": 50
+  },
+  "dependencies": {
+    "@toon-format/toon": "^4.4.0",
+    "yaml": "^2.9.1"
   }
 }
