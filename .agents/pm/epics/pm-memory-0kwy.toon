@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-20T06:22:44.794Z"
+updated_at: "2026-10-20T08:59:32.119Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[67]:
+comments[73]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -214,7 +214,25 @@ comments[67]:
   - created_at: "2026-10-20T06:22:43.740Z"
     author: codex-agent
     text: "Final review-round acceptance: normal npm run release:check, isolated HOME/Git bun run release:check, and isolated HOME/Git npm run release:check in an independent clone all exited 0. Each passed 12/12 stages, 155/155 suite tests and 2/2 packed npm/npx plus Bun/bunx consumer tests, zero suite failures/cancellations/skips. All three reported 100% statements/branches/functions/lines: 1968/1968 statements and lines, 1237/1237 branches, 101/101 functions across 19 source files; 0/4867 duplicate lines across 42 sources; 84 documented declarations; zero production vulnerabilities; 42 allowlisted packed files. Early concurrent-edit coverage diagnostics were discarded; accepted runs used frozen source/tests/docs/dependency hashes. Strict health passes 10 checks with zero warnings, including an independent clone. Validation accepts all 9 items with the same 11 pre-existing linked-test branch-provenance advisories. Existing development-only dependency advisories remain tracked on pm-memory-eafx. No new PM CLI/SDK defect found. Both unresolved findings fixed; four final-source revert mutants each failed with one assertion failure, and restored regressions pass 4/4. No private corpus access or history rewriting; threads remain untouched. Releasing claim for orchestrator verification; item remains in progress."
-files[34]{path,scope}:
+  - created_at: "2026-10-20T08:20:11.135Z"
+    author: codex-agent
+    text: "Round 11: fetched all review threads and comments (two unresolved; latest CodeRabbit review has no Outside diff range findings). Verified pinned SDK 2026.10.19 dist/core/lock/lock.js: main isStaleLock compares only created_at age with caller TTL; buildLockPayload stores pid but no host; acquireLock defaults to force-required stale handling and emits lock_conflict after its wait. Only the stale-cleanup gate checks process identity. Plan: align README tracker-path contract; retain conservative 3600-second TTL, add same-host ESRCH recovery serialized with the SDK cleanup gate, bound conflicts and report remediation. Test SIGKILL, live/foreign holders, PID reuse, competing recovery, and measure real critical sections; run behavioral reverts and unchanged npm/Bun release checks. No SDK dependency bump or thread replies."
+  - created_at: "2026-10-20T08:25:38.345Z"
+    author: codex-agent
+    text: "Implementation uses the pinned SDK cleanup-gate protocol to serialize recovery with SDK creation/release. Host fingerprints are runtime metadata; legacy/foreign/invalid ownership fails closed. Only local ESRCH allows unlink, after a second ownership read under the gate. Live PID reuse remains blocked and is documented. SDK lock_conflict and force-required stale conflicts map to MemoryError conflict with PID, host class, age and manual remediation; default wait is capped at 3 seconds. First six-operation non-git workload measured a 5875.34 ms maximum critical section (12-file import plus remember/recall/verify/export/applied consolidation), far below the retained 3600 s TTL. Initial SIGKILL recovery was 40.45 ms. Adversarial coverage now includes IO/permission failures, replacement-owner races and competing recoverers. README now matches tracker path-name versus content evidence contract."
+  - created_at: "2026-10-20T08:27:19.544Z"
+    author: codex-agent
+    text: "Refinement after adversarial testing: a loaded workload measured a 32020.08 ms maximum critical section, reinforcing the conservative 3600 s TTL. Restored the original 30-second contention budget (supersedes the earlier 3-second note). Each SDK attempt is fail-fast under a single monotonic capped deadline, with dead-owner checks on every retry. This handles a second observed pinned SDK gap: during concurrent initialization a missing/incomplete main lock can cause an immediate force-required stale conflict despite a configured SDK wait. Competing package recoverers retry these transient conflicts while preserving the cleanup gate and live/foreign-owner protections. No SDK source or pin changes."
+  - created_at: "2026-10-20T08:30:22.798Z"
+    author: codex-agent
+    text: "Behavioral revert proof: restored only Store.write to the original SDK acquireLock call plus its import, retaining all new tests. node --test --test-name-pattern=\"SIGKILLed writer|live holder blocks|foreign, legacy\" test/review-r11.test.ts with PM_LOCK_WAIT_MS=0 failed 3/3: the killed writer produced raw SDK lock_conflict on the attempted real write, and live/foreign/reused-PID refusals lacked MemoryError conflict mapping. Restored the implementation in finally. Corrected code passes all 11 focused tests through pm test --run --match test/review-r11.test.ts --progress (11 pass, zero fail/skips/cancellations; SIGKILL acquisition 39.89 ms). Focused c8 measured writer-lock.ts at 100/100/100/100. README contract check fails on original wording and passes corrected wording. Self-review of the complete package found no other SDK lock/claim sites and confirmed the README and ARCHITECTURE tracker path/content wording agrees."
+  - created_at: "2026-10-20T08:37:54.564Z"
+    author: codex-agent
+    text: "Strengthened crash evidence: both the package writer and SDK-only fixture now assert the child exit signal is SIGKILL. The SDK-only child explicitly keeps its IPC channel referenced until killed. Both targeted crash tests pass (2/2, actual SIGKILL verified; package recovery acquired in 7.11 ms). Stopped the initial full gate solely to apply this test-fixture correction; its interrupted/canceled results are not acceptance evidence. Restarting both unchanged release gates on the final fixture."
+  - created_at: "2026-10-20T08:59:27.670Z"
+    author: codex-agent
+    text: "Round 11 acceptance: isolated HOME/Git npm run release:check and bun run release:check both PASS all 12 stages at unchanged thresholds. Each has 166/166 suite tests plus 2/2 real packed npm/npx and Bun/bunx consumer tests, zero suite failures/cancellations/skips; coverage is 2048/2048 statements and lines, 1304/1304 branches, 107/107 functions across all 20 intended source files (100/100/100/100). Duplication 0/5184 lines across 46 sources; 89 declarations documented; production audit zero vulnerabilities; 46 allowed packed files; changelog and publish attestation pass. Real SIGKILL recovery acquisition: npm gate 29.96 ms, Bun gate 15.32 ms. Six-operation non-git critical-section maxima: initial 5875.34 ms, loaded 32020.08 ms, npm gate 5706.99 ms, Bun gate 15496.39 ms; retained TTL 3600 s with no age-only forced reclaim. All 64 authored product/test/config files match SHA256 snapshot b2dba8b57290650978c1c45a8aea870d59adda9f585b33e0cd387a7be2c111da across both gates. Three behavioral reverts fail as intended; corrected focused suite passes 11/11. SDK-only repro and evidence are in ARCHITECTURE and test/sdk-lock-holder.ts; upstream main-lock PID recovery and transient initialization gaps remain for the orchestrator to report, not filed here. Open limitations: PID reuse and legacy/foreign locks require manual verification; host fingerprints assume unique host names and shared PID namespace; pinned cleanup-gate compatibility needs revalidation on SDK upgrade. Threads remain untouched; no merge, release, dependency or threshold change."
+files[38]{path,scope}:
   eslint.config.ts,project
   index.ts,project
   LICENSE,project
@@ -229,6 +247,7 @@ files[34]{path,scope}:
   src/transfer.ts,project
   src/types.ts,project
   src/verify.ts,project
+  src/writer-lock.ts,project
   test/commands.test.ts,project
   test/consolidate.test.ts,project
   test/edges.test.ts,project
@@ -239,6 +258,7 @@ files[34]{path,scope}:
   test/review-followup.test.ts,project
   test/review-r1.test.ts,project
   test/review-r10.test.ts,project
+  test/review-r11.test.ts,project
   test/review-r4.test.ts,project
   test/review-r5.test.ts,project
   test/review-r6.test.ts,project
@@ -246,10 +266,12 @@ files[34]{path,scope}:
   test/review-r8.test.ts,project
   test/review-r9.test.ts,project
   test/round2.test.ts,project
+  test/sdk-lock-holder.ts,project
   test/tooling.test.ts,project
   test/transfer.test.ts,project
+  test/writer-holder.ts,project
   tsconfig.json,project
-tests[12]:
+tests[13]:
   - command: "npm run release:check"
     scope: project
     provenance:
@@ -340,6 +362,13 @@ tests[12]:
     provenance:
       author: codex-agent
       created_at: "2026-10-20T06:11:21.848Z"
+      source_kind: local_mutation
+      source_ref: review/memory-r1
+  - command: node --test test/review-r11.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-20T08:25:22.825Z"
       source_kind: local_mutation
       source_ref: review/memory-r1
 docs[3]{path,scope}:

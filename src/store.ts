@@ -1,8 +1,9 @@
-import { acquireLock, certifyCompleteListResult, getHistoryPath, PmClient, readHistoryEntries, readSettings, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
+import { certifyCompleteListResult, getHistoryPath, PmClient, readHistoryEntries, readSettings, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { PmActionName, PmClientRunArgs } from '@unbrained/pm-cli/sdk';
 import type { SchemaFieldDefinition } from '@unbrained/pm-cli/sdk/authoring';
 import type { Memory, MemoryOptions } from './types.ts';
 import { kind, MemoryError, slug } from './core.ts';
+import { writerLock } from './writer-lock.ts';
 
 /** All memory metadata uses registered SDK fields, including lossless source artifacts. */
 export const MEMORY_FIELDS: SchemaFieldDefinition[] = [
@@ -38,7 +39,7 @@ export class Store {
   }
   /** Serialize read-modify-write operations across independent processes and clients. */
   async write<T>(run: () => Promise<T>): Promise<T> {
-    const unlock = await acquireLock(this.workspace, 'memory-writer', 3600, this.author, false, true, 30000);
+    const unlock = await writerLock(this.workspace, this.author);
     try { return await run(); } finally { await unlock(); }
   }
   /** Register the custom Knowledge type and compatible metadata through native schema writes. */

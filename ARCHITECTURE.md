@@ -24,7 +24,7 @@ Each fact is a native Knowledge item, registered as a custom type in the `knowle
 
 Source bytes are durable item metadata, so shared tracker access includes access to imported files. The package never stages imports inside its own repository. The input privacy gate runs before schema or item mutations; imported emails require explicit opt-in. Unsafe source names, symlinks, non-UTF-8 files, unknown kinds, normalized slug collisions and conflicting semantic edits refuse.
 
-The Store reads settings and registers fields through SDK schema operations. It certifies every full-corpus read using `certifyCompleteListResult`. Duplicate slugs, invalid counters, invalid verdicts and damaged history refuse. It uses `acquireLock` with a process-owned `memory-writer` lock, a bounded wait and conservative stale-lock handling. The lock encloses full-corpus read, slug validation and every counter update across independent processes. Native item/schema writers retain their own locks. Recall tests release two independent Node processes concurrently, each recalling three times, then assert exactly six increments.
+The Store reads settings and registers fields through SDK schema operations. It certifies every full-corpus read using `certifyCompleteListResult`. Duplicate slugs, invalid counters, invalid verdicts and damaged history refuse. It uses `acquireLock` with a process-owned `memory-writer` lock, a 3600-second TTL and a 30-second capped wait. Same-host owners proven dead by ESRCH are reclaimed under the SDK cleanup gate with a warning. Live, foreign and unverifiable owners are never reclaimed, even after TTL expiry; contention returns an actionable `conflict` error. PID reuse fails closed when an unrelated live process holds the recorded PID. See [writer lock evidence](#writer-lock-recovery-evidence) for the pinned SDK protocol, measurements and manual recovery procedure. The lock encloses full-corpus read, slug validation and every counter update across independent processes. Native item/schema writers retain their own locks. Recall tests release two independent Node processes concurrently, each recalling three times, then assert exactly six increments.
 
 The outer lock coordinates pm-memory clients. Independent native pm updates can bypass it; operators should use the package APIs for slug and counter changes. A multi-item operation is a sequence of audited SDK writes, so a process failure may leave a partial import/verify/consolidation. Retrying idempotent source imports completes missing files and links. Existing history is never repaired or rewritten by this package.
 
@@ -71,3 +71,64 @@ Without apply, no schema, comments, metadata or history changes occur. With appl
 Interrupted merge receipts bind source and destination semantic revisions. Replay accepts only the original or already-published destination state; intervening edits, missing destinations and legacy receipts refuse before any planned writes, preserving the receipt for reconciliation. Existing and proposed supersession endpoints remain active during merge selection. Verification returns skipped snapshot slugs alongside checked results.
 
 Export resolves every wiki reference against emitted facts and their actual re-imported canonical slugs before building aggregate indexes. Canceled, artifact, absent and ambiguous targets become plain text, preserving their visible reference text. Generated relationships omit canceled and artifact targets. Original bytes count as preserved only when reference reconciliation leaves them unchanged.
+
+## Writer lock recovery evidence
+
+The pinned `@unbrained/pm-cli` 2026.10.19 package implements its main lock in
+`dist/core/lock/lock.js`. `buildLockPayload` records `id`, `pid`, `owner`, `token`,
+`created_at` and `ttl_seconds`, but no host. `isStaleLock` compares only
+`Date.now() - Date.parse(created_at)` with the caller's TTL. The PID is used for
+release ownership, not main-lock stale detection. `acquireLock` emits
+`lock_conflict` after its bounded wait; with force-required stale handling it
+refuses old locks rather than deleting them. The SDK's separate
+`.stale-cleanup/owner.json` gate does check process liveness.
+
+`test/sdk-lock-holder.ts` reproduces the main-lock gap without package code:
+acquire `sdk-repro` with a 3600-second TTL, signal readiness, then SIGKILL the
+child. A second `acquireLock` with zero wait throws `lock_conflict` even though
+the first PID is dead. `test/review-r11.test.ts` executes this reproduction.
+No upstream report was filed.
+
+Package locks now append a host fingerprint to their runtime owner string.
+Recovery requires that exact local fingerprint, a valid positive PID, and
+`process.kill(pid, 0)` failing specifically with ESRCH. Permission errors,
+unknown ownership, legacy locks and foreign hosts fail closed. A live process
+is never reclaimed, including after TTL expiry. The fingerprint assumes host
+names uniquely identify hosts sharing the tracker and that writers share the
+host PID namespace; do not share a tracker between distinct PID namespaces
+presenting the same host name.
+
+Before unlinking, recovery exclusively creates the SDK's `.stale-cleanup`
+gate, writes its own live PID and token using the pinned gate protocol, then
+reads and checks the current main lock again. SDK acquisition, release and
+stale removal all acquire that same gate. Competing recoverers therefore
+cannot delete a replacement owner's lock. The package never removes another
+process's gate. If killed while holding the gate, the SDK's abandoned-gate
+recovery applies; retry after its 10-second stale-gate interval. Native item
+and schema locks remain SDK-owned. No other package SDK lock/claim call exists.
+
+Successful recovery emits `PM_MEMORY_LOCK_RECOVERED` with the dead PID.
+Contention is `MemoryError('conflict', ...)`, with PID, host class, age, retry
+advice and a conservative manual procedure for foreign/legacy owners. Default
+wait is 30 seconds, capped at 30 seconds even with a larger environment override;
+`PM_LOCK_WAIT_MS=0` remains fail-fast. Recovery runs before every fail-fast SDK
+attempt, including retries during the wait. The package bounds the complete retry lifecycle with a monotonic deadline.
+This also retries transient SDK stale conflicts while another process is
+initializing the main lock under the cleanup gate.
+
+PID reuse is deliberately conservative: the main SDK payload has no process
+start identity. If its PID now belongs to an unrelated live process, recovery
+cannot distinguish it from the original owner and refuses. The adversarial
+test substitutes an unrelated live PID to model that case. Stop all writers
+and investigate before manually removing such a lock. Host identity is also
+unavailable for pre-change SDK locks, so those require manual verification.
+
+The TTL remains 3600 seconds, with force-required stale handling: expiration
+never authorizes removing a live or foreign main lock. A measured non-git
+tracker workload covers a 12-file import, remember, recall, verify, export and
+applied consolidation. The first measured maximum was 5875.34 ms across six
+critical sections; a second run under contention measured 32020.08 ms
+(32.021 seconds). Subsequent gate-run measurements are recorded in the review
+tracker. These measurements are observations, not an upper bound for arbitrary corpus sizes or slow storage; keeping the existing
+one-hour TTL avoids shortening the lease below a possible long operation.
+Even longer live critical sections remain protected by force-required policy.
