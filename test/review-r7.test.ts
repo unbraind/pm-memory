@@ -58,18 +58,21 @@ test('verification excludes custom tracker text through resolved and real worksp
   const sibling = join(fixture.root, 'tracker-source'); await mkdir(sibling);
   await writeFile(join(sibling, 'entry.ts'), 'export const siblingSymbol = true;\n');
   const options = { ...fixture.options, workspace };
+  const runtime = join(workspace, 'runtime'); await mkdir(runtime, { recursive: true });
+  await writeFile(join(runtime, 'evidence.jsonl'), '{}\n');
   await remember('Use `src/entry.ts` absentSymbol() --absent-option', { ...options, kind: 'project', slug: 'absent' });
   await remember('Use `src/entry.ts` presentSymbol() --present-option', { ...options, kind: 'project', slug: 'present' });
   await remember('Use siblingSymbol()', { ...options, kind: 'project', slug: 'sibling' });
+  await remember('Read `runtime/evidence.jsonl`', { ...options, kind: 'reference', slug: 'tracker-path' });
   for (const location of [workspace, relative(process.cwd(), workspace), alias]) {
     const result = await verify({ ...options, workspace: location, root: fixture.root });
-    assert.equal(result.checked, 3);
+    assert.equal(result.checked, 4);
     assert.equal(result.stale, 1);
     const absent = result.results.find(row => row.slug === 'absent')!;
     assert.equal(absent.verdict, 'stale');
     assert.equal(absent.claims.find(claim => claim.type === 'symbol')!.verdict, 'stale');
     assert.equal(absent.claims.find(claim => claim.type === 'flag')!.verdict, 'unknown');
-    for (const slug of ['present', 'sibling']) assert.equal(result.results.find(row => row.slug === slug)!.verdict, 'verified');
+    for (const slug of ['present', 'sibling', 'tracker-path']) assert.equal(result.results.find(row => row.slug === slug)!.verdict, 'verified');
     assert.equal((await new Store({ ...options, workspace: location }).read()).find(row => row.slug === 'absent')!.verdict, 'stale');
   }
   // A root inside the tracker must also contribute no textual evidence.

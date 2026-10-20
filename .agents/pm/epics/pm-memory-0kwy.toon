@@ -7,13 +7,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-20T02:59:48.095Z"
+updated_at: "2026-10-20T03:21:52.479Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[45]:
+comments[50]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -150,6 +150,21 @@ comments[45]:
   - created_at: "2026-10-20T02:59:48.008Z"
     author: codex-agent
     text: "First full npm run release:check passed at unchanged thresholds: 143/143 suite tests and 2/2 packed npm/npx and Bun/bunx consumers; no failures, cancellations or skips. Coverage 100% statements/branches/functions/lines across 19 source files, 0% duplication (0/4516 lines across 39 sources), 82/82 declarations documented, production audit zero vulnerabilities, all 42 packed files allowlisted, changelog current, one publish invocation attested. PM-linked node --test test/review-r7.test.ts also passed 3/3; result tracking is disabled by existing policy so this comment preserves the receipt. Strict health passes all 10 checks, zero warnings; validation is ok for 9 items with the same 11 existing branch-provenance trust advisories. Isolated-identity npm and full Bun gates are pending on the same code snapshot."
+  - created_at: "2026-10-20T03:06:21.600Z"
+    author: codex-agent
+    text: "Validation attempt note: isolated npm and independent-clone Bun coverage overlapped. The unchanged adversarial JWT process test exceeded its existing five-second child deadline under contention (5089 ms); the initial full npm gate passed that test. Stopped both owned overlapping runs; interrupted runs are not acceptance evidence. Rerun the full isolated npm gate and full Bun gate sequentially without changing deadlines, coverage thresholds or source code."
+  - created_at: "2026-10-20T03:06:35.757Z"
+    author: codex-agent
+    text: "Correction to the preceding validation note: the JWT failure was assert.ok(elapsed < 500), the existing 500 ms measured scan threshold; 5089 ms was the total test duration, not a five-second child deadline. The child exited successfully; no process-deadline error was reported. The process uses a 15-second startup timer and a two-second post-ready timer. The contention diagnosis remains provisional until the unchanged sequential rerun passes. Preserve both this correction and the original attempt in append-only history."
+  - created_at: "2026-10-20T03:19:03.865Z"
+    author: codex-agent
+    text: "Sequential isolated acceptance passed: full npm run release:check with a fresh HOME, GIT_CONFIG_GLOBAL=/dev/null and GIT_CONFIG_NOSYSTEM=1 exited 0. Suite 143/143; packed consumers 2/2; failures/cancellations/skips all zero; 19 measured sources and 100% coverage in every dimension; production audit zero; 42 allowlisted packed files. All three adversarial scan tests passed unchanged, including the 500 ms JWT assertion that failed during the overlapping attempt. Independent git clone --no-local of code commit 3ebe34c passed strict health: 10 checks, zero warnings. The full Bun gate now runs alone in that clone. No source, dependency pin, deadline or coverage threshold changed for the rerun."
+  - created_at: "2026-10-20T03:21:48.947Z"
+    author: codex-agent
+    text: "Final self-review found and corrected an overbroad exclusion in the first review fix: tracker file names must remain in the suffix index for explicit path-existence claims, while their contents must not establish symbol/flag evidence. This preserves the accepted tracker-runtime path contract. The expanded synthetic custom-tracker regression includes a runtime path claim alongside absent symbols, valid source symbols, prefix siblings and workspace aliases. Verified failure against evidence from 3ebe34c: node --test --test-name-pattern=\"verification excludes custom tracker\" test/review-r7.test.ts fails with stale count 2 instead of 1. Separating path inventory from text inventory restores the legitimate path claim. Earlier full gates on 3ebe34c are preliminary evidence, superseded by this source correction; stopped the Bun run on that superseded snapshot. Rerun both complete release gates sequentially on the corrected snapshot."
+  - created_at: "2026-10-20T03:21:52.445Z"
+    author: codex-agent
+    text: "Repeated behavioural proofs with the strengthened final regression: reverting only importDir to 4852aa1 yields Missing expected rejection (0 pass / 1 fail); reverting only evidence to 4852aa1 yields stale count 0 instead of 1 (0 pass / 1 fail); reverting only evidence to 3ebe34c yields stale count 2 instead of 1 (0 pass / 1 fail). Exact commands: node --test --test-name-pattern=\"import refuses multiline\" test/review-r7.test.ts and node --test --test-name-pattern=\"verification excludes custom tracker\" test/review-r7.test.ts. Restored focused suite passes 3/3; typecheck passed. All reverts were isolated to the named function, and tests import source directly."
 files[29]{path,scope}:
   eslint.config.ts,project
   index.ts,project

@@ -136,7 +136,7 @@ async function evidence(input: string | readonly string[], workspace?: string): 
   const roots = requested.filter(root => !requested.some(parent => parent !== root && root.startsWith(parent + sep)));
   if (roots.length === 0) throw new MemoryError('verify', 'No verification roots supplied', 'Supply at least one --root');
   const trackers = workspace === undefined ? [] : [resolve(workspace), await realpath(workspace)];
-  const files: string[][] = []; const directories: string[][] = [];
+  const files: string[][] = []; const directories: string[][] = []; const sourceFiles: string[][] = [];
   for (const root of roots) {
     try {
       if (!(await stat(root)).isDirectory()) throw new MemoryError('verify', 'Verification root is not a directory', 'Supply an existing source --root');
@@ -145,12 +145,12 @@ async function evidence(input: string | readonly string[], workspace?: string): 
       throw new MemoryError('verify', 'Verification root could not be read', 'Supply an existing source --root and check permissions or symlink loops');
     }
     const listed = await inventory(root, 100000);
+    files.push(listed.files); directories.push(listed.directories);
     const actualRoot = await realpath(root);
-    files.push(listed.files.filter(path => !trackers.some(tracker => [resolve(root, path), resolve(actualRoot, path)].some(file => file.startsWith(tracker + sep)))));
-    directories.push(listed.directories);
+    sourceFiles.push(listed.files.filter(path => !trackers.some(tracker => [resolve(root, path), resolve(actualRoot, path)].some(file => file.startsWith(tracker + sep)))));
   }
   const suffixes = suffixIndex(roots, files.map((paths, index) => [...paths, ...directories[index]]));
-  return { roots, files: files.map(paths => paths.filter(path => !path.split('/').includes('.agents') && !/\.(?:md|mdx|mdc)$/i.test(path))), directories, suffixes };
+  return { roots, files: sourceFiles.map(paths => paths.filter(path => !path.split('/').includes('.agents') && !/\.(?:md|mdx|mdc)$/i.test(path))), directories, suffixes };
 }
 /** Resolve portable paths by full suffix, retaining basename-only matches as ambiguity. */
 async function fileClaim(input: Claim, source: Evidence): Promise<ClaimResult> {
