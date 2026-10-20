@@ -95,7 +95,7 @@ test('semantic age survives recall and verify and advances only on changed conte
 });
 
 /** Replay a receipt captured from a real merge, then exercise a failed cancellation using filesystem permissions. */
-test('merge receipts resume after body publication without duplicate appends', async t => {
+test('merge receipts resume after body publication without duplicate appends', { skip: process.getuid?.() === 0 ? 'root ignores permission bits' : false }, async t => {
   const { options, store, workspace } = await tracker(t);
   const older = await remember('Repeated build guidance', { ...options, kind: 'project', slug: 'old' });
   const target = await remember('Repeated build guidance', { ...options, kind: 'project', slug: 'new', forceNew: true });
@@ -178,8 +178,19 @@ test('in-process verification needs no PATH tools and honors byte and file bound
   assert.ok((await directoryEvidence(root)).includes('.agents'));
   const regularOnly = join(root, 'regular-only'); await mkdir(regularOnly); await writeFile(join(regularOnly, 'only.ts'), 'source');
   await assert.rejects(directoryEvidence(regularOnly, 0), /bounded search limit/);
+});
+
+/** Permission failures are reported explicitly when directory traversal is denied. */
+test('directory evidence rejects unreadable directories', { skip: process.getuid?.() === 0 ? 'root ignores permission bits' : false }, async t => {
+  const { root } = await tracker(t);
   const denied = join(root, 'denied'); await mkdir(denied); await chmod(denied, 0);
   try { await assert.rejects(directoryEvidence(denied), /could not be read/); } finally { await chmod(denied, 0o700); }
+});
+
+/** Permission failures cannot be mistaken for evidence that a source symbol is absent. */
+test('source search rejects unreadable files', { skip: process.getuid?.() === 0 ? 'root ignores permission bits' : false }, async t => {
+  const { root } = await tracker(t); await writeFile(join(root, 'source.ts'), 'crossChunkSymbol()');
+  const source: Parameters<typeof searchClaims>[1] = { roots: [root], files: [['source.ts']], directories: [[]], suffixes: new Map() };
   await chmod(join(root, 'source.ts'), 0);
   try { await assert.rejects(searchClaims([{ type: 'symbol', value: 'absent()' }], source), /could not be read/); } finally { await chmod(join(root, 'source.ts'), 0o600); }
 });

@@ -67,10 +67,14 @@ test('export detects path collisions for original artifacts and generated memori
   await assert.rejects(exportDir(join(root, 'reverse-collision'), { ...options, to: 'claude-code' }), /collide/);
 });
 
-test('filesystem permission and symlink loop failures produce safe typed evidence refusals', async t => {
-  const { root, options } = await tracker(t);
+test('symlink loop failures produce safe typed evidence refusals', async t => {
+  const { root } = await tracker(t);
   await symlink('loop.ts', join(root, 'loop.ts'));
   await assert.rejects(checkClaim({ type: 'file', value: 'loop.ts' }, root, false), /could not be read/);
+});
+
+test('exports reject readonly output directories', { skip: process.getuid?.() === 0 ? 'root ignores permission bits' : false }, async t => {
+  const { root, options } = await tracker(t);
   await remember('Export permission fixture', { ...options, kind: 'project', slug: 'permission' });
   const output = join(root, 'readonly'); await mkdir(output); await chmod(output, 0o500);
   try { await assert.rejects(exportDir(output, { ...options, to: 'agents-md' })); } finally { await chmod(output, 0o700); }

@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-20T08:59:32.119Z"
+updated_at: "2026-10-20T10:44:47.348Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[73]:
+comments[79]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -232,6 +232,24 @@ comments[73]:
   - created_at: "2026-10-20T08:59:27.670Z"
     author: codex-agent
     text: "Round 11 acceptance: isolated HOME/Git npm run release:check and bun run release:check both PASS all 12 stages at unchanged thresholds. Each has 166/166 suite tests plus 2/2 real packed npm/npx and Bun/bunx consumer tests, zero suite failures/cancellations/skips; coverage is 2048/2048 statements and lines, 1304/1304 branches, 107/107 functions across all 20 intended source files (100/100/100/100). Duplication 0/5184 lines across 46 sources; 89 declarations documented; production audit zero vulnerabilities; 46 allowed packed files; changelog and publish attestation pass. Real SIGKILL recovery acquisition: npm gate 29.96 ms, Bun gate 15.32 ms. Six-operation non-git critical-section maxima: initial 5875.34 ms, loaded 32020.08 ms, npm gate 5706.99 ms, Bun gate 15496.39 ms; retained TTL 3600 s with no age-only forced reclaim. All 64 authored product/test/config files match SHA256 snapshot b2dba8b57290650978c1c45a8aea870d59adda9f585b33e0cd387a7be2c111da across both gates. Three behavioral reverts fail as intended; corrected focused suite passes 11/11. SDK-only repro and evidence are in ARCHITECTURE and test/sdk-lock-holder.ts; upstream main-lock PID recovery and transient initialization gaps remain for the orchestrator to report, not filed here. Open limitations: PID reuse and legacy/foreign locks require manual verification; host fingerprints assume unique host names and shared PID namespace; pinned cleanup-gate compatibility needs revalidation on SDK upgrade. Threads remain untouched; no merge, release, dependency or threshold change."
+  - created_at: "2026-10-20T10:14:45.591Z"
+    author: codex-agent
+    text: "Round 12: searched all tests for chmod-based permission failures. Guard export into a readonly directory, merge cancellation in a readonly tracker directory, denied directory evidence, and unreadable source evidence with explicit root-only test skips. Preserve non-root assertions and cleanup; keep symlink and bounded-search coverage running as root by splitting mixed tests. Latest CodeRabbit review 5583592386 contains no Outside diff range findings. Plan: prove baseline root failures and fixed skips in disposable Node 22 containers with read-only repository mounts; run focused tests and both full release gates at unchanged thresholds."
+  - created_at: "2026-10-20T10:18:01.159Z"
+    author: codex-agent
+    text: "Root verification: disposable public node:22 image, Node v22.23.3, UID 0, read-only repository and Git metadata mounts. Exact test invocation: node --test test/edges.test.ts test/review-r1.test.ts. Fixed run: 23 tests, 19 passed, 4 explicitly skipped with reason root ignores permission bits, zero failures. Behavioral revert proof: remove only the four skip options in scratch test copies mounted over the same files; 23 tests, 19 passed, 4 failed with Missing expected rejection, zero skipped. The failing cases are readonly export, merge cancellation, denied directory evidence and unreadable source search. Initial baseline also reproduced three permission failures and an ownership setup error; container-local safe.directory configuration eliminated that setup error without changing the repository."
+  - created_at: "2026-10-20T10:20:45.018Z"
+    author: codex-agent
+    text: "Validation progress: splitting the permission cases exposed a duplicate fixture declaration; removed the redundant optional matches initializer with a typed Evidence argument fixture. Duplication is again 0/5199 lines at unchanged 0% threshold. Initial release gate stopped at duplication; rerunning the full gate after the fixture correction. Tracker validation accepts all 9 items. Strict health reports a local extension host-version skew (pinned host 2026.10.19 versus external pm-github requiring 2026.10.20); dependency pins and external extension configuration remain outside this test-only review. No new PM CLI defect or UX gap was identified."
+  - created_at: "2026-10-20T10:22:33.890Z"
+    author: codex-agent
+    text: "Final source root rerun again passes with 23 total tests, 19 passed, four explicit root skips and zero failures. PM-linked focused execution ran all four permission assertions successfully as non-root, but its full result was 21 passed and two existing adversarial privacy timing failures under host CPU contention (process deadline and 500 ms wall-time assertion). No timing limits or test thresholds were changed. Full npm gate is progressing after duplication correction; rerun focused evidence after the gate when load permits."
+  - created_at: "2026-10-20T10:23:56.827Z"
+    author: codex-agent
+    text: "Non-root comparison on the final source: disposable node:22, Node v22.23.3, UID 1000, read-only repository mounts; node --test test/edges.test.ts test/review-r1.test.ts passes 23/23, zero failures and zero skips. This confirms the original permission assertions remain active as non-root. Product/test/config SHA256 snapshot contains 51 authored files; digest fa14595eca072075c0d366852e982310d3dc57e11a759fef2a9eaee51bdfea80 will be checked across both release gates."
+  - created_at: "2026-10-20T10:44:37.319Z"
+    author: codex-agent
+    text: "Round 12 acceptance: npm run release:check with isolated HOME/Git and bun run release:check both PASS all 12 stages at unchanged thresholds. Each passes 169/169 suite tests and 2/2 real packed npm/npx and Bun/bunx consumers, with zero final failures, cancellations or skips. Bun used a disposable public Node 22.23.3 container as UID 1000, with read-only original sources/dependencies and a writable temporary copy. Both report all 20 source files at 100%: 2048/2048 statements and lines, 1304/1304 branches, 107/107 functions. Duplication 0/5199 lines across 46 sources; all 89 declarations documented; production audit zero vulnerabilities; 46 allowed packed files; changelog and publish attestation pass. All 51 authored source/config/test hashes remain unchanged across gates (snapshot fa14595eca072075c0d366852e982310d3dc57e11a759fef2a9eaee51bdfea80). Final affected-file runs: non-root 23/23; root 19 passed plus four explicit permission-bit skips, zero failures; removing only guards gives four expected root failures. Earlier host timing failures and container mount/symlink setup failures were corrected in verification without weakening thresholds or changing package behavior. Strict tracker health without extensions passes 10/10; all 9 items validate. External extension host-version skew and existing development dependency advisories remain outside this review; no new PM CLI defect was identified. Final code changes are limited to four root-only test guards and separating independent assertions. Latest review has no Outside diff range findings. Threads remain untouched; no merge, release, dependency or threshold change."
 files[38]{path,scope}:
   eslint.config.ts,project
   index.ts,project
@@ -271,7 +289,7 @@ files[38]{path,scope}:
   test/transfer.test.ts,project
   test/writer-holder.ts,project
   tsconfig.json,project
-tests[13]:
+tests[14]:
   - command: "npm run release:check"
     scope: project
     provenance:
@@ -369,6 +387,14 @@ tests[13]:
     provenance:
       author: codex-agent
       created_at: "2026-10-20T08:25:22.825Z"
+      source_kind: local_mutation
+      source_ref: review/memory-r1
+  - command: node --test test/edges.test.ts test/review-r1.test.ts
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-20T10:16:18.763Z"
       source_kind: local_mutation
       source_ref: review/memory-r1
 docs[3]{path,scope}:
