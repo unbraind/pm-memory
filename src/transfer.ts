@@ -139,7 +139,7 @@ export async function importDir(path: string, options: MemoryOptions & { from: H
 }
 /** Produce a portable source for a native or deliberately revised fact. */
 function generated(item: Memory, to: Harness, memories: readonly Memory[]): Buffer {
-  const links = item.links.map(id => memories.find(memory => memory.id === id)).filter(memory => memory !== undefined).map(memory => `[[${memory.slug}]]`).join(' ');
+  const links = item.links.map(id => memories.find(memory => memory.id === id)).filter((memory): memory is Memory => memory !== undefined && memory.status !== 'canceled' && !memory.artifact).map(memory => `[[${memory.slug}]]`).join(' ');
   const content = to === 'claude-code' ? `---\nname: ${JSON.stringify(item.slug)}\ndescription: ${JSON.stringify(item.description || item.why)}\nmetadata:\n  type: ${item.kind}\n---\n\n${item.body}\n\n**Why:** ${item.why}\n**How to apply:** ${item.how}\n${links}\n` : `## ${item.title}\n\n${item.body}\n\n**Why:** ${item.why}\n**How to apply:** ${item.how}\n${links}\n`;
   return Buffer.from(content);
 }
@@ -202,6 +202,23 @@ function currentIndex(original: Buffer, paths: readonly string[]): boolean {
     return links.length === paths.length && new Set(links).size === paths.length && paths.every(path => links.includes(path));
   } catch { return false; }
 }
+/** Resolve wiki links against emitted facts, retaining unavailable references as plain text. */
+function exportedReferences(bytes: Buffer, memories: readonly Memory[], targets: ReadonlyMap<string, Source>): Buffer {
+  const content = bytes.toString('utf8');
+  const offset = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content)?.[0].length ?? 0;
+  return Buffer.from(content.slice(0, offset) + content.slice(offset).replace(/\[\[([a-z0-9_-]+)\]\]/g, (_link, reference: string) => {
+    const exact = memories.find(item => item.slug === reference);
+    const aliases = memories.filter(item => stemOf(item.path) === reference);
+    const item = exact ?? (aliases.length === 1 ? aliases[0] : undefined);
+    const target = item === undefined ? undefined : targets.get(item.id);
+    if (target === undefined) return reference;
+    const exported = [...targets.values()];
+    const canonical = exported.find(source => source.slug === reference);
+    const aliasesOut = exported.filter(source => stemOf(source.path) === reference);
+    const resolved = canonical ?? (aliasesOut.length === 1 ? aliasesOut[0] : undefined);
+    return `[[${resolved === target ? reference : target.slug}]]`;
+  }));
+}
 /** Export exact imported bytes when semantically unchanged, with conflict-safe native generation otherwise. */
 export async function exportDir(path: string, options: MemoryOptions & { to: Exclude<Harness, 'cursor'> }): Promise<{ exported: number; byte_preserved: number }> {
   harness(options.to, true);
@@ -210,13 +227,13 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     const memories = await store.read();
     const indexName = options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md';
     const names = new Set([indexName.toLowerCase()]);
-    const outputs = new Map<string, Buffer>(); const emitted: { item: Memory; name: string }[] = []; let byte_preserved = 0;
+    const outputs = new Map<string, Buffer>(); const emitted: { item: Memory; name: string }[] = []; const preserved = new Set<string>();
     for (const item of memories) {
       if (item.status === 'canceled') continue;
       await store.history(item.id);
       let name: string; let bytes: Buffer;
       if (item.path !== '' && !item.edited && item.source === `${options.to}:relative-file` && sameContent(item, sourceDocument(item.path, Buffer.from(item.original, 'base64'), options.to))) {
-        name = safePath(item.path); bytes = Buffer.from(item.original, 'base64'); byte_preserved++;
+        name = safePath(item.path); bytes = Buffer.from(item.original, 'base64'); preserved.add(name);
       } else if (!item.artifact) {
         name = options.to === 'claude-code' ? `${item.slug}.md` : `memories/${item.slug}.md`;
         bytes = generated(item, options.to, memories);
@@ -235,7 +252,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
           const encoded = name.split('/').map(part => encodeURIComponent(part)).join('/').replace(/[()]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
           return `- [${item.title.replace(/[[\]\r\n]/g, ' ')}](${encoded === name ? name : `<${encoded}>`})`;
         }).join('\n') + '\n'));
-        if (original !== undefined) byte_preserved--;
+        preserved.delete(indexName);
       }
     } else {
       const original = outputs.get('AGENTS.md');
@@ -253,10 +270,16 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       const additions = [...outputs.entries()].filter(([name, bytes]) => name !== 'AGENTS.md' && (base === undefined || !base.includes(bytes))).map(([, bytes]) => bytes);
       if (base === undefined || additions.length > 0 || base !== original) {
         outputs.set('AGENTS.md', Buffer.concat([...(base === undefined ? [] : [base, Buffer.from('\n')]), ...additions]));
-        if (original !== undefined) byte_preserved--;
+        preserved.delete(indexName);
       }
     }
+    const targets = new Map(emitted.map(({ item, name }) => [item.id, sourceDocument(name, outputs.get(name)!, options.to)]));
+    if (new Set([...targets.values()].map(source => source.slug)).size !== targets.size) throw new MemoryError('conflict', 'Exported names normalize to duplicate slugs', 'Rename the conflicting memory slug or source path before exporting');
+    for (const [name, bytes] of outputs) {
+      const resolved = exportedReferences(bytes, memories, targets);
+      if (!resolved.equals(bytes)) { outputs.set(name, resolved); preserved.delete(name); }
+    }
     await publish(resolve(path), outputs);
-    return { exported: outputs.size, byte_preserved };
+    return { exported: outputs.size, byte_preserved: preserved.size };
   });
 }

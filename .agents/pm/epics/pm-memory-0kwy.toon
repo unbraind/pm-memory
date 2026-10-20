@@ -7,11 +7,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-20T05:20:17.354Z"
+updated_at: "2026-10-20T06:17:05.533Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[62]:
+comments[66]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -199,7 +201,19 @@ comments[62]:
   - created_at: "2026-10-20T05:20:16.284Z"
     author: codex-agent
     text: "Final self-review covers every changed source function and related consolidation, packet-accounting and context-evidence paths. No unresolved finding rejected. Latest substantive review has no Outside diff range section. Strict PM health passes 10/10 with zero warnings; validation passes all 9 items with the same 11 existing branch-provenance advisories. Existing development-only advisories remain tracked on pm-memory-eafx. No new PM CLI/SDK defect found; one incorrect files invocation was corrected using the supported glob option. Existing history remains byte-prefix intact, new tracked content contains no absolute local paths, and no private corpus was accessed. No dependency pins, workflows or thresholds changed. Release claim and retain in_progress for orchestrator verification. Verify committed-head identity and strict health in an independent clone before push; leave threads untouched and do not merge or release."
-files[31]{path,scope}:
+  - created_at: "2026-10-20T06:07:09.748Z"
+    author: codex-agent
+    text: "Review round 10: fetched every unresolved thread with complete comments. Verified PRRT_kwDOVPw2oc6uNtb4 (verify skipped return documentation) and PRRT_kwDOVPw2oc6uNtb7 (generated links to canceled or artifact memories). Latest CodeRabbit review contains no Outside diff range findings. Will add regression and behavioral revert proofs, audit export reference closure and SDK contracts, and run unchanged npm/Bun release gates."
+  - created_at: "2026-10-20T06:11:10.471Z"
+    author: codex-agent
+    text: "Self-review verified all eight SDK signatures against README and inspected all export paths. Extended the link fix to retained source references, canonical names changed by AGENTS directory export, ambiguous aliases, and projected re-import slug collisions. Valid source aliases preserve bytes; missing targets become plain text and repairs reduce byte_preserved. Export stays read-only for the tracker and collision refusal precedes publication. Synthetic tests re-import both output harnesses with zero unresolved links."
+  - created_at: "2026-10-20T06:12:47.157Z"
+    author: codex-agent
+    text: "Behavioral revert proofs (scratch copy, tests unchanged): reverting only generated() to the remote-head implementation makes node --test --test-name-pattern \"generated exports\" test/review-r10.test.ts fail 0 pass/1 fail on archived/artifact output; reverting exportedReferences() to identity makes --test-name-pattern \"preserved and revised\" fail 0/1 on the repaired byte-preservation receipt; removing only projected slug collision validation makes --test-name-pattern \"export removes ambiguous\" fail 0/1 with Missing expected rejection; restoring only the previous README makes --test-name-pattern \"SDK documentation\" fail 0/1 on the missing skipped contract. Every mutant exited 1 with an assertion failure. Restored implementation passes all 4 new tests. Thread mapping: PRRT_kwDOVPw2oc6uNtb4 -> SDK contract; PRRT_kwDOVPw2oc6uNtb7 -> generated active-fact links plus full export reference closure."
+  - created_at: "2026-10-20T06:17:05.513Z"
+    author: codex-agent
+    text: "Stable-source normal npm run release:check passed all 12 stages: 155/155 suite tests and 2/2 packed npm/npx and Bun/bunx consumer tests, zero failures/cancellations/skips. Coverage: 1968/1968 statements and lines, 1237/1237 branches, 101/101 functions across 19 intended source files (100% each). Duplication 0/4867 lines across 42 sources; all 84 declarations documented; production audit zero vulnerabilities; 42 packed files allowlisted. Final-source behavioral revert proofs repeated successfully, each 0 pass/1 assertion failure. Source/tests/docs/dependency hashes frozen for remaining gates. Existing history prefixes preserved. Proceeding with Bun and isolated HOME/Git npm gates before push."
+files[34]{path,scope}:
   eslint.config.ts,project
   index.ts,project
   LICENSE,project
@@ -223,15 +237,18 @@ files[31]{path,scope}:
   test/privacy-process.ts,project
   test/review-followup.test.ts,project
   test/review-r1.test.ts,project
+  test/review-r10.test.ts,project
   test/review-r4.test.ts,project
   test/review-r5.test.ts,project
   test/review-r6.test.ts,project
   test/review-r7.test.ts,project
   test/review-r8.test.ts,project
   test/review-r9.test.ts,project
+  test/round2.test.ts,project
   test/tooling.test.ts,project
+  test/transfer.test.ts,project
   tsconfig.json,project
-tests[11]:
+tests[12]:
   - command: "npm run release:check"
     scope: project
     provenance:
@@ -315,6 +332,13 @@ tests[11]:
     provenance:
       author: codex-agent
       created_at: "2026-10-20T05:12:36.984Z"
+      source_kind: local_mutation
+      source_ref: review/memory-r1
+  - command: node --test test/review-r10.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-20T06:11:21.848Z"
       source_kind: local_mutation
       source_ref: review/memory-r1
 docs[3]{path,scope}:
