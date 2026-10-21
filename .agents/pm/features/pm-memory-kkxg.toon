@@ -7,20 +7,21 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T21:01:07.974Z"
-updated_at: "2026-10-21T21:15:01.386Z"
+updated_at: "2026-10-21T21:18:16.010Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: "Duplicate feedback is idempotent; confounded outcomes stay unscored; all aggregates retain source denominators. Typed SDK and CLI, compact TOON/JSON, typed refusals with remedies, docs and public-tracker non-git validation. Builds on semantic recall PR #5; no automatic deletion or policy training."
 parent: pm-memory-0kwy
-comments[6]{created_at,author,text}:
+comments[7]{created_at,author,text}:
   "2026-10-21T21:02:49.703Z",codex-agent,"Design: recall emits a budget-accounted receipt and saves content-revision exposure evidence atomically with each counter. Explicit helpful/unhelpful feedback links a native task, outcome, attribution and evidence; retries are idempotent per memory/task and conflicting retries refuse. Confounded, unknown, unfinished or pre-recall outcomes stay unscored. Reports retain lifetime/legacy exposure, missing-feedback, outcome and attribution denominators plus a separate current-content cohort. No deletion, ranking changes or policy training."
   "2026-10-21T21:07:42.753Z",codex-agent,Targeted compatibility tests passed 13/13 (memory and commands); utility tests passed 5/5. Focused utility coverage measured 100% statements/branches/functions/lines; no full local release gate run on the saturated host. Native command tests run in a non-git tracker with git absent from PATH. Production audit has zero vulnerabilities; development-only advisory is already tracked by pm-memory-eafx.
   "2026-10-21T21:09:12.524Z",codex-agent,"Public tracker replay: certified 80 committed source items, 56 completed; 167 source files unchanged by independent before/after fingerprint. Six explicitly scripted retrospective annotations on real tasks (3 helpful, 3 unhelpful), six idempotent retries, zero scored outcomes: 3 confounded and 3 pre-recall completions. Recall 107 tokens; report 412. These labels exercise exclusions and do not claim measured causal benefit. Evidence: docs/outcome-utility-validation.md; example: examples/outcome-utility.ts. Current CLI 2026.10.21 SDK overlap rechecked."
   "2026-10-21T21:11:20.275Z",codex-agent,"The first linked utility run hit the default 120-second timeout after four scenarios passed and before native CLI acceptance finished; direct utility execution had passed 5/5. Increasing only the linked command timeout to 300 seconds for the saturated host. No assertion failure or SDK context mismatch was reported. Added concurrent retry and native task-alias dedup checks, plus all-ledger preflight before any recall counter update."
   "2026-10-21T21:12:56.220Z",codex-agent,"Behavioral revert proofs: changing only observe to report duplicate feedback as newly recorded made the concurrent/idempotent regression fail (1 failing test); removing only the confounded exclusion made its denominator regression fail (1); moving ledger reads back inside counter writes made the read-only preflight regression fail (1). Restored all implementations. Commands: node --test --test-name-pattern \"utility keeps honest\" test/utility.test.ts; node --test --test-name-pattern \"confounded and unknown\" test/utility.test.ts; node --test --test-name-pattern \"recall preflights\" test/utility.test.ts. Final linked tests rerun with a 300-second timeout."
   "2026-10-21T21:15:01.334Z",codex-agent,"Final linked utility run passed 6/6 in 111 seconds with no context mismatch; targeted memory/command compatibility passed 13/13. Typecheck, lint, 111 documented declarations across 25 files, zero duplication (56 sources), changelog and identity checks pass. Local strict health reports only pm-github extension host-version skew (pinned 2026.10.19 versus global 2026.10.21); fresh CI health is still required. No dependency pin was changed."
-files[11]{path,scope}:
+  "2026-10-21T21:18:16.002Z",codex-agent,"First full CI run 39677325463: Node 26 executed 206 tests, 205 passed; all four coverage dimensions measured 100%. The sole failure was an existing documentation regression slicing README from the literal phrase All eight functions, now obsolete after adding two SDK functions. Updated the test to locate the SDK section while retaining its exact verify-return-contract assertion; targeted documentation regression passed 1/1. Fresh CI tracker health and CodeQL passed. Re-running CI after this test-only compatibility repair."
+files[12]{path,scope}:
   examples/outcome-utility.ts,project
   index.ts,project
   src/commands.ts,project
@@ -30,6 +31,7 @@ files[11]{path,scope}:
   src/utility-types.ts,project
   src/utility.ts,project
   test/install.acceptance.ts,project
+  test/review-r10.test.ts,project
   test/utility.test.ts,project
   tsconfig.test.json,project
 tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},updated_by,updated_at}:
