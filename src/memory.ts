@@ -68,6 +68,8 @@ export function scored(memories: readonly Memory[], query: string): { item: Memo
 }
 /** Preserve the public ranking projection while exposing scores in recall rows. */
 export function rank(memories: readonly Memory[], query: string): Memory[] { return scored(memories, query).map(entry => entry.item); }
+/** Shared production coefficients reported by the retrieval benchmark. */
+export const HYBRID_WEIGHTS = Object.freeze({ lexical: 0.3, cosine: 0.7, prior: 0.01 });
 /** Blend lexical relevance (30%) and cosine (70%), with a small additive pin/age prior. */
 export async function hybridScored(memories: readonly Memory[], query: string, options: MemoryOptions & SemanticOptions): Promise<{ rows: { item: Memory; score: number }[]; note?: string }> {
   const rows = scored(memories, query); const mode = semanticMode(options.semantic);
@@ -77,11 +79,12 @@ export async function hybridScored(memories: readonly Memory[], query: string, o
     const vectors = await memoryVectors(memories, options.workspace, provider);
     if (vectors === undefined) return { rows, note: semanticFailure(mode) };
     const [queryVector] = validateVectors(await provider.embed([query], 'query'), 1);
-    validateVectors([...vectors, queryVector], memories.length + 1);
-    const unit = vectors.map(unitVector); const queryUnit = unitVector(queryVector);
+    const available = vectors.filter(vector => vector !== undefined);
+    validateVectors([...available, queryVector], available.length + 1);
+    const unit = vectors.map(vector => vector === undefined ? undefined : unitVector(vector)); const queryUnit = unitVector(queryVector);
     const maximum = Math.max(...rows.map(row => row.lexical));
     const positions = new Map(memories.map((item, index) => [item.slug, index]));
-    return { rows: rows.map(({ item, lexical, prior }) => ({ item, score: 0.3 * (maximum === 0 ? 0 : lexical / maximum) + 0.7 * Math.max(0, unitCosine(unit[positions.get(item.slug)!], queryUnit)) + 0.01 * prior })).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
+    return { rows: rows.map(({ item, lexical, prior }) => ({ item, score: HYBRID_WEIGHTS.lexical * (maximum === 0 ? 0 : lexical / maximum) + HYBRID_WEIGHTS.cosine * Math.max(0, unitCosine(unit[positions.get(item.slug)!] ?? [], queryUnit)) + HYBRID_WEIGHTS.prior * prior })).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
   } catch { return { rows, note: semanticFailure(mode) }; }
 }
 /** Return a query-centered excerpt without charging oversized full memory bodies to the packet. */
@@ -117,7 +120,7 @@ export async function recall(query: string, options: MemoryOptions & SemanticOpt
     const current = await store.read();
     return commitRecall(store, current, await hybridScored(eligible(current), query, options), query, limit);
   });
-  for (;;) {
+  for (let attempt = 0; attempt < 5; attempt++) {
     const snapshot = await store.write(() => store.read());
     const ranked = await hybridScored(eligible(snapshot), query, options);
     const packet = await store.write(async () => {
@@ -127,6 +130,7 @@ export async function recall(query: string, options: MemoryOptions & SemanticOpt
     });
     if (packet !== undefined) return packet;
   }
+  throw new MemoryError('conflict', 'Memory corpus kept changing during semantic recall', 'Retry when concurrent memory writes settle, or use --semantic off');
 }
 /** Pack compact rows in rank order first, then spend spare tokens on marked excerpts. */
 export function recallPacket(rows: RecallRow[], memories: readonly Memory[], query: string, limit: number, note?: string): Packet {

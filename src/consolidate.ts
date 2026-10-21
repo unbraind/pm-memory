@@ -80,14 +80,16 @@ export async function semanticProposals(memories: readonly Memory[], options: Me
   const mode = semanticMode(options.semantic);
   if (mode === 'off') return { proposals: [] };
   try {
-    const rows = active(memories);
+    const rows = active(memories).sort((a, b) => a.updated.localeCompare(b.updated) || a.slug.localeCompare(b.slug));
     if (rows.length < 2) return { proposals: [] };
     const vectors = await memoryVectors(rows, options.workspace, options.provider ?? new OllamaProvider());
     if (vectors === undefined) return { proposals: [], note: semanticFailure(mode) };
     const result: Proposal[] = [];
-    const unit = vectors.map(unitVector);
+    const unit = vectors.map(vector => vector === undefined ? undefined : unitVector(vector));
     for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
-      const score = unitCosine(unit[i], unit[j]);
+      const left = unit[i]; const right = unit[j];
+      if (left === undefined || right === undefined) continue;
+      const score = unitCosine(left, right);
       if (score >= 0.9) result.push({ action: 'merge', slug: rows[i].slug, target: rows[j].slug, previewOnly: true, reason: `Possible paraphrase (cosine ${score.toFixed(3)}); review meaning and contradictions; dry-run only` });
     }
     return { proposals: result };

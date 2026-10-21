@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hybridScored, scored } from '../src/memory.ts';
+import { HYBRID_WEIGHTS, hybridScored, scored } from '../src/memory.ts';
 import { LexicalProvider, OllamaProvider } from '../src/embeddings.ts';
 import type { EmbeddingProvider } from '../src/embeddings.ts';
 import type { Memory } from '../src/types.ts';
@@ -61,7 +61,7 @@ export async function benchmark(fixture: RecallFixture, workspace: string, provi
     if (await provider.identity() !== model) throw new Error('Embedding model changed during benchmark');
     hybrid.push(ranked.rows.map(row => row.item.slug));
   }
-  return { memories: memories.length, queries: fixture.queries.length, model, mode: fallback ? 'lexical-fallback' : 'hybrid', weights: { lexical: 0.3, cosine: 0.7, prior: 0.01 }, lexical: metrics(lexical, fixture.queries), hybrid: metrics(hybrid, fixture.queries), ranks: fixture.queries.map(({ query, gold }, index) => ({ query, gold, lexical: lexical[index].findIndex(slug => gold.includes(slug)) + 1, hybrid: hybrid[index].findIndex(slug => gold.includes(slug)) + 1 })) };
+  return { memories: memories.length, queries: fixture.queries.length, model, mode: fallback ? 'lexical-fallback' : 'hybrid', weights: HYBRID_WEIGHTS, lexical: metrics(lexical, fixture.queries), hybrid: metrics(hybrid, fixture.queries), ranks: fixture.queries.map(({ query, gold }, index) => ({ query, gold, lexical: lexical[index].findIndex(slug => gold.includes(slug)) + 1, hybrid: hybrid[index].findIndex(slug => gold.includes(slug)) + 1 })) };
 }
 /** Run a reproducible local-only measurement; unavailable models fail explicitly. */
 export async function runBench(args: string[]): Promise<void> {

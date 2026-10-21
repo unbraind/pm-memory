@@ -9,7 +9,7 @@ import { Store } from '../src/store.ts';
 import { digest, packetTokens } from '../src/core.ts';
 import { cosine, unitCosine, embeddingInput, embeddingText, LexicalProvider, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from '../src/embeddings.ts';
 import type { EmbeddingProvider } from '../src/embeddings.ts';
-import { hybridScored, recall, remember, scored } from '../src/memory.ts';
+import { HYBRID_WEIGHTS, hybridScored, recall, remember, scored } from '../src/memory.ts';
 import { consolidate, semanticProposals } from '../src/consolidate.ts';
 import { benchmark, fixtureMemories, metrics, runBench } from '../scripts/bench.ts';
 import type { RecallFixture } from '../scripts/bench.ts';
@@ -17,7 +17,7 @@ import { tracker, snapshot } from './helpers.ts';
 
 /** An invented local protocol fixture; native tracker and SDK calls remain real. */
 async function daemon(t: TestContext) {
-  const state = { invalidJson: false, status: 200, redirect: false, delay: 0, payload: undefined as unknown, model: 'test:local', tags: { models: [{ name: 'test:local', digest: 'a'.repeat(64) }] } as unknown, inputs: [] as string[][], embed: (inputs: string[]): number[][] | Promise<number[][]> => inputs.map(input => /other|banana/i.test(input) ? [0, 1, 0] : /OIDC|registry|ship a release|federated publication/i.test(input) ? [1, 0, 0] : [0, 0, 1]) };
+  const state = { rejectInput: '', rejectStatus: 400, invalidJson: false, status: 200, redirect: false, delay: 0, payload: undefined as unknown, model: 'test:local', tags: { models: [{ name: 'test:local', digest: 'a'.repeat(64) }] } as unknown, inputs: [] as string[][], embed: (inputs: string[]): number[][] | Promise<number[][]> => inputs.map(input => /other|banana/i.test(input) ? [0, 1, 0] : /OIDC|registry|ship a release|federated publication/i.test(input) ? [1, 0, 0] : [0, 0, 1]) };
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
     if (state.delay > 0) await new Promise(resolve => { setTimeout(resolve, state.delay); });
@@ -28,7 +28,9 @@ async function daemon(t: TestContext) {
     else {
       const body = JSON.parse(Buffer.concat(chunks).toString()) as { input: string[]; truncate: boolean; model: string; keep_alive: string };
       assert.equal(req.url, '/api/embed'); assert.equal(body.truncate, false); assert.equal(body.model, state.model); assert.equal(body.keep_alive, '5m');
-      state.inputs.push(body.input); res.end(JSON.stringify(state.payload ?? { embeddings: await state.embed(body.input) }));
+      state.inputs.push(body.input);
+      if (state.rejectInput && body.input.some(input => input.includes(state.rejectInput))) { res.statusCode = state.rejectStatus; res.end(JSON.stringify({ error: 'input length exceeds context window' })); return; }
+      res.end(JSON.stringify(state.payload ?? { embeddings: await state.embed(body.input) }));
     }
   });
   await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve); });
@@ -524,4 +526,126 @@ test('non-git process runs real SDK semantic recall with no git executable and n
   assert.equal((await preview()).note, undefined);
   await remember('Other unrelated banana', { ...options, kind: 'project', slug: 'other' });
   assert.match((await preview()).note!, /lexical/);
+});
+
+
+test('review benchmark reports the shared immutable production weights and matching scores', async t => {
+  const instant = Date.now(); t.mock.method(Date, 'now', () => instant);
+  const { workspace } = await tracker(t);
+  const provider: EmbeddingProvider = { identity: async () => 'shared-weights', embed: async inputs => inputs.map(() => [1, 0]) };
+  const result = await benchmark(fixture, workspace, provider);
+  assert.equal(result.weights, HYBRID_WEIGHTS);
+  assert.ok(Object.isFrozen(result.weights));
+  assert.deepEqual(result.weights, { lexical: 0.3, cosine: 0.7, prior: 0.01 });
+  const memories = fixtureMemories(fixture);
+  const lexical = scored(memories, fixture.queries[0].query);
+  const maximum = Math.max(...lexical.map(row => row.lexical));
+  const ranked = await hybridScored(memories, fixture.queries[0].query, { workspace, provider, semantic: 'on' });
+  for (const row of ranked.rows) {
+    const source = lexical.find(entry => entry.item.slug === row.item.slug)!;
+    assert.equal(row.score, result.weights.lexical * (source.lexical / maximum) + result.weights.cosine + result.weights.prior * source.prior);
+  }
+});
+
+test('review semantic pairs always use older sources and deterministic equal-age slugs', async t => {
+  const { workspace } = await tracker(t);
+  const provider: EmbeddingProvider = { identity: async () => 'age-order', embed: async inputs => inputs.map(() => [1, 0]) };
+  const base = fixtureMemories(fixture)[0];
+  const memories = [
+    { ...base, slug: 'newer', updated: '2026-10-21' },
+    { ...base, slug: 'older-z', updated: '2026-01-01' },
+    { ...base, slug: 'older-a', updated: '2026-01-01' },
+  ];
+  const before = structuredClone(memories);
+  const preview = await semanticProposals(memories, { workspace, provider, semantic: 'on' });
+  assert.deepEqual(preview.proposals.map(({ slug, target }) => [slug, target]), [['older-a', 'older-z'], ['older-a', 'newer'], ['older-z', 'newer']]);
+  assert.deepEqual(memories, before);
+  assert.deepEqual(await semanticProposals([...memories].reverse(), { workspace, provider, semantic: 'on' }), preview);
+});
+
+test('review rejected documents retain zero-cosine lexical evidence and healthy semantic pairs', async t => {
+  const instant = Date.now(); t.mock.method(Date, 'now', () => instant);
+  const { options, workspace, store } = await tracker(t); const { provider, state } = await daemon(t);
+  await remember('oversized imported memory', { ...options, kind: 'reference', slug: 'oversized' });
+  await remember('npm trusted publishing OIDC', { ...options, kind: 'reference', slug: 'oidc' });
+  await remember('Federated publication registry identity', { ...options, kind: 'reference', slug: 'registry' });
+  state.rejectInput = 'oversized';
+  const memories = await store.read();
+  const vectors = await memoryVectors(memories, workspace, provider);
+  assert.ok(vectors);
+  assert.equal(vectors[memories.findIndex(item => item.slug === 'oversized')], undefined);
+  assert.equal(vectors.filter(vector => vector !== undefined).length, 2);
+  assert.deepEqual(state.inputs.map(inputs => inputs.length), [3, 1, 1, 1]);
+  const directory = join(workspace, 'runtime', 'memory-embeddings', digest(await provider.identity()));
+  assert.equal((await readdir(directory)).length, 2);
+  const before = await snapshot(workspace);
+  const preview = await semanticProposals(memories, { workspace, provider, semantic: 'on' });
+  assert.equal(preview.note, undefined);
+  assert.deepEqual(preview.proposals.map(({ slug, target }) => [slug, target]), [['oidc', 'registry']]);
+  assert.deepEqual(await snapshot(workspace), before);
+  for (const semantic of ['on', 'auto'] as const) {
+    const ranked = await hybridScored(memories, 'imported memory', { workspace, provider, semantic });
+    const lexical = scored(memories, 'imported memory');
+    const maximum = Math.max(...lexical.map(row => row.lexical));
+    const rejected = lexical.find(row => row.item.slug === 'oversized')!;
+    assert.equal(ranked.note, undefined);
+    assert.equal(ranked.rows.find(row => row.item.slug === 'oversized')!.score, HYBRID_WEIGHTS.lexical * (rejected.lexical / maximum) + HYBRID_WEIGHTS.prior * rejected.prior);
+    const packet = await recall('registry', { ...options, provider, semantic, budget: 800 });
+    assert.equal(packet.note, undefined); assert.ok(packetTokens(packet) <= 800);
+    assert.ok(packet.memories!.some(row => row.slug === 'oversized'));
+  }
+  assert.ok(state.inputs.slice(4).every(inputs => inputs.length === 1), 'healthy cached documents must never be re-embedded');
+  for (const item of await store.read()) assert.equal(item.recalls, 2);
+});
+
+test('review document rejection isolation preserves daemon model protocol and query failures', async t => {
+  const { workspace } = await tracker(t); const { provider, state } = await daemon(t);
+  const memories = fixtureMemories(fixture);
+  state.rejectInput = ''; state.rejectStatus = 400;
+  for (const status of [400, 413]) {
+    state.rejectInput = 'oidc'; state.rejectStatus = status;
+    assert.deepEqual(await memoryVectors([memories[0]], workspace, provider), [undefined]);
+  }
+  // Every rejected document contributes zero cosine; neither endpoint may form a pair.
+  const all = memories.map(item => ({ ...item, body: 'rejected' }));
+  state.rejectInput = 'rejected';
+  assert.deepEqual(await memoryVectors(all, workspace, provider), [undefined, undefined]);
+  assert.deepEqual(await semanticProposals(all, { workspace, provider, semantic: 'on' }), { proposals: [] });
+  const ranked = await hybridScored(all, 'absent', { workspace, provider, semantic: 'on' });
+  assert.equal(ranked.note, undefined);
+  state.rejectInput = '';
+  state.status = 503;
+  await assert.rejects(memoryVectors(memories, workspace, provider));
+  state.status = 200; state.rejectInput = 'oidc'; state.rejectStatus = 503;
+  const calls = state.inputs.length;
+  await assert.rejects(memoryVectors(memories, workspace, provider));
+  assert.equal(state.inputs.length, calls + 1, 'daemon errors must not fan out into per-row retries');
+  state.rejectInput = ''; state.payload = { embeddings: [[1]] };
+  await assert.rejects(memoryVectors(memories, workspace, provider), /Invalid embedding vectors/);
+  state.payload = undefined;
+  await memoryVectors(memories, workspace, provider);
+  state.rejectInput = 'query-rejection'; state.rejectStatus = 400;
+  await assert.rejects(hybridScored(memories, 'query-rejection', { workspace, provider, semantic: 'on' }), /unavailable/);
+  assert.match((await hybridScored(memories, 'query-rejection', { workspace, provider, semantic: 'auto' })).note!, /lexical/);
+});
+
+test('review semantic recall stops after five content conflicts without incrementing counters', async t => {
+  const { options, store } = await tracker(t);
+  await remember('Initial registry guidance', { ...options, kind: 'reference', slug: 'registry' });
+  for (const semantic of ['on', 'auto'] as const) {
+    const before = (await store.read())[0].recalls;
+    let queries = 0;
+    const provider: EmbeddingProvider = {
+      identity: async () => 'bounded-conflicts',
+      embed: async (inputs, purpose) => {
+        if (purpose === 'query' && ++queries <= 5) await remember(`Registry guidance revision ${semantic} ${queries}`, { ...options, kind: 'reference', update: 'registry' });
+        return inputs.map(() => [1, 0]);
+      },
+    };
+    await assert.rejects(recall('registry', { ...options, provider, semantic }), { code: 'conflict', message: /Memory corpus kept changing/ });
+    assert.equal(queries, 5);
+    assert.equal((await store.read())[0].recalls, before);
+    const packet = await recall('registry', { ...options, provider, semantic: 'off' });
+    assert.equal(packet.memories![0].slug, 'registry');
+  }
 });

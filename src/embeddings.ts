@@ -16,7 +16,7 @@ export type EmbeddingPurpose = 'query' | 'document';
 export interface EmbeddingProvider {
   /** Resolve an installed, local model revision before using cached vectors. */
   identity(): Promise<string>;
-  /** Embed a batch in input order; never download models or invoke cloud inference. */
+  /** Embed in order; throw EmbeddingInputError only for input rejection, never for daemon failures. */
   embed(inputs: readonly string[], purpose?: EmbeddingPurpose): Promise<number[][]>;
 }
 /** Deterministic no-model adapter; callers retain the lexical ranking. */
@@ -31,6 +31,8 @@ export function semanticMode(value: unknown = 'off'): SemanticMode {
   if (value !== 'auto' && value !== 'on' && value !== 'off') throw new MemoryError('invalid', 'Invalid semantic mode', 'Use --semantic auto, on or off');
   return value;
 }
+/** A document rejection may be isolated; transport and model failures must remain strict. */
+export class EmbeddingInputError extends Error {}
 /** Local Ollama adapter using only installed models and literal loopback addresses. */
 export class OllamaProvider implements EmbeddingProvider {
   /** Model tag selected explicitly or through the package-specific environment variable. */
@@ -52,7 +54,7 @@ export class OllamaProvider implements EmbeddingProvider {
   private async request(path: string, input?: readonly string[]): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const request = httpRequest(this.endpoint + path, { agent: LOOPBACK_AGENT, method: input === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(input === undefined ? Math.min(1500, this.timeoutMs) : this.timeoutMs), ...(input === undefined ? {} : { headers: { 'Content-Type': 'application/json' } }) }, response => {
-        if (response.statusCode !== 200) { response.resume(); reject(new Error('Local embedding request failed')); return; }
+        if (response.statusCode !== 200) { response.resume(); reject(new (input !== undefined && [400, 413].includes(response.statusCode!) ? EmbeddingInputError : Error)('Local embedding request failed')); return; }
         const chunks: Buffer[] = [];
         response.on('data', (chunk: Buffer) => { chunks.push(chunk); });
         response.on('error', reject);
@@ -121,8 +123,19 @@ async function publish(path: string, vector: number[]): Promise<void> {
   try { await writeFile(temporary, JSON.stringify(vector), { mode: 0o600 }); await rename(temporary, path); }
   finally { await rm(temporary, { force: true }); }
 }
+/** Retry only explicit input rejections individually, preserving daemon and protocol failures. */
+async function embedDocuments(provider: EmbeddingProvider, inputs: readonly string[]): Promise<(number[] | undefined)[]> {
+  try { return validateVectors(await provider.embed(inputs), inputs.length); }
+  catch (error) {
+    if (!(error instanceof EmbeddingInputError)) throw error;
+    if (inputs.length === 1) return [undefined];
+    const result: (number[] | undefined)[] = [];
+    for (const input of inputs) result.push(...await embedDocuments(provider, [input]));
+    return result;
+  }
+}
 /** Resolve content-addressed tracker-local vectors, batching only cache misses. */
-export async function memoryVectors(memories: readonly Memory[], workspace: string, provider: EmbeddingProvider): Promise<number[][] | undefined> {
+export async function memoryVectors(memories: readonly Memory[], workspace: string, provider: EmbeddingProvider): Promise<(number[] | undefined)[] | undefined> {
   const identity = await provider.identity();
   if (identity === 'lexical') return undefined;
   const directory = join(workspace, 'runtime', 'memory-embeddings', digest(identity));
@@ -134,12 +147,15 @@ export async function memoryVectors(memories: readonly Memory[], workspace: stri
   const missing = vectors.flatMap((vector, index) => vector === undefined ? [index] : []);
   for (let start = 0; start < missing.length; start += 16) {
     const batch = missing.slice(start, start + 16);
-    const embedded = validateVectors(await provider.embed(batch.map(index => inputs[index])), batch.length);
+    const embedded = await embedDocuments(provider, batch.map(index => inputs[index]));
     for (let offset = 0; offset < batch.length; offset++) {
-      const index = batch[offset]; vectors[index] = embedded[offset]; await publish(paths[index], embedded[offset]);
+      const index = batch[offset]; const vector = embedded[offset];
+      if (vector !== undefined) { vectors[index] = vector; await publish(paths[index], vector); }
     }
   }
-  return validateVectors(vectors, memories.length);
+  const available = vectors.filter(vector => vector !== undefined);
+  validateVectors(available, available.length);
+  return vectors;
 }
 /** Semantic controls shared by recall and preview-only consolidation. */
 export interface SemanticOptions {

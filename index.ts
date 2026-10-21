@@ -16,5 +16,5 @@ export type { MemoryOptions, RememberOptions, MemoryKind, Harness, Memory, Packe
 export default defineExtension({ name: 'pm-memory', version: '2026.10.19', description: 'Shared long-term agent memory as typed pm context', activate: register });
 
 /** Local embedding adapters and opt-in provider contracts. */
-export { OllamaProvider, LexicalProvider } from './src/embeddings.ts';
+export { OllamaProvider, LexicalProvider, EmbeddingInputError } from './src/embeddings.ts';
 export type { EmbeddingProvider, EmbeddingPurpose, SemanticMode, SemanticOptions } from './src/embeddings.ts';
