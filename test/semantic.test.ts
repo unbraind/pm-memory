@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
+import { Store } from '../src/store.ts';
 import { digest, packetTokens } from '../src/core.ts';
 import { cosine, embeddingInput, embeddingText, LexicalProvider, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from '../src/embeddings.ts';
 import type { EmbeddingProvider } from '../src/embeddings.ts';
@@ -155,6 +156,118 @@ test('hybrid ranking promotes paraphrases while off and unavailable providers pr
   await assert.rejects(hybridScored(memories, 'x', options));
   const tie = await hybridScored([...equal].reverse().map(memory => ({ ...memory, updated: '2026-01-01' })), 'none', { ...options, provider: { identity: async () => 'tie', embed: async inputs => inputs.map(() => [1]) } });
   assert.deepEqual(tie.rows.map(row => row.item.slug), ['oidc', 'other']);
+});
+
+test('hybrid priors benchmark preserves relevance across pins and varied ages', async t => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-10-21T00:00:00Z'));
+  const { workspace } = await tracker(t);
+  const corpus: RecallFixture = {
+    memories: [
+      { slug: 'relevant', title: 'Durable guidance', body: 'Alpha', updated: '2020-01-01' },
+      { slug: 'pinned', title: 'Standing guidance', body: 'Beta', updated: '2026-10-21', pinned: true },
+      { slug: 'distractor', title: 'Unrelated guidance', body: 'Gamma', updated: '2025-01-01' },
+    ],
+    queries: [{ query: 'question', gold: ['relevant'] }, { query: 'tie', gold: ['pinned'] }],
+  };
+  const provider: EmbeddingProvider = {
+    identity: async () => 'controlled-prior-benchmark',
+    embed: async (inputs, purpose) => inputs.map(input => {
+      if (purpose === 'query') return input === 'tie' ? [0, 0, 1] : [1, 0, 0];
+      const cosine = input.includes('Alpha') ? 0.75 : input.includes('Beta') ? 0.45 : 0.2;
+      return [cosine, Math.sqrt(0.75 - cosine ** 2), 0.5];
+    }),
+  };
+  const result = await benchmark(corpus, workspace, provider);
+  assert.deepEqual(result.hybrid, { recallAt1: 1, recallAt5: 1, mrr: 1 });
+  assert.deepEqual(result.ranks.map(row => row.hybrid), [1, 1]);
+  assert.equal(result.weights.prior, 0.01);
+  const memories = fixtureMemories(corpus);
+  const lexical = scored(memories, 'question');
+  assert.ok(lexical.every(row => row.lexical === 0));
+  assert.equal(lexical[0].item.slug, 'pinned');
+  const ranked = await hybridScored(memories, 'question', { workspace, provider, semantic: 'on' });
+  for (const { item, score } of ranked.rows) {
+    const cosine = item.slug === 'relevant' ? 0.75 : item.slug === 'pinned' ? 0.45 : 0.2;
+    const prior = lexical.find(row => row.item.slug === item.slug)!.prior;
+    assert.ok(Math.abs(score - (0.7 * cosine + 0.01 * prior)) < 1e-12);
+  }
+  // Perfect relevance plus a fresh pin is bounded by the documented 1.007 ceiling.
+  const perfect = await hybridScored([memories[1]], 'Standing', { workspace, semantic: 'on', provider: { identity: async () => 'perfect', embed: async inputs => inputs.map(() => [1]) } });
+  assert.equal(perfect.rows[0].score, 1.007);
+});
+
+test('lexical recall uses one real corpus read and critical section per call', async t => {
+  const { options, store } = await tracker(t);
+  await remember('Registry guidance', { ...options, kind: 'reference', slug: 'reference' });
+  await remember('Other project', { ...options, kind: 'project', slug: 'project' });
+  const original = Store.prototype.read;
+  const reads = t.mock.method(Store.prototype, 'read', function (this: Store) { return original.call(this); });
+  const writes = t.mock.method(Store.prototype, 'write');
+  const provider: EmbeddingProvider = { identity: async () => { throw new Error('Lexical path must not contact a model'); }, embed: async () => { throw new Error('No embeddings'); } };
+  for (const semantic of [undefined, 'off'] as const) {
+    reads.mock.resetCalls(); writes.mock.resetCalls();
+    const packet = await recall('registry', { ...options, semantic, provider, kind: 'reference', budget: 200 });
+    assert.equal(reads.mock.callCount(), 1);
+    assert.equal(writes.mock.callCount(), 1);
+    assert.deepEqual(packet.memories!.map(row => row.slug), ['reference']);
+    assert.equal(packet.omitted, 0); assert.equal(packet.note, undefined);
+    assert.equal(packet.estimated_tokens, packetTokens(packet)); assert.ok(packetTokens(packet) <= 200);
+  }
+  t.mock.restoreAll();
+  const memories = await store.read();
+  assert.equal(memories.find(row => row.slug === 'reference')!.recalls, 2);
+  assert.equal(memories.find(row => row.slug === 'project')!.recalls, 0);
+});
+
+test('semantic consolidation skips models when fewer than two active memories exist', async t => {
+  const { options, store, workspace } = await tracker(t);
+  let calls = 0;
+  const provider: EmbeddingProvider = { identity: async () => { calls++; throw new Error('Unavailable'); }, embed: async () => { calls++; throw new Error('Unavailable'); } };
+  for (const count of [0, 1]) {
+    if (count === 1) await remember('Only active fact', { ...options, kind: 'reference', slug: 'only' });
+    const before = await snapshot(workspace);
+    for (const semantic of ['on', 'auto'] as const) {
+      assert.deepEqual(await consolidate({ ...options, provider, semantic }), { applied: false, proposals: [] });
+      const rows = await store.read();
+      assert.deepEqual(await semanticProposals([...rows, ...fixtureMemories(fixture).map(item => ({ ...item, status: 'canceled' })), { ...fixtureMemories(fixture)[0], artifact: true }], { ...options, provider, semantic }), { proposals: [] });
+    }
+    assert.equal(calls, 0); assert.deepEqual(await snapshot(workspace), before);
+  }
+});
+
+test('benchmark entrypoint isolates synthetic caches and cleans success and failure', async t => {
+  const { root, workspace } = await tracker(t);
+  const previousDirectory = process.cwd(); const previousTmp = process.env.TMPDIR;
+  const before = await readdir(workspace, { recursive: true });
+  const workspaces: string[] = [];
+  t.mock.method(OllamaProvider.prototype, 'identity', async () => {
+    const directories = (await readdir(root)).filter(name => name.startsWith('pm-memory-bench-'));
+    assert.equal(directories.length, 1, 'benchmark must create a dedicated temporary workspace');
+    workspaces.push(join(root, directories[0])); return 'isolated-benchmark';
+  });
+  t.mock.method(OllamaProvider.prototype, 'embed', async (inputs: readonly string[]) => inputs.map(() => [1]));
+  const log = t.mock.method(console, 'log', () => {});
+  /** Verify that the benchmark removed its cache and left the real tracker untouched. */
+  async function assertClean(): Promise<void> {
+    assert.ok(workspaces.length > 0); await assert.rejects(readdir(workspaces.at(-1)!), { code: 'ENOENT' });
+    assert.deepEqual(await readdir(workspace, { recursive: true }), before);
+  }
+  process.chdir(root); process.env.TMPDIR = root;
+  try {
+    await runBench([]);
+    await assertClean();
+    assert.equal(log.mock.callCount(), 1);
+    t.mock.method(OllamaProvider.prototype, 'embed', async () => { throw new Error('Unavailable'); });
+    const completed = workspaces.length;
+    await assert.rejects(runBench([]), /Local embedding model unavailable/);
+    assert.ok(workspaces.length > completed);
+    await assertClean();
+    assert.deepEqual((await readdir(root)).filter(name => name.startsWith('pm-memory-bench-')), []);
+  } finally {
+    process.chdir(previousDirectory);
+    if (previousTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previousTmp;
+    t.mock.restoreAll();
+  }
 });
 
 test('real tracker semantic recall keeps token and omission receipts plus emitted-only counters', async t => {

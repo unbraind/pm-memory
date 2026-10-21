@@ -50,7 +50,7 @@ export async function remember(fact: string, options: RememberOptions): Promise<
 /** Filter archived memories and lossless index artifacts out of active retrieval. */
 export function active(memories: readonly Memory[]): Memory[] { return memories.filter(item => item.status !== 'canceled' && !item.artifact); }
 /** Rank normalized lexical evidence with inverse document frequency, length normalization and bounded priors. */
-export function scored(memories: readonly Memory[], query: string): { item: Memory; score: number }[] {
+export function scored(memories: readonly Memory[], query: string): { item: Memory; score: number; lexical: number; prior: number }[] {
   const now = Date.now();
   const terms = [...words(query)];
   const documents = memories.map(item => words([item.slug, item.title, item.description, item.body, item.why, item.how, ...item.tags].join(' ')));
@@ -61,13 +61,14 @@ export function scored(memories: readonly Memory[], query: string): { item: Memo
     const key = words(item.slug);
     const lexical = terms.reduce((sum, term) => sum + (documents[index].has(term) ? (heading.has(term) ? 5 : hook.has(term) ? 2 : key.has(term) ? 1.5 : 1) * idf.get(term)! / (1 + Math.log(1 + documents[index].size) / 10) : 0), 0);
     const ageDays = Math.max(0, (now - Date.parse(item.updated)) / 86400000);
-    return { item, score: lexical * 10 + (item.pinned ? 0.5 : 0) + 0.2 / (1 + ageDays) };
+    const prior = (item.pinned ? 0.5 : 0) + 0.2 / (1 + ageDays);
+    return { item, score: lexical * 10 + prior, lexical, prior };
   });
   return scores.sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug));
 }
 /** Preserve the public ranking projection while exposing scores in recall rows. */
 export function rank(memories: readonly Memory[], query: string): Memory[] { return scored(memories, query).map(entry => entry.item); }
-/** Blend bounded lexical relevance (30%) and nonnegative cosine similarity (70%). */
+/** Blend lexical relevance (30%) and cosine (70%), with a small additive pin/age prior. */
 export async function hybridScored(memories: readonly Memory[], query: string, options: MemoryOptions & SemanticOptions): Promise<{ rows: { item: Memory; score: number }[]; note?: string }> {
   const rows = scored(memories, query); const mode = semanticMode(options.semantic);
   if (mode === 'off' || memories.length === 0) return { rows };
@@ -77,9 +78,9 @@ export async function hybridScored(memories: readonly Memory[], query: string, o
     if (vectors === undefined) return { rows, note: semanticFailure(mode) };
     const [queryVector] = validateVectors(await provider.embed([query], 'query'), 1);
     validateVectors([...vectors, queryVector], memories.length + 1);
-    const maximum = Math.max(...rows.map(row => row.score));
+    const maximum = Math.max(...rows.map(row => row.lexical));
     const positions = new Map(memories.map((item, index) => [item.slug, index]));
-    return { rows: rows.map(({ item, score }) => ({ item, score: 0.3 * (maximum === 0 ? 0 : score / maximum) + 0.7 * Math.max(0, cosine(vectors[positions.get(item.slug)!], queryVector)) })).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
+    return { rows: rows.map(({ item, lexical, prior }) => ({ item, score: 0.3 * (maximum === 0 ? 0 : lexical / maximum) + 0.7 * Math.max(0, cosine(vectors[positions.get(item.slug)!], queryVector)) + 0.01 * prior })).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
   } catch { return { rows, note: semanticFailure(mode) }; }
 }
 /** Return a query-centered excerpt without charging oversized full memory bodies to the packet. */
@@ -93,25 +94,35 @@ function excerpt(item: Memory, query: string, size: number): string {
 function recallRevision(memories: readonly Memory[]): string {
   return JSON.stringify(memories.map(item => ({ ...item, recalls: 0 })).sort((a, b) => a.id.localeCompare(b.id)));
 }
-/** Rank outside the writer lock, then validate the snapshot and atomically count emitted memories. */
+/** Build a bounded packet and increment current counters while the caller holds the writer lock. */
+async function commitRecall(store: Store, current: readonly Memory[], ranked: Awaited<ReturnType<typeof hybridScored>>, query: string, limit: number): Promise<Packet> {
+  const memories = ranked.rows.map(row => row.item);
+  const rows: RecallRow[] = ranked.rows.map(({ item, score }) => ({ slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
+  const packet = recallPacket(rows, memories, query, limit, ranked.note);
+  const emitted = packet.memories!.map(row => current.find(memory => memory.slug === row.slug)!);
+  if (emitted.some(item => item.recalls === Number.MAX_SAFE_INTEGER)) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
+  if (emitted.length > 0) await store.register();
+  for (const item of emitted) await store.fields(item.id, { recalls: item.recalls + 1 });
+  return packet;
+}
+/** Use one critical section for lexical recall; embed outside it and validate snapshots for semantic recall. */
 export async function recall(query: string, options: MemoryOptions & SemanticOptions & { budget?: number; kind?: Memory['kind'] }): Promise<Packet> {
   text(query); const limit = budget(options.budget ?? 800);
   if (options.kind !== undefined) kind(options.kind);
   const store = new Store(options);
+  /** Keep kind and active filtering identical in both recall modes. */
+  const eligible = (memories: readonly Memory[]) => active(memories).filter(item => options.kind === undefined || item.kind === options.kind);
+  if (semanticMode(options.semantic) === 'off') return store.write(async () => {
+    const current = await store.read();
+    return commitRecall(store, current, await hybridScored(eligible(current), query, options), query, limit);
+  });
   for (;;) {
     const snapshot = await store.write(() => store.read());
-    const memories = active(snapshot).filter(item => options.kind === undefined || item.kind === options.kind);
-    const ranked = await hybridScored(memories, query, options);
+    const ranked = await hybridScored(eligible(snapshot), query, options);
     const packet = await store.write(async () => {
       const current = await store.read();
       if (recallRevision(snapshot) !== recallRevision(current)) return undefined;
-      const rows: RecallRow[] = ranked.rows.map(({ item, score }) => ({ slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
-      const packet = recallPacket(rows, memories, query, limit, ranked.note);
-      const emitted = packet.memories!.map(row => current.find(memory => memory.slug === row.slug)!);
-      if (emitted.some(item => item.recalls === Number.MAX_SAFE_INTEGER)) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
-      if (emitted.length > 0) await store.register();
-      for (const item of emitted) await store.fields(item.id, { recalls: item.recalls + 1 });
-      return packet;
+      return commitRecall(store, current, ranked, query, limit);
     });
     if (packet !== undefined) return packet;
   }

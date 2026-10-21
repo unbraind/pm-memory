@@ -81,6 +81,7 @@ export async function semanticProposals(memories: readonly Memory[], options: Me
   if (mode === 'off') return { proposals: [] };
   try {
     const rows = active(memories);
+    if (rows.length < 2) return { proposals: [] };
     const vectors = await memoryVectors(rows, options.workspace, options.provider ?? new OllamaProvider());
     if (vectors === undefined) return { proposals: [], note: semanticFailure(mode) };
     const result: Proposal[] = [];

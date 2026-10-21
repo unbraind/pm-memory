@@ -7,12 +7,14 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:44.557Z"
-updated_at: "2026-10-21T16:39:56.840Z"
+updated_at: "2026-10-21T17:40:14.190Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 90
 acceptance_criteria: "Rank lexical relevance, recency and standing guidance; entire packets stay within budget; process-concurrent recall counters; random-set property tests and packer revert proof."
 parent: pm-memory-0kwy
-comments[23]{created_at,author,text}:
+comments[26]{created_at,author,text}:
   "2026-10-19T13:32:34.261Z",codex-agent,"Behavioral revert proof: revert only the packer acceptance predicate so oversized rows are accepted. npm run build passes; node --test --test-name-pattern=\"budget packer\" test/memory.test.ts fails with AssertionError and exit 1. Restoring the predicate passes. Two independent processes start behind a shared barrier and produce exactly six recall increments."
   "2026-10-19T13:41:19.814Z",codex-agent,"Accepted aggregate recall packets stay under 800 estimated tokens. Four preselected references appeared at ranks 1, 1, 1 and 3; the release-workflow reference was omitted from its three returned rows. This budget tradeoff is documented rather than hidden. Index: 1498 of 1500 tokens. Random-set property and synchronized process-counter tests passed."
   "2026-10-19T14:00:52.642Z",codex-agent,"Recall now packs compact scored rows first, preserves top rank at small budgets, spends spare space on marked excerpts, and exposes full content via memory get. Ranking includes descriptions and slugs. Regression covers huge top bodies at budgets 200 and 800."
@@ -36,6 +38,9 @@ comments[23]{created_at,author,text}:
   "2026-10-21T16:23:15.495Z",codex-agent,"Completed both behavioural revert proofs against PR head 57e4a58: replace only consolidate with its original function and node --test --test-name-pattern=\"semantic preview releases\" test/semantic.test.ts fails 0/1 with the withheld-response writer assertion; restoration passes 1/1. Replace only recall and node --test --test-name-pattern=\"semantic recall releases\" test/semantic.test.ts likewise fails 0/1; restoration passes 1/1, including insertion/edit retries and counter-only concurrency during a blocked query embedding. Tests execute TypeScript sources directly. All functions are restored; no thresholds or dependency pins changed. Full release checks are next."
   "2026-10-21T16:33:20.394Z",codex-agent,"Initial isolated npm release gate completed the suite at 185/186 with only the existing adversarial JWT privacy scanner exceeding its unchanged 500ms wall-clock assertion during host load. Both new concurrency regressions passed; all measured coverage dimensions were 100%, but the failed gate invalidated its reports. Immediate unchanged-limit retry with node --test --test-name-pattern=\"privacy scans adversarial JWT\" test/review-r1.test.ts passed 1/1. No scanner, deadline, gate threshold or test exemption was changed. Rerunning complete npm and Bun release gates; tracker strict health passes with one advisory queued-telemetry warning. Existing development dependency advisory remains tracked separately in pm-memory-eafx."
   "2026-10-21T16:39:54.772Z",codex-agent,"Verified source commit d1f105cc1c95a5b4c881a151a7f8d0a33c19f94b in CI https://github.com/unbraind/pm-memory/actions/runs/39635936425: Node 22 and Node 26 passed every npm release-check component, each with 186/186 suite tests and 2/2 packed npm/Bun consumers. Node 26 also ran bun run release:check successfully with 186/186 suite tests and 2/2 consumers. Each measured 22 intended source files at 100/100/100/100, zero duplication and zero production vulnerabilities; all 96 declarations documented. The existing local JWT privacy wall-clock failure passed its immediate focused retry and all CI executions. A redundant local full npm retry was stopped after complete source-head CI success; it is not claimed as a passing local gate. No test, timing limit, coverage threshold, dependency pin, lock policy or tracked build-output policy was weakened. Review inventory refreshed: exactly one unresolved thread PRRT_kwDOVPw2oc6u2YPE; no outside-diff findings in the latest CodeRabbit review. Whole-diff review fixed the recall instance too and corrected stale architecture text. No thread replies, resolutions, mentions, merge or release. No new pm CLI/SDK defect was established. Open limits: continuously changing corpus content can delay recall retries; the existing development-only glob advisory remains tracked in pm-memory-eafx. Leave the item in progress for orchestrator verification."
+  "2026-10-21T17:24:26.656Z",codex-agent,"PR #5 review round: synchronized remote branch; base is already included. Fetched all review threads and comments with complete pagination receipts. Four unresolved findings are valid: benchmark cache isolation, skip semantic consolidation for fewer than two active memories, separate lexical relevance from pin/age priors, and single-read lexical recall. Latest CodeRabbit review has no additional outside-diff findings. Plan regression and behavioral revert proof per finding, whole-diff review, unchanged npm and Bun release gates, then commit and push without resolving threads."
+  "2026-10-21T17:27:20.619Z",codex-agent,"Implemented all four verified review fixes. Behavioral revert proofs against b0343d7: reverting only runBench (using the equivalent joined tracker path) fails benchmark entrypoint isolates; reverting only semanticProposals fails semantic consolidation skips with model unavailable; reverting only scored/hybridScored fails hybrid priors benchmark (recall@1 0.5 and MRR 0.75 instead of 1.0); reverting only recall fails lexical recall uses one (two corpus reads instead of one). Each command was node --test --test-name-pattern=\"<named prefix>\" test/semantic.test.ts: individually 0 passed/1 failed, exit 1. Restored implementations pass all four regressions together, 4 passed/0 failed. Source imports mean no dist rebuild is needed for these proofs. No dist files are tracked. Whole-diff review confirmed both embedding callers skip their unusable corpus sizes and both recall modes share packet/counter updates. Controlled pin/age benchmark selects prior coefficient 0.01 with maximum hybrid prior contribution 0.007; legacy lexical scores are unchanged."
+  "2026-10-21T17:40:14.102Z",codex-agent,"Focused linked review regressions pass 4/4. Type checking, identity/privacy, lint, zero duplication, all 97 docstrings across 22 source files, generated changelog and isolated strict tracker health pass. Full isolated npm release gate is still running without a reported failure under host contention; push the stable implementation to obtain complete npm/Bun CI evidence concurrently. Historical model benchmark is explicitly labelled as preceding the prior correction; the new controlled pin/age benchmark measures the corrected production ranker."
 files[16]{path,scope}:
   bench/recall.json,project
   index.ts,project
@@ -53,7 +58,7 @@ files[16]{path,scope}:
   test/semantic-process.ts,project
   test/semantic-writer.ts,project
   test/semantic.test.ts,project
-tests[4]:
+tests[5]:
   - command: "node --test --test-name-pattern=\"independent process|budget property\" test/memory.test.ts"
     scope: project
     provenance:
@@ -84,6 +89,13 @@ tests[4]:
     provenance:
       author: codex-agent
       created_at: "2026-10-21T16:20:55.555Z"
+      source_kind: local_mutation
+      source_ref: feat/semantic-recall
+  - command: "node --test --test-name-pattern=\"hybrid priors benchmark|lexical recall uses one|semantic consolidation skips|benchmark entrypoint isolates\" test/semantic.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T17:27:30.759Z"
       source_kind: local_mutation
       source_ref: feat/semantic-recall
 docs[4]{path,scope}:
