@@ -51,6 +51,16 @@ test('local adapter validates loopback, installed model identity and vector prot
   const { state, endpoint, provider } = await daemon(t);
   assert.match(await provider.identity(), /ollama:v2:test:local:a{64}/);
   assert.deepEqual(await provider.embed(['OIDC', 'banana']), [[1, 0, 0], [0, 1, 0]]);
+  const direct = new OllamaProvider('test:local', endpoint);
+  assert.deepEqual(await direct.embed(['OIDC']), [[1, 0, 0]]);
+  state.tags = { models: [{ name: 'test:local', digest: 'b'.repeat(64) }] };
+  const sent = state.inputs.length;
+  await assert.rejects(direct.embed(['not sent after retagging']), /changed during operation/);
+  state.tags = { models: [{ name: 'test:local', digest: 'a'.repeat(64), remote_host: 'cloud' }] };
+  await assert.rejects(new OllamaProvider('test:local', endpoint).embed(['not sent to a cloud alias']));
+  assert.equal(state.inputs.length, sent);
+  state.tags = { models: [{ name: 'test:local', digest: 'a'.repeat(64) }] };
+
   assert.equal(new OllamaProvider('test:local', endpoint.replace('127.0.0.1', 'localhost')).endpoint, endpoint);
   assert.equal(new OllamaProvider('test:local', 'http://[::1]:11434').endpoint, 'http://[::1]:11434');
   for (const url of ['https://127.0.0.1', 'http://192.0.2.1', 'http://user@127.0.0.1', 'http://:pass@127.0.0.1', 'http://127.0.0.1/path', 'http://127.0.0.1?x=1', 'http://127.0.0.1#x']) assert.throws(() => new OllamaProvider('test:local', url));

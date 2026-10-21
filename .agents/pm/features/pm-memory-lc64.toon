@@ -7,14 +7,14 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:44.557Z"
-updated_at: "2026-10-21T15:02:35.342Z"
+updated_at: "2026-10-21T15:18:44.872Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 90
 acceptance_criteria: "Rank lexical relevance, recency and standing guidance; entire packets stay within budget; process-concurrent recall counters; random-set property tests and packer revert proof."
 parent: pm-memory-0kwy
-comments[13]{created_at,author,text}:
+comments[15]{created_at,author,text}:
   "2026-10-19T13:32:34.261Z",codex-agent,"Behavioral revert proof: revert only the packer acceptance predicate so oversized rows are accepted. npm run build passes; node --test --test-name-pattern=\"budget packer\" test/memory.test.ts fails with AssertionError and exit 1. Restoring the predicate passes. Two independent processes start behind a shared barrier and produce exactly six recall increments."
   "2026-10-19T13:41:19.814Z",codex-agent,"Accepted aggregate recall packets stay under 800 estimated tokens. Four preselected references appeared at ranks 1, 1, 1 and 3; the release-workflow reference was omitted from its three returned rows. This budget tradeoff is documented rather than hidden. Index: 1498 of 1500 tokens. Random-set property and synchronized process-counter tests passed."
   "2026-10-19T14:00:52.642Z",codex-agent,"Recall now packs compact scored rows first, preserves top rank at small budgets, spends spare space on marked excerpts, and exposes full content via memory get. Ranking includes descriptions and slugs. Regression covers huge top bodies at budgets 200 and 800."
@@ -28,6 +28,8 @@ comments[13]{created_at,author,text}:
   "2026-10-21T14:47:57.014Z",codex-agent,"Implemented loopback-only Ollama provider, deterministic no-model adapter and model-digest plus content-hash vector cache under runtime. Default stays lexical; explicit hybrid uses 30% normalized lexical score and 70% nonnegative cosine. Auto notes are included in token accounting. Synthetic corpus has 64 memories and 64 labelled queries. Initial embeddinggemma-2 measurement: lexical recall@1 0.203125, recall@5 0.5, MRR 0.332508; hybrid 0.28125, 0.625, 0.435186. These are full-ranking evaluation results, not budgeted or held-out generalization claims. Additional installed-model measurement and unchanged gates remain in progress."
   "2026-10-21T14:53:02.303Z",codex-agent,"Behavioural revert proof: replacing only hybridScored with the pre-feature lexical ranking makes node --test --test-name-pattern=\"hybrid ranking promotes paraphrases\" test/semantic.test.ts fail (0 passed, 1 failed; unrelated lexical hit precedes OIDC). Restoring hybridScored passes (1 passed, 0 failed). Tests import TypeScript source directly. Added published model-card query/document prompts and bumped cache input version to v2. Final measured embeddinggemma-2 hybrid recall@1 0.28125, recall@5 0.671875, MRR 0.442726 versus lexical 0.203125, 0.5, 0.332508. Qwen benchmark and independent embedding probe timed out; no Qwen quality claim."
   "2026-10-21T15:02:25.840Z",codex-agent,"Final design uses direct node:http requests to bypass environment proxies, loopback origin validation, installed local-model checks and model-card query/document prompts. Cache includes a private ignore rule for custom tracker locations. Semantic consolidation stays advisory and refuses apply before writes. Non-git regression removes Git from PATH and blocks ancestor discovery. Isolated health passes; normal-home health reports global pm-github host-version skew against the unchanged pinned host. Existing wall-clock privacy probe failed once under shared load; limits remain unchanged. Linked semantic test timeout is now 600 seconds to accommodate observed host contention."
+  "2026-10-21T15:16:02.758Z",codex-agent,"Review found and fixed a direct-adapter SDK bypass: OllamaProvider.embed now revalidates an installed local model on every call, including calls outside recall, and refuses a changed revision before sending text. Regression confirms cloud aliases and retagged models receive no embedding inputs. Earlier CI at the first feature commit passed 184/184 tests, 2/2 packed consumers and 100/100/100/100 coverage on Node 22/26, including bun run release:check. Superseded the local run after this safety correction; final-head gates are rerunning."
+  "2026-10-21T15:18:44.735Z",codex-agent,"Adapter guard behavioural revert proof: removing only the pre-request identity/revision checks from OllamaProvider.embed makes node --test --test-name-pattern=\"local adapter validates\" test/semantic.test.ts fail (0 passed, 1 failed; missing expected retagging refusal). Restoring the checks passes (1 passed, 0 failed). Focused adapter/cache/ranking suite: 5/5 passed with 100/100/100/100 coverage for src/embeddings.ts. No encoding, ranking weights or benchmark labels changed."
 files[14]{path,scope}:
   bench/recall.json,project
   index.ts,project

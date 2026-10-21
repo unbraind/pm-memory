@@ -36,6 +36,8 @@ export class OllamaProvider implements EmbeddingProvider {
   readonly endpoint: string;
   /** Per-embedding request deadline; discovery is capped at 1500 ms. */
   readonly timeoutMs: number;
+  /** Last explicitly resolved revision, used to refuse mid-operation retagging. */
+  private revision?: string;
   /** Bind a loopback daemon; never honor OLLAMA_HOST or proxy configuration. */
   constructor(model = process.env.PM_MEMORY_MODEL ?? 'embeddinggemma-2:latest', endpoint = 'http://127.0.0.1:11434', timeoutMs = 30000) {
     const url = new URL(endpoint);
@@ -65,10 +67,14 @@ export class OllamaProvider implements EmbeddingProvider {
     const result = await this.request('/api/tags') as { models?: { name: string; digest: string; remote_host?: string; remote_model?: string }[] };
     const model = result.models?.find(entry => entry.name === this.model);
     if (model === undefined || typeof model.digest !== 'string' || !/^[a-f0-9]{64}$/.test(model.digest) || model.remote_host !== undefined || model.remote_model !== undefined || /cloud/i.test(model.name)) throw new Error('Installed local embedding model unavailable');
-    return `ollama:v2:${this.model}:${model.digest}`;
+    this.revision = `ollama:v2:${this.model}:${model.digest}`;
+    return this.revision;
   }
   /** Generate complete vectors using the documented batch endpoint. */
   async embed(inputs: readonly string[], purpose: EmbeddingPurpose = 'document'): Promise<number[][]> {
+    const expected = this.revision;
+    const current = await this.identity();
+    if (expected !== undefined && expected !== current) throw new Error('Embedding model changed during operation');
     const result = await this.request('/api/embed', inputs.map(input => embeddingInput(this.model, input, purpose))) as { embeddings: number[][] };
     return validateVectors(result.embeddings, inputs.length);
   }
