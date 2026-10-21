@@ -2,15 +2,18 @@ id: pm-memory-ne0p
 title: Remember and deduplicate
 description: ""
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:35.244Z"
-updated_at: "2026-10-19T13:41:28.500Z"
+updated_at: "2026-10-21T18:47:54.143Z"
+closed_at: "2026-10-21T18:47:49.510Z"
+completed_at: "2026-10-21T18:47:49.510Z"
 author: codex-agent
 estimated_minutes: 90
 acceptance_criteria: Unique slugs; append-only updates; normalized title and body similarity refuses near duplicates with remedies; boundary revert proof.
 parent: pm-memory-0kwy
+resolution: "Reverified main 97727010814d (unchanged since audit): [PR #1](https://github.com/unbraind/pm-memory/pull/1) (8bf8396), src/ and test/ deliver typed memory, bounded recall/index, claim verification, audited consolidation, privacy refusals and lossless harness import/export. Source delivery is distinct from the unpublished npm release. Retained evidence: index.ts, src/commands.ts, src/consolidate.ts."
 comments[1]{created_at,author,text}:
   "2026-10-19T13:32:31.723Z",codex-agent,"Behavioral revert proof: remove only the new duplicate refusal from remember. npm run build passes; node --test --test-name-pattern=\"dedup boundary\" test/memory.test.ts fails with AssertionError and exit 1. Restore the guard: the regression passes. Exact-slug updates and explicit force-new remain tested."
 files[3]{path,scope}:
@@ -22,4 +25,5 @@ tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
 docs[2]{path,scope}:
   ARCHITECTURE.md,project
   README.md,project
+close_reason: "Reverified main 97727010814d (unchanged since audit): [PR #1](https://github.com/unbraind/pm-memory/pull/1) (8bf8396), src/ and test/ deliver typed memory, bounded recall/index, claim verification, audited consolidation, privacy refusals and lossless harness import/export. Source delivery is distinct from the unpublished npm release. Retained evidence: index.ts, src/commands.ts, src/consolidate.ts."
 body: ""
