@@ -7,12 +7,14 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:44.557Z"
-updated_at: "2026-10-21T20:35:47.189Z"
+updated_at: "2026-10-21T22:52:32.077Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 90
 acceptance_criteria: "Rank lexical relevance, recency and standing guidance; entire packets stay within budget; process-concurrent recall counters; random-set property tests and packer revert proof."
 parent: pm-memory-0kwy
-comments[40]{created_at,author,text}:
+comments[44]{created_at,author,text}:
   "2026-10-19T13:32:34.261Z",codex-agent,"Behavioral revert proof: revert only the packer acceptance predicate so oversized rows are accepted. npm run build passes; node --test --test-name-pattern=\"budget packer\" test/memory.test.ts fails with AssertionError and exit 1. Restoring the predicate passes. Two independent processes start behind a shared barrier and produce exactly six recall increments."
   "2026-10-19T13:41:19.814Z",codex-agent,"Accepted aggregate recall packets stay under 800 estimated tokens. Four preselected references appeared at ranks 1, 1, 1 and 3; the release-workflow reference was omitted from its three returned rows. This budget tradeoff is documented rather than hidden. Index: 1498 of 1500 tokens. Random-set property and synchronized process-counter tests passed."
   "2026-10-19T14:00:52.642Z",codex-agent,"Recall now packs compact scored rows first, preserves top rank at small budgets, spends spare space on marked excerpts, and exposes full content via memory get. Ranking includes descriptions and slugs. Regression covers huge top bodies at budgets 200 and 800."
@@ -53,6 +55,10 @@ comments[40]{created_at,author,text}:
   "2026-10-21T20:27:52.515Z",codex-agent,"Seven behavioral revert proofs against 09ac301: revert only benchmark -> shared-weight regression fails; semanticProposals -> pair-order regression fails; memoryVectors -> rejection regression fails; OllamaProvider.request -> rejection regression fails; hybridScored -> rejection regression fails; semanticProposals -> rejection-consumer regression fails; recall -> bounded-conflict regression fails with missing expected rejection. Each command was node --test --test-name-pattern=\"<matching review test prefix>\" test/semantic.test.ts, each exited 1 with 0 passed and 1 failed. All other fixes and all new tests remained present; source functions restored after each run. No build needed: tests import TypeScript sources directly, and dist is not tracked."
   "2026-10-21T20:29:15.973Z",codex-agent,"Exact revert commands: node --test --test-name-pattern=\"^review benchmark reports\" test/semantic.test.ts for benchmark; node --test --test-name-pattern=\"^review semantic pairs\" test/semantic.test.ts for semanticProposals age ordering; node --test --test-name-pattern=\"^review rejected documents\" test/semantic.test.ts independently for memoryVectors, OllamaProvider.request, hybridScored and semanticProposals missing-vector handling; node --test --test-name-pattern=\"^review semantic recall stops\" test/semantic.test.ts for recall. Each isolated revert yields 0 passed/1 failed, exit 1. Restored linked command passes 10/10 through pm test pm-memory-lc64 --run --only-last --progress. Final npm run typecheck and npm run lint pass. No host-load timeout occurred this round. Full npm and Bun release checks are delegated to CI at unchanged thresholds; no dependency pins or production deadlines changed. No new pm CLI/SDK bug established. Existing development advisory remains tracked separately in pm-memory-eafx."
   "2026-10-21T20:35:45.251Z",codex-agent,"Implementation head fcd89534891285806576203919ea65309d65a61b passes CI https://github.com/unbraind/pm-memory/actions/runs/39670766463 : Node 22 and 26 each pass all npm release-check components with 200/200 suite tests and 2/2 packed npm/Bun consumers. Node 26 also passes bun run release:check with 200/200 tests and 2/2 packed consumers. Each measures all 22 intended source files at 100% statements, branches, functions and lines; duplication is zero across 52 measured sources; all 98 declarations are documented; production audit reports zero vulnerabilities. Strict tracker health, identity/privacy, generated changelog and publish-attestation checks pass. CodeQL passes. Thresholds, dependency pins and production deadlines remain unchanged. Seven function-only reverts fail 0/1 each and restored linked targeted checks pass 10/10; local typecheck and lint pass. No load-related timeout occurred. No new pm CLI/SDK bug established. Existing development-only advisory remains tracked separately; rejected documents may retry on later calls and semantic preview remains pairwise. No replies, resolutions, mentions, merge or release. Release the claim while leaving status in_progress for orchestrator verification; a tracker-only receipt commit will itself run CI."
+  "2026-10-21T22:49:24.010Z",codex-agent,"PR 5 review round: synchronized remote head 7263619; main is already included. Complete GraphQL thread and comment pagination confirms only PRRT_kwDOVPw2oc6u-he2 is unresolved. Latest CodeRabbit review has no outside-diff or nitpick findings. Verified the raw environment model expectation falsely fails untagged names; canonicalize the assertion and add isolated child-process environment cases. Whole PR diff checked for raw/canonical model comparisons and environment leakage; no other matching instance. Targeted regressions, behavior-only assertion revert proof, typecheck and lint run locally; full unchanged npm and Bun release gates run in CI. No thread replies, resolutions, mentions, merge or release."
+  "2026-10-21T22:51:31.272Z",codex-agent,"Fixed the default provider assertion to canonicalize the configured name using a tag colon after the last slash. Added a child-process regression that runs the actual protocol test under six isolated environments: unset, untagged, namespaced, registry-port untagged, tagged, and registry-port tagged. The first regression attempt exposed inherited NODE_TEST_CONTEXT suppressing child output; reuse the existing testEnvironment helper to clear runner context while retaining coverage. Restored focused checks pass 3/3, with all six child protocol runs passing 1/1 each. npm run typecheck and npm run lint pass. No local host-load timeout occurred; dependencies installed successfully under shared-host contention. Production behavior, thresholds, dependency pins and deadlines are unchanged; dist files are not tracked."
+  "2026-10-21T22:51:37.646Z",codex-agent,"Behavioral revert proof against 7263619: restore only the old raw-environment assertion inside the protocol test, leaving the new regression and production code unchanged. Exact command: node --test --test-name-pattern=\"^default model assertion accepts\" test/semantic.test.ts. It exits 1 with 0 passed/1 failed; the embeddinggemma environment child reports actual embeddinggemma:latest versus expected embeddinggemma. The unset environment child first passes. Restored the two-line canonical assertion in finally. Tests import TypeScript sources; no build is required for this assertion-only proof."
+  "2026-10-21T22:52:32.054Z",codex-agent,"Restored linked regression command passes 3/3 through pm test pm-memory-lc64 --run --only-last --progress --timeout 600, including six isolated protocol children at 1/1 each. Existing tracker policy disables persisted test results; this sanitized comment records the successful receipt. Revert proof fails 0/1 as intended. Local npm run typecheck and npm run lint both pass. No timeout occurred. Prepare the code plus append-only tracker changes for push; full release evidence awaits CI."
 files[16]:
   - path: bench/recall.json
     scope: project
@@ -87,7 +93,7 @@ files[16]:
     scope: project
   - path: test/semantic.test.ts
     scope: project
-tests[7]:
+tests[8]:
   - command: "node --test --test-name-pattern=\"independent process|budget property\" test/memory.test.ts"
     scope: project
     provenance:
@@ -141,6 +147,13 @@ tests[7]:
     provenance:
       author: codex-agent
       created_at: "2026-10-21T20:28:00.837Z"
+      source_kind: local_mutation
+      source_ref: feat/semantic-recall
+  - command: "node --test --test-name-pattern=\"^default model assertion accepts|^local adapter canonicalizes untagged|^local adapter validates loopback\" test/semantic.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T22:50:23.465Z"
       source_kind: local_mutation
       source_ref: feat/semantic-recall
 docs[4]:

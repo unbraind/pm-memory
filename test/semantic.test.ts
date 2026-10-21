@@ -13,6 +13,7 @@ import { HYBRID_WEIGHTS, hybridScored, recall, remember, scored } from '../src/m
 import { consolidate, semanticProposals } from '../src/consolidate.ts';
 import { benchmark, fixtureMemories, metrics, runBench } from '../scripts/bench.ts';
 import type { RecallFixture } from '../scripts/bench.ts';
+import { testEnvironment } from '../scripts/environment.ts';
 import { tracker, snapshot } from './helpers.ts';
 
 /** An invented local protocol fixture; native tracker and SDK calls remain real. */
@@ -162,7 +163,18 @@ test('local adapter validates loopback, installed model identity and vector prot
   state.status = 503; await assert.rejects(provider.embed(['x']));
   state.status = 200; state.redirect = true; await assert.rejects(provider.identity());
   state.redirect = false; state.delay = 30; await assert.rejects(new OllamaProvider('test:local', endpoint, 1).identity());
-  assert.equal(new OllamaProvider().model, process.env.PM_MEMORY_MODEL ?? 'embeddinggemma-2:latest');
+  const configured = process.env.PM_MEMORY_MODEL ?? 'embeddinggemma-2:latest';
+  assert.equal(new OllamaProvider().model, configured.lastIndexOf(':') > configured.lastIndexOf('/') ? configured : `${configured}:latest`);
+});
+
+test('default model assertion accepts isolated environment model names', async () => {
+  for (const model of [undefined, 'embeddinggemma', 'namespace/model', 'localhost:5000/namespace/model', 'test:local', 'localhost:5000/namespace/model:v2']) {
+    const env = testEnvironment(process.env);
+    if (model === undefined) delete env.PM_MEMORY_MODEL; else env.PM_MEMORY_MODEL = model;
+    const result = await child(['--test', '--test-name-pattern=^local adapter validates loopback, installed model identity and vector protocol$', 'test/semantic.test.ts'], env, join(import.meta.dirname, '..'));
+    assert.equal(result.status, 0, `${model ?? 'unset'}: ${result.stdout}${result.stderr}`);
+    assert.match(result.stdout, /\bpass 1\b/);
+  }
 });
 
 test('vector validation rejects corrupt, zero, non-finite and inconsistent dimensions', () => {
