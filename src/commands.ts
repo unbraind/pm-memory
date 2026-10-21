@@ -7,6 +7,7 @@ import { exportDir, harness, importDir } from './transfer.ts';
 import { verify } from './verify.ts';
 import { consolidate } from './consolidate.ts';
 import { semanticMode } from './embeddings.ts';
+import { guidancePolicy, renew } from './guidance.ts';
 import { MEMORY_FIELDS } from './store.ts';
 
 /** Dispatch native command operands to the documented in-process API. */
@@ -15,9 +16,10 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     const base = { workspace: ctx.pm_root, ...(ctx.global.author === undefined ? {} : { author: ctx.global.author }), client: ctx.sdk?.client };
     const options = ctx.options;
     if (command === 'remember') return await remember(text(ctx.args[0]), { ...base, kind: kind(options.kind), slug: options.slug === undefined ? undefined : text(options.slug), update: options.update === undefined ? undefined : text(options.update), why: options.why === undefined ? undefined : text(options.why), how: options.how === undefined ? undefined : text(options.how), pin: options.pin === true ? true : undefined, forceNew: options.forceNew === true, allowEmail: options.allowEmail === true, links: options.link === undefined ? [] : (Array.isArray(options.link) ? options.link : [options.link]).map(text) });
-    if (command === 'recall') return await recall(text(ctx.args[0]), { ...base, budget: options.budget === undefined ? undefined : Number(options.budget), semantic: semanticMode(options.semantic), kind: options.kind === undefined ? undefined : kind(options.kind) });
+    if (command === 'renew') return await renew(text(ctx.args[0]), { ...base, from: text(options.validFrom), until: text(options.validUntil), evidence: text(options.evidence) });
+    if (command === 'recall') return await recall(text(ctx.args[0]), { ...base, validity: guidancePolicy(options.validity), budget: options.budget === undefined ? undefined : Number(options.budget), semantic: semanticMode(options.semantic), kind: options.kind === undefined ? undefined : kind(options.kind) });
     if (command === 'get') return await get(text(ctx.args[0]), base);
-    if (command === 'index') return await index({ ...base, budget: options.budget === undefined ? undefined : Number(options.budget) });
+    if (command === 'index') return await index({ ...base, validity: guidancePolicy(options.validity), budget: options.budget === undefined ? undefined : Number(options.budget) });
     if (command === 'import') return await importDir(text(ctx.args[0]), { ...base, from: harness(options.from), allowEmail: options.allowEmail === true });
     if (command === 'export') return await exportDir(text(ctx.args[0]), { ...base, to: harness(options.to, true) as 'claude-code' | 'agents-md' });
     if (command === 'verify') return await verify({ ...base, root: options.root === undefined ? undefined : (Array.isArray(options.root) ? options.root : [options.root]).map(text), slug: options.slug === undefined ? undefined : text(options.slug), network: options.network === true });
@@ -30,6 +32,10 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
 }
 /** Native flag descriptions include concrete examples in every option's help entry. */
 const OPTIONS: Record<string, string> = {
+  'valid-from': 'Inclusive UTC start (example: --valid-from 2026-10-21T00:00:00.000Z)',
+  'valid-until': 'Exclusive UTC end (example: --valid-until 2026-11-21T00:00:00.000Z)',
+  evidence: 'Record why guidance is valid (example: --evidence "Policy reviewed against release checklist")',
+  validity: 'Exclude noncurrent guidance by default or label it for audit (example: --validity label)',
   semantic: 'Use auto, on or off local embeddings; default off (example: --semantic auto)',
   kind: 'Classify as user, feedback, project or reference (example: --kind project)',
   slug: 'Select a stable memory key (example: --slug release-policy)',
@@ -55,6 +61,7 @@ function flags(strings: string[], booleans: string[]): FlagDefinition[] {
 /** Descriptive commands and realistic invocations are carried through the native host help. */
 const HELP: Record<string, [string, string, string]> = {
   remember: ['Create or revise durable agent knowledge with privacy and duplicate checks', 'A durable fact or guidance to retain', 'pm memory remember "Run both release gates" --kind project --slug release-policy --pin'],
+  renew: ['Renew pinned guidance with explicit validity bounds and evidence', 'Pinned memory slug', 'pm memory renew release-policy --valid-from 2026-10-21T00:00:00.000Z --valid-until 2026-11-21T00:00:00.000Z --evidence "Release checklist reviewed"'],
   recall: ['Rank memories and return compact rows then excerpts within a token budget', 'Words describing the context needed', 'pm memory recall "release workflow" --budget 800'],
   get: ['Read the full memory selected by its stable slug', 'Memory slug from recall or index', 'pm memory get release-policy'],
   index: ['Render a bounded memory index, with pinned guidance first', '', 'pm memory index --budget 1500'],
@@ -69,9 +76,10 @@ export function register(api: ExtensionApi): void {
   api.registerItemTypes([{ name: 'Knowledge', folder: 'knowledge', description: 'Durable agent knowledge', default_status: 'open' }]);
   for (const [name, strings, booleans, argument] of [
     ['remember', ['kind', 'slug', 'update', 'why', 'how', 'link'], ['pin', 'force-new', 'allow-email'], 'fact'],
-    ['recall', ['budget', 'kind', 'semantic'], [], 'query'],
+    ['renew', ['valid-from', 'valid-until', 'evidence'], [], 'slug'],
+    ['recall', ['budget', 'kind', 'semantic', 'validity'], [], 'query'],
     ['get', [], [], 'slug'],
-    ['index', ['budget'], [], ''],
+    ['index', ['budget', 'validity'], [], ''],
     ['import', ['from'], ['allow-email'], 'source'],
     ['export', ['to'], [], 'directory'],
     ['verify', ['slug', 'root'], ['network'], ''],

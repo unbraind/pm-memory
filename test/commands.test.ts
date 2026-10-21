@@ -8,14 +8,8 @@ import { estimatePmOutputTokens, getHistoryPath, readHistoryEntries } from '@unb
 import type { CommandHandlerContext } from '@unbrained/pm-cli/sdk/authoring';
 import extension, { remember } from '../index.ts';
 import { runCommand } from '../src/commands.ts';
-import { tracker } from './helpers.ts';
+import { tracker, installExtension } from './helpers.ts';
 
-/** Install the actual extension entry point in a scratch tracker for host rendering acceptance. */
-async function installExtension(workspace: string): Promise<void> {
-  const dir = join(workspace, 'extensions', 'pm-memory'); await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, 'manifest.json'), JSON.stringify({ name: 'pm-memory', version: '2026.10.19', entry: 'entry.js', capabilities: ['commands', 'schema'] }));
-  await writeFile(join(dir, 'entry.js'), `export { default } from ${JSON.stringify(new URL('../index.ts', import.meta.url).href)};\n`);
-}
 /** Invoke the genuine CLI host so TOON and JSON are verified as emitted. */
 function cli(root: string, workspace: string, args: string[], author = 'memory-test') {
   return spawnSync(process.execPath, [join(import.meta.dirname, '../node_modules/.bin/pm'), 'memory', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, PM_PATH: workspace, PM_AUTHOR: author } });

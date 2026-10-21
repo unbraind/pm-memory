@@ -1,8 +1,9 @@
 import { parseMutationReceipt } from '@unbrained/pm-cli/sdk';
-import type { Memory, MemoryOptions, Packet, RememberOptions, RecallRow } from './types.ts';
+import type { Memory, MemoryOptions, Packet, RememberOptions, RecallRow, GuidanceOptions } from './types.ts';
 import { accounted, budget, digest, kind, MemoryError, pack, privacy, similarity, slug, text, words } from './core.ts';
 import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from './embeddings.ts';
 import type { SemanticOptions } from './embeddings.ts';
+import { eligibleGuidance, guidancePolicy, guidanceState } from './guidance.ts';
 import { metadata, Store } from './store.ts';
 
 /** Inclusive similarity threshold for a title-plus-body normalized token set. */
@@ -99,9 +100,12 @@ function recallRevision(memories: readonly Memory[]): string {
   return JSON.stringify(memories.map(item => ({ ...item, recalls: 0 })).sort((a, b) => a.id.localeCompare(b.id)));
 }
 /** Build a bounded packet and increment current counters while the caller holds the writer lock. */
-async function commitRecall(store: Store, current: readonly Memory[], ranked: Awaited<ReturnType<typeof hybridScored>>, query: string, limit: number): Promise<Packet> {
-  const memories = ranked.rows.map(row => row.item);
-  const rows: RecallRow[] = ranked.rows.map(({ item, score }) => ({ slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
+async function commitRecall(store: Store, current: readonly Memory[], ranked: Awaited<ReturnType<typeof hybridScored>>, query: string, limit: number, policy: NonNullable<GuidanceOptions['validity']>): Promise<Packet> {
+  const now = Date.now();
+  const visible = new Set(eligibleGuidance(ranked.rows.map(row => row.item), policy, now).map(item => item.id));
+  const rankedRows = ranked.rows.filter(row => visible.has(row.item.id));
+  const memories = rankedRows.map(row => row.item);
+  const rows: RecallRow[] = rankedRows.map(({ item, score }) => ({ ...(item.validity === undefined ? {} : { validity: guidanceState(item, now), valid_from: item.validity.from, valid_until: item.validity.until }), slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
   const packet = recallPacket(rows, memories, query, limit, ranked.note);
   const emitted = packet.memories!.map(row => current.find(memory => memory.slug === row.slug)!);
   if (emitted.some(item => item.recalls === Number.MAX_SAFE_INTEGER)) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
@@ -110,15 +114,15 @@ async function commitRecall(store: Store, current: readonly Memory[], ranked: Aw
   return packet;
 }
 /** Use one critical section for lexical recall; embed outside it and validate snapshots for semantic recall. */
-export async function recall(query: string, options: MemoryOptions & SemanticOptions & { budget?: number; kind?: Memory['kind'] }): Promise<Packet> {
-  text(query); const limit = budget(options.budget ?? 800);
+export async function recall(query: string, options: MemoryOptions & SemanticOptions & GuidanceOptions & { budget?: number; kind?: Memory['kind'] }): Promise<Packet> {
+  text(query); const limit = budget(options.budget ?? 800); const policy = guidancePolicy(options.validity);
   if (options.kind !== undefined) kind(options.kind);
   const store = new Store(options);
   /** Keep kind and active filtering identical in both recall modes. */
-  const eligible = (memories: readonly Memory[]) => active(memories).filter(item => options.kind === undefined || item.kind === options.kind);
+  const eligible = (memories: readonly Memory[]) => eligibleGuidance(active(memories), policy, Date.now()).filter(item => options.kind === undefined || item.kind === options.kind);
   if (semanticMode(options.semantic) === 'off') return store.write(async () => {
     const current = await store.read();
-    return commitRecall(store, current, await hybridScored(eligible(current), query, options), query, limit);
+    return commitRecall(store, current, await hybridScored(eligible(current), query, options), query, limit, policy);
   });
   for (let attempt = 0; attempt < 5; attempt++) {
     const snapshot = await store.write(() => store.read());
@@ -126,7 +130,7 @@ export async function recall(query: string, options: MemoryOptions & SemanticOpt
     const packet = await store.write(async () => {
       const current = await store.read();
       if (recallRevision(snapshot) !== recallRevision(current)) return undefined;
-      return commitRecall(store, current, ranked, query, limit);
+      return commitRecall(store, current, ranked, query, limit, policy);
     });
     if (packet !== undefined) return packet;
   }
@@ -175,10 +179,11 @@ export async function get(key: string, options: MemoryOptions): Promise<Memory> 
   return item;
 }
 /** Render a MEMORY.md-style bounded index with a terminal omission receipt. */
-export async function index(options: MemoryOptions & { budget?: number }): Promise<Packet> {
+export async function index(options: MemoryOptions & GuidanceOptions & { budget?: number }): Promise<Packet> {
   const limit = budget(options.budget ?? 1500);
-  const memories = active(await new Store(options).read()).sort(indexOrder);
-  const rows = memories.map(item => `- [${item.title.replace(/[[\]\r\n]/g, ' ')}](${item.slug}) — ${(item.why || item.body).replace(/\s+/g, ' ').slice(0, 100).toWellFormed()}`);
+  const now = Date.now(); const policy = guidancePolicy(options.validity);
+  const memories = eligibleGuidance(active(await new Store(options).read()), policy, now).sort(indexOrder);
+  const rows = memories.map(item => `- ${item.validity === undefined ? '' : `[${guidanceState(item, now)}; ${item.validity.from}..${item.validity.until})] `}[${item.title.replace(/[[\]\r\n]/g, ' ')}](${item.slug}) — ${(item.why || item.body).replace(/\s+/g, ' ').slice(0, 100).toWellFormed()}`);
   return pack(rows, limit, (selected, omitted) => ({ text: [...selected, `<!-- omitted: ${omitted} memories -->`].join('\n'), omitted, complete: true }));
 }
 

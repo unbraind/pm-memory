@@ -134,6 +134,8 @@ export async function consolidate(options: MemoryOptions & SemanticOptions & { a
     const reserved = new Set<string | undefined>(pending.flatMap(proposal => [proposal.slug, proposal.target]));
     if (reserved.size !== pending.length * 2) throw new MemoryError('conflict', 'Pending memory merges reuse an action endpoint', 'Reconcile or clear overlapping memory_merge receipts through audited pm updates before retrying');
     const planned = [...pending, ...proposals(memories, options.minAgeDays).filter(proposal => !reserved.has(proposal.slug) && !reserved.has(proposal.target))];
+    const bounded = new Set(memories.filter(item => item.validity !== undefined).map(item => item.slug));
+    if (options.apply && planned.some(proposal => proposal.action === 'merge' && (bounded.has(proposal.slug) || bounded.has(proposal.target!)))) throw new MemoryError('validity', 'Consolidation cannot merge bounded guidance', 'Review the proposal without --apply; revise and renew the intended policy explicitly');
     if (options.apply === true && planned.length > 0) await store.register();
     if (options.apply === true) for (const proposal of planned) {
       const older = memories.find(item => item.slug === proposal.slug)!;
