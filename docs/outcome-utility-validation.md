@@ -48,3 +48,19 @@ Each mutation changed only the relevant production behavior and left its regress
 | Preflight all ledgers before counters | `node --test --test-name-pattern "recall preflights" test/utility.test.ts` | 1 failure |
 
 The first linked utility run exceeded the default 120-second limit after four passing scenarios under host contention. Its recorded timeout was raised to 300 seconds; this changes no correctness or coverage thresholds. Full release gates remain CI evidence.
+
+## Full CI evidence
+
+Code head `6a1ab037d3b23c29cc7315bd09fdb3385a7fccf0` passed [CI run 39677923888](https://github.com/unbraind/pm-memory/actions/runs/39677923888). CI executes the npm release-gate components on Node 22 and 26, then the complete `bun run release:check` on Node 26.
+
+| CI gate | Full suite | Packed npm/Bun acceptance | Coverage |
+| --- | --- | --- | --- |
+| npm components, Node 22 | 206/206 | 2/2 | 100% statements, branches, functions and lines |
+| npm components, Node 26 | 206/206 | 2/2 | 100% statements, branches, functions and lines |
+| `bun run release:check`, Node 26 | 206/206 | 2/2 | 100% statements, branches, functions and lines |
+
+Each full coverage report reconciles all 24 configured source files. The docstring inventory checks 111 declarations across 25 files; duplication checks 56 sources at 0%. These inventories have different scopes and are not interchangeable. Fresh-checkout tracker health, identity/privacy, typecheck, lint, build, production audit, package allowlist, changelog and publish-attestation gates passed. The separate CodeQL run also passed. No gate threshold or dependency pin changed.
+
+The first CI attempt found a documentation test anchored to the obsolete phrase “All eight functions.” The SDK now has ten. Its section anchor was corrected while preserving the exact verify-return-contract assertion; the final full suites above pass. The local pm-github host-version warning did not reproduce in fresh CI.
+
+Automated review skips are missing review evidence, not approvals. Human review and merging #5 remain required; this work neither merges nor releases the package.

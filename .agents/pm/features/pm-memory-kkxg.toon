@@ -7,13 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T21:01:07.974Z"
-updated_at: "2026-10-21T21:19:49.215Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-21T21:24:10.990Z"
 author: codex-agent
 acceptance_criteria: "Duplicate feedback is idempotent; confounded outcomes stay unscored; all aggregates retain source denominators. Typed SDK and CLI, compact TOON/JSON, typed refusals with remedies, docs and public-tracker non-git validation. Builds on semantic recall PR #5; no automatic deletion or policy training."
 parent: pm-memory-0kwy
-comments[8]{created_at,author,text}:
+comments[9]{created_at,author,text}:
   "2026-10-21T21:02:49.703Z",codex-agent,"Design: recall emits a budget-accounted receipt and saves content-revision exposure evidence atomically with each counter. Explicit helpful/unhelpful feedback links a native task, outcome, attribution and evidence; retries are idempotent per memory/task and conflicting retries refuse. Confounded, unknown, unfinished or pre-recall outcomes stay unscored. Reports retain lifetime/legacy exposure, missing-feedback, outcome and attribution denominators plus a separate current-content cohort. No deletion, ranking changes or policy training."
   "2026-10-21T21:07:42.753Z",codex-agent,Targeted compatibility tests passed 13/13 (memory and commands); utility tests passed 5/5. Focused utility coverage measured 100% statements/branches/functions/lines; no full local release gate run on the saturated host. Native command tests run in a non-git tracker with git absent from PATH. Production audit has zero vulnerabilities; development-only advisory is already tracked by pm-memory-eafx.
   "2026-10-21T21:09:12.524Z",codex-agent,"Public tracker replay: certified 80 committed source items, 56 completed; 167 source files unchanged by independent before/after fingerprint. Six explicitly scripted retrospective annotations on real tasks (3 helpful, 3 unhelpful), six idempotent retries, zero scored outcomes: 3 confounded and 3 pre-recall completions. Recall 107 tokens; report 412. These labels exercise exclusions and do not claim measured causal benefit. Evidence: docs/outcome-utility-validation.md; example: examples/outcome-utility.ts. Current CLI 2026.10.21 SDK overlap rechecked."
@@ -22,6 +20,7 @@ comments[8]{created_at,author,text}:
   "2026-10-21T21:15:01.334Z",codex-agent,"Final linked utility run passed 6/6 in 111 seconds with no context mismatch; targeted memory/command compatibility passed 13/13. Typecheck, lint, 111 documented declarations across 25 files, zero duplication (56 sources), changelog and identity checks pass. Local strict health reports only pm-github extension host-version skew (pinned 2026.10.19 versus global 2026.10.21); fresh CI health is still required. No dependency pin was changed."
   "2026-10-21T21:18:16.002Z",codex-agent,"First full CI run 39677325463: Node 26 executed 206 tests, 205 passed; all four coverage dimensions measured 100%. The sole failure was an existing documentation regression slicing README from the literal phrase All eight functions, now obsolete after adding two SDK functions. Updated the test to locate the SDK section while retaining its exact verify-return-contract assertion; targeted documentation regression passed 1/1. Fresh CI tracker health and CodeQL passed. Re-running CI after this test-only compatibility repair."
   "2026-10-21T21:19:49.046Z",codex-agent,"Final SDK refusal audit: an unavailable linked native task now produces MemoryError code task with a safe remedy rather than leaking a raw SDK exception. The real-tracker refusal regression asserts that typed boundary and passed; native CLI already maps expected refusals to bounded diagnostics. No tracker mutation occurs for the unavailable task."
+  "2026-10-21T21:24:06.585Z",codex-agent,"Code head 6a1ab037d3b23c29cc7315bd09fdb3385a7fccf0 passed CI https://github.com/unbraind/pm-memory/actions/runs/39677923888 : npm release components on Node 22 and 26 each passed 206/206 full-suite tests plus 2/2 packed npm/Bun consumers; bun run release:check on Node 26 passed 206/206 plus 2/2. Each full report covered all 24 configured sources at 100/100/100/100; docstrings 111/111 across 25 files; duplication 0% across 56 sources. Fresh tracker health and CodeQL passed. PR https://github.com/unbraind/pm-memory/pull/7 is ready for review against main, builds on #5 and must merge afterward. Review skips are not approval. No pm CLI/SDK defect was found; local host-version skew and linked-run timeout are recorded with their scope. Releasing the claim without closing the item; the evidence-only commit will receive a final fresh CI run."
 files[12]{path,scope}:
   examples/outcome-utility.ts,project
   index.ts,project
