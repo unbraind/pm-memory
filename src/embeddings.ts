@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { request as httpRequest } from 'node:http';
+import { Agent, request as httpRequest } from 'node:http';
 import { digest, MemoryError } from './core.ts';
 import type { Memory } from './types.ts';
+
+/** Direct connections never inherit environment proxies from the global agent. */
+const LOOPBACK_AGENT = new Agent({ keepAlive: false });
 
 /** Explicit semantic opt-in; off preserves the original ranking exactly. */
 export type SemanticMode = 'auto' | 'on' | 'off';
@@ -43,12 +46,12 @@ export class OllamaProvider implements EmbeddingProvider {
     const url = new URL(endpoint);
     if (url.protocol !== 'http:' || !['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new MemoryError('semantic', 'Embedding endpoint must be a loopback HTTP origin', 'Use a local Ollama daemon');
     if (url.hostname === 'localhost') url.hostname = '127.0.0.1';
-    this.model = model; this.endpoint = url.origin; this.timeoutMs = timeoutMs;
+    this.model = model.lastIndexOf(':') > model.lastIndexOf('/') ? model : `${model}:latest`; this.endpoint = url.origin; this.timeoutMs = timeoutMs;
   }
   /** Read JSON from a bounded local request without following redirects. */
   private async request(path: string, input?: readonly string[]): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      const request = httpRequest(this.endpoint + path, { method: input === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(input === undefined ? Math.min(1500, this.timeoutMs) : this.timeoutMs), ...(input === undefined ? {} : { headers: { 'Content-Type': 'application/json' } }) }, response => {
+      const request = httpRequest(this.endpoint + path, { agent: LOOPBACK_AGENT, method: input === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(input === undefined ? Math.min(1500, this.timeoutMs) : this.timeoutMs), ...(input === undefined ? {} : { headers: { 'Content-Type': 'application/json' } }) }, response => {
         if (response.statusCode !== 200) { response.resume(); reject(new Error('Local embedding request failed')); return; }
         const chunks: Buffer[] = [];
         response.on('data', (chunk: Buffer) => { chunks.push(chunk); });
@@ -90,10 +93,18 @@ export function validateVectors(value: unknown, count: number): number[][] {
   if (!Array.isArray(value) || value.length !== count || value.some(row => !Array.isArray(row) || row.length === 0 || row.some(entry => typeof entry !== 'number' || !Number.isFinite(entry)) || !Number.isFinite(Math.hypot(...row)) || Math.hypot(...row) === 0 || row.length !== value[0].length)) throw new Error('Invalid embedding vectors');
   return value as number[][];
 }
+/** Normalize validated finite nonzero evidence once before comparing multiple pairs. */
+export function unitVector(vector: readonly number[]): number[] {
+  const norm = Math.hypot(...vector);
+  return vector.map(value => value / norm);
+}
+/** Compare unit vectors while preserving the cosine range despite rounding error. */
+export function unitCosine(left: readonly number[], right: readonly number[]): number {
+  return Math.max(-1, Math.min(1, left.reduce((sum, value, index) => sum + value * right[index], 0)));
+}
 /** Compare validated vectors; normalization avoids overflow in unnormalized providers. */
 export function cosine(left: readonly number[], right: readonly number[]): number {
-  const leftNorm = Math.hypot(...left); const rightNorm = Math.hypot(...right);
-  return Math.max(-1, Math.min(1, left.reduce((sum, value, index) => sum + value / leftNorm * (right[index] / rightNorm), 0)));
+  return unitCosine(unitVector(left), unitVector(right));
 }
 /** Stable embedding input includes every retrieval field, excluding operational counters. */
 export function embeddingText(item: Memory): string {

@@ -7,12 +7,14 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:44.557Z"
-updated_at: "2026-10-21T17:59:55.317Z"
+updated_at: "2026-10-21T19:23:21.286Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 90
 acceptance_criteria: "Rank lexical relevance, recency and standing guidance; entire packets stay within budget; process-concurrent recall counters; random-set property tests and packer revert proof."
 parent: pm-memory-0kwy
-comments[29]{created_at,author,text}:
+comments[34]{created_at,author,text}:
   "2026-10-19T13:32:34.261Z",codex-agent,"Behavioral revert proof: revert only the packer acceptance predicate so oversized rows are accepted. npm run build passes; node --test --test-name-pattern=\"budget packer\" test/memory.test.ts fails with AssertionError and exit 1. Restoring the predicate passes. Two independent processes start behind a shared barrier and produce exactly six recall increments."
   "2026-10-19T13:41:19.814Z",codex-agent,"Accepted aggregate recall packets stay under 800 estimated tokens. Four preselected references appeared at ranks 1, 1, 1 and 3; the release-workflow reference was omitted from its three returned rows. This budget tradeoff is documented rather than hidden. Index: 1498 of 1500 tokens. Random-set property and synchronized process-counter tests passed."
   "2026-10-19T14:00:52.642Z",codex-agent,"Recall now packs compact scored rows first, preserves top rank at small budgets, spends spare space on marked excerpts, and exposes full content via memory get. Ranking includes descriptions and slugs. Regression covers huge top bodies at budgets 200 and 800."
@@ -42,24 +44,46 @@ comments[29]{created_at,author,text}:
   "2026-10-21T17:44:25.021Z",codex-agent,"Initial CI release attempt caught test contamination in the new benchmark regression: stacking two mocks on OllamaProvider.embed left the first replacement installed after restoreAll. The four new focused tests passed, but later semantic tests failed with the leaked vectors. Replaced the nested mock with mockImplementation on one mock context so cleanup restores the actual adapter. Stopped the obsolete local npm run after reproducing the same later semantic failures; it is not counted as a successful release gate. Run the entire semantic test file and fresh unchanged release gates before final verification."
   "2026-10-21T17:45:53.891Z",codex-agent,"The sixth initial CI failure was an existing CLI assertion made obsolete by the requested singleton fast path: a one-memory semantic consolidation now correctly returns without a fallback note. The non-git CLI regression now checks the singleton result, then inserts a second memory and checks unavailable-model lexical fallback. Five other failures were caused by the nested embedding mock and are addressed by a single mock context. No production threshold, timeout or dependency changed."
   "2026-10-21T17:59:44.150Z",codex-agent,"Final source verification at 125bde6: CI https://github.com/unbraind/pm-memory/actions/runs/39646810335 passes all npm release-check components on Node 22 and 26, each with 190/190 suite tests and 2/2 packed npm/Bun consumers. Node 26 also passes bun run release:check with 190/190 and 2/2. Every run measures all 22 intended source files at 100/100/100/100; duplication is zero; all 97 declarations are documented; production audit has zero vulnerabilities. Repeated all four behavioral reverts against b0343d7 after the test-isolation correction: each matched regression fails 0 passed/1 failed, restored suite passes 4/4. Corrected non-git singleton-plus-pair CLI regression passes 1/1. An unchanged 10-second writer deadline failed once in the loaded local pm-linked preview test, while the direct retry and all final CI runs pass. Obsolete local runs and the redundant final npm/Bun launcher stopped after CI success are not counted as passing local gates. Latest review inventory still has exactly the four requested threads and no outside-diff findings. All four are valid and fixed; no replies, thread resolutions, mentions, merge or release. No new pm CLI/SDK bug established. Existing development-only advisory is tracked by pm-memory-eafx; continuous content changes can still delay semantic recall retries. Leave this item in progress for orchestrator verification."
-files[16]{path,scope}:
-  bench/recall.json,project
-  index.ts,project
-  package.json,project
-  scripts/bench.ts,project
-  src/commands.ts,project
-  src/consolidate.ts,project
-  src/core.ts,project
-  src/embeddings.ts,project
-  src/memory.ts,project
-  src/types.ts,project
-  test/memory.test.ts,project
-  test/recaller.ts,project
-  test/round2.test.ts,project
-  test/semantic-process.ts,project
-  test/semantic-writer.ts,project
-  test/semantic.test.ts,project
-tests[5]:
+  "2026-10-21T19:16:29.203Z",codex-agent,"PR 5 review round: fetched every unresolved thread and all comments with no remaining pagination; latest CodeRabbit body has five inline findings and no separate outside-diff or nitpick findings. All five verified: revision drift across benchmark queries, repeated pairwise norms, inherited HTTP proxy agent, untagged model lookup, and assertion deadline below writer wait. Whole-diff review additionally found repeated query norms in recall, now shared through unit-vector helpers. Local validation limited to targeted regressions, typecheck and lint; unchanged npm and Bun full gates delegated to CI. Branch current and not behind main. Dependency installation completed; two tracker writes that could not start during installation are retried here."
+  "2026-10-21T19:18:21.755Z",codex-agent,"Initial focused regression run passes 5/5; npm run typecheck and npm run lint both pass. Tests use real plain-directory trackers and SDK operations; only local embedding protocol responses are synthetic. Proxy test uses a real child process with NODE_USE_ENV_PROXY=1, both HTTP proxy variable cases set to an unreachable endpoint and empty NO_PROXY. Canonicalization includes registry-port names and explicit tags. Norm operation budget covers consolidation and recall. Fake-clock test spans the entire writer wait and checks eventual rejection and completion cleanup. No release thresholds, dependency pins or production deadlines changed."
+  "2026-10-21T19:19:27.455Z",codex-agent,"Behavioral revert proofs against 9cf07c1: replacing only benchmark, semanticProposals, hybridScored, OllamaProvider.request, OllamaProvider.constructor, or whileEmbedding with the previous function makes its corresponding targeted regression fail (each exit 1, 0 passed/1 failed). All other fixes and regressions remain present. Benchmark fails with Missing expected rejection; consolidation fails its linear norm budget; recall fails query norm reuse; proxy test fails with ECONNREFUSED to the configured proxy; constructor fails because untagged names lack :latest; fake-clock deadline test fails because it settles before the entire writer wait. Sources restored in finally after each proof. No build needed because tests import TypeScript sources. Thread mapping: PRRT_kwDOVPw2oc6u6Jux benchmark revision guard; PRRT_kwDOVPw2oc6u6Ju- unit vectors before pair comparisons; PRRT_kwDOVPw2oc6u6JvM dedicated direct HTTP agent; PRRT_kwDOVPw2oc6u6JvU canonical model tags including registry ports; PRRT_kwDOVPw2oc6u6Jve 45-second assertion deadline. Additional self-review fix: hybridScored reuses document and query norms. No invalid findings. Threads were neither replied to nor resolved."
+  "2026-10-21T19:21:11.758Z",codex-agent,"Restored fixes pass 5/5 via the linked regression command using pm test pm-memory-lc64 --run --only-last --progress (only new linked test index 6 executed; older linked commands intentionally not run locally). A final constructor revert using explicit canonical-name fixtures also fails 0/1 as expected. Final npm run typecheck and npm run lint pass. Tracker test-result persistence is disabled by existing project policy, so this comment records the sanitized results without changing that policy. No load-related test timeout occurred this round. Full npm and Bun release gates await CI; no committed dist files exist, and source-importing regressions require no build."
+  "2026-10-21T19:23:21.184Z",codex-agent,"Pre-push checks: npm run changelog:full and npm run changelog:check pass. Native local strict health refused only because a globally installed pm-github extension requires a newer host than this repository pins. Repeating strict health with a fresh home and isolated global Git configuration passes all 10 checks; repository dependency pins and global settings remain unchanged. One pending telemetry queue entry is advisory and no telemetry configuration was changed. Added-line privacy inspection found no private path or topology literals. CI will establish fresh-clone full-gate evidence."
+files[16]:
+  - path: bench/recall.json
+    scope: project
+  - path: index.ts
+    scope: project
+  - path: package.json
+    scope: project
+  - path: scripts/bench.ts
+    scope: project
+  - path: src/commands.ts
+    scope: project
+  - path: src/consolidate.ts
+    scope: project
+  - path: src/core.ts
+    scope: project
+  - path: src/embeddings.ts
+    scope: project
+    note: Direct agent and canonical model tags plus shared vector normalization
+  - path: src/memory.ts
+    scope: project
+  - path: src/types.ts
+    scope: project
+  - path: test/memory.test.ts
+    scope: project
+  - path: test/recaller.ts
+    scope: project
+  - path: test/round2.test.ts
+    scope: project
+  - path: test/semantic-process.ts
+    scope: project
+  - path: test/semantic-writer.ts
+    scope: project
+  - path: test/semantic.test.ts
+    scope: project
+tests[6]:
   - command: "node --test --test-name-pattern=\"independent process|budget property\" test/memory.test.ts"
     scope: project
     provenance:
@@ -99,9 +123,22 @@ tests[5]:
       created_at: "2026-10-21T17:27:30.759Z"
       source_kind: local_mutation
       source_ref: feat/semantic-recall
-docs[4]{path,scope}:
-  ARCHITECTURE.md,project
-  bench/embeddinggemma-2.results.json,project
-  bench/recall.json,project
-  README.md,project
+  - command: "node --test --test-name-pattern=\"embedding assertion tolerates|local adapter bypasses environment proxies|local adapter canonicalizes untagged|benchmark rejects model revisions|semantic comparisons normalize\" test/semantic.test.ts"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T19:18:03.182Z"
+      source_kind: local_mutation
+      source_ref: feat/semantic-recall
+docs[4]:
+  - path: ARCHITECTURE.md
+    scope: project
+    note: Review round transport and normalization guarantees
+  - path: bench/embeddinggemma-2.results.json
+    scope: project
+  - path: bench/recall.json
+    scope: project
+  - path: README.md
+    scope: project
 body: ""

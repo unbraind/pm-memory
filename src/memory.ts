@@ -1,7 +1,7 @@
 import { parseMutationReceipt } from '@unbrained/pm-cli/sdk';
 import type { Memory, MemoryOptions, Packet, RememberOptions, RecallRow } from './types.ts';
 import { accounted, budget, digest, kind, MemoryError, pack, privacy, similarity, slug, text, words } from './core.ts';
-import { cosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from './embeddings.ts';
+import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from './embeddings.ts';
 import type { SemanticOptions } from './embeddings.ts';
 import { metadata, Store } from './store.ts';
 
@@ -78,9 +78,10 @@ export async function hybridScored(memories: readonly Memory[], query: string, o
     if (vectors === undefined) return { rows, note: semanticFailure(mode) };
     const [queryVector] = validateVectors(await provider.embed([query], 'query'), 1);
     validateVectors([...vectors, queryVector], memories.length + 1);
+    const unit = vectors.map(unitVector); const queryUnit = unitVector(queryVector);
     const maximum = Math.max(...rows.map(row => row.lexical));
     const positions = new Map(memories.map((item, index) => [item.slug, index]));
-    return { rows: rows.map(({ item, lexical, prior }) => ({ item, score: 0.3 * (maximum === 0 ? 0 : lexical / maximum) + 0.7 * Math.max(0, cosine(vectors[positions.get(item.slug)!], queryVector)) + 0.01 * prior })).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
+    return { rows: rows.map(({ item, lexical, prior }) => ({ item, score: 0.3 * (maximum === 0 ? 0 : lexical / maximum) + 0.7 * Math.max(0, unitCosine(unit[positions.get(item.slug)!], queryUnit)) + 0.01 * prior })).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
   } catch { return { rows, note: semanticFailure(mode) }; }
 }
 /** Return a query-centered excerpt without charging oversized full memory bodies to the packet. */

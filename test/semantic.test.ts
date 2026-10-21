@@ -7,7 +7,7 @@ import { mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { Store } from '../src/store.ts';
 import { digest, packetTokens } from '../src/core.ts';
-import { cosine, embeddingInput, embeddingText, LexicalProvider, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from '../src/embeddings.ts';
+import { cosine, unitCosine, embeddingInput, embeddingText, LexicalProvider, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from '../src/embeddings.ts';
 import type { EmbeddingProvider } from '../src/embeddings.ts';
 import { hybridScored, recall, remember, scored } from '../src/memory.ts';
 import { consolidate, semanticProposals } from '../src/consolidate.ts';
@@ -17,7 +17,7 @@ import { tracker, snapshot } from './helpers.ts';
 
 /** An invented local protocol fixture; native tracker and SDK calls remain real. */
 async function daemon(t: TestContext) {
-  const state = { invalidJson: false, status: 200, redirect: false, delay: 0, payload: undefined as unknown, tags: { models: [{ name: 'test:local', digest: 'a'.repeat(64) }] } as unknown, inputs: [] as string[][], embed: (inputs: string[]): number[][] | Promise<number[][]> => inputs.map(input => /other|banana/i.test(input) ? [0, 1, 0] : /OIDC|registry|ship a release|federated publication/i.test(input) ? [1, 0, 0] : [0, 0, 1]) };
+  const state = { invalidJson: false, status: 200, redirect: false, delay: 0, payload: undefined as unknown, model: 'test:local', tags: { models: [{ name: 'test:local', digest: 'a'.repeat(64) }] } as unknown, inputs: [] as string[][], embed: (inputs: string[]): number[][] | Promise<number[][]> => inputs.map(input => /other|banana/i.test(input) ? [0, 1, 0] : /OIDC|registry|ship a release|federated publication/i.test(input) ? [1, 0, 0] : [0, 0, 1]) };
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
     if (state.delay > 0) await new Promise(resolve => { setTimeout(resolve, state.delay); });
@@ -27,7 +27,7 @@ async function daemon(t: TestContext) {
     else if (req.url === '/api/tags') res.end(JSON.stringify(state.tags));
     else {
       const body = JSON.parse(Buffer.concat(chunks).toString()) as { input: string[]; truncate: boolean; model: string; keep_alive: string };
-      assert.equal(req.url, '/api/embed'); assert.equal(body.truncate, false); assert.equal(body.model, 'test:local'); assert.equal(body.keep_alive, '5m');
+      assert.equal(req.url, '/api/embed'); assert.equal(body.truncate, false); assert.equal(body.model, state.model); assert.equal(body.keep_alive, '5m');
       state.inputs.push(body.input); res.end(JSON.stringify(state.payload ?? { embeddings: await state.embed(body.input) }));
     }
   });
@@ -50,12 +50,90 @@ async function whileEmbedding<T>(pending: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([pending, new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error('Writer blocked while embedding response is withheld')), 10000);
+      timer = setTimeout(() => reject(new Error('Writer blocked while embedding response is withheld')), 45000);
     })]);
   } finally { clearTimeout(timer!); }
 }
 /** Small independent relevance example used by metrics and deterministic rank tests. */
 const fixture: RecallFixture = { memories: [{ slug: 'oidc', title: 'npm trusted publishing OIDC', body: 'Use the registry identity workflow' }, { slug: 'other', title: 'other ship a release', body: 'banana unrelated discussion' }], queries: [{ query: 'how do we ship a release', gold: ['oidc'] }] };
+
+test('embedding assertion tolerates the writer wait and still bounds a blocked writer', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const writer = Promise.withResolvers<string>();
+  let finished = false;
+  const pending = whileEmbedding(writer.promise).finally(() => { finished = true; });
+  // Attach rejection handling before advancing time, including during the revert proof.
+  const result = pending.then(value => ({ value }), error => ({ error }));
+  t.mock.timers.tick(30001);
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(finished, false, 'the assertion must allow the entire 30-second writer wait');
+  writer.resolve('completed');
+  assert.deepEqual(await result, { value: 'completed' });
+  const blocked = whileEmbedding(new Promise<never>(() => {}));
+  const rejection = assert.rejects(blocked, /Writer blocked while embedding response is withheld/);
+  t.mock.timers.tick(45000);
+  await rejection;
+});
+
+test('local adapter bypasses environment proxies in a real child process', async t => {
+  const { endpoint, state } = await daemon(t);
+  const env = { ...process.env, NODE_USE_ENV_PROXY: '1', HTTP_PROXY: 'http://127.0.0.1:1', http_proxy: 'http://127.0.0.1:1', HTTPS_PROXY: 'http://127.0.0.1:1', https_proxy: 'http://127.0.0.1:1', NO_PROXY: '', no_proxy: '' };
+  const script = `import { OllamaProvider } from './src/embeddings.ts'; const provider = new OllamaProvider('test:local', process.argv[1]); await provider.identity(); console.log(JSON.stringify(await provider.embed(['OIDC'])));`;
+  const result = await child(['--input-type=module', '-e', script, endpoint], env, join(import.meta.dirname, '..'));
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), [[1, 0, 0]]);
+  assert.deepEqual(state.inputs, [['OIDC']]);
+});
+
+test('local adapter canonicalizes untagged names including registry ports', async t => {
+  const { state, endpoint } = await daemon(t);
+  for (const [name, canonical] of [['embeddinggemma', 'embeddinggemma:latest'], ['namespace/model', 'namespace/model:latest'], ['localhost:5000/namespace/model', 'localhost:5000/namespace/model:latest'], ['test:local', 'test:local'], ['localhost:5000/namespace/model:v2', 'localhost:5000/namespace/model:v2']]) {
+    state.model = canonical;
+    state.tags = { models: [{ name: canonical, digest: 'a'.repeat(64) }] };
+    const provider = new OllamaProvider(name, endpoint);
+    assert.equal(provider.model, canonical);
+    assert.equal(await provider.identity(), `ollama:v2:${canonical}:${'a'.repeat(64)}`);
+    await provider.embed(['OIDC']);
+    assert.equal(state.inputs.at(-1)!.length, 1);
+  }
+});
+
+test('benchmark rejects model revisions changing between queries', async t => {
+  const { workspace } = await tracker(t);
+  const corpus = { ...fixture, queries: [...fixture.queries, ...fixture.queries] };
+  let revision = 'first'; let queries = 0;
+  const provider: EmbeddingProvider = {
+    identity: async () => revision,
+    embed: async (inputs, purpose) => {
+      if (purpose === 'query' && ++queries === 2) revision = 'second';
+      return inputs.map(() => [1, 0]);
+    },
+  };
+  await assert.rejects(benchmark(corpus, workspace, provider), /Embedding model changed during benchmark/);
+  assert.equal(queries, 2);
+});
+
+test('semantic comparisons normalize each vector once and preserve cosine proposals', async t => {
+  const { workspace } = await tracker(t);
+  const vectors = [[1e200, 1e200], [2e200, 2e200], [-1e200, -1e200], [1, 0], [0.9, Math.sqrt(0.19)], [0.89, Math.sqrt(1 - 0.89 ** 2)]];
+  const memories = vectors.map((_vector, index) => ({ ...fixtureMemories(fixture)[0], slug: `vector-${index}` }));
+  const provider: EmbeddingProvider = { identity: async () => 'norm-regression', embed: async (inputs, purpose) => inputs.map(input => purpose === 'query' ? [1, 0] : vectors[Number(input.split('\n')[0].slice('vector-'.length))]) };
+  await memoryVectors(memories, workspace, provider);
+  const norm = t.mock.method(Math, 'hypot');
+  const preview = await semanticProposals(memories, { workspace, provider, semantic: 'on' });
+  assert.ok(norm.mock.callCount() <= 5 * memories.length, 'cached validation plus one normalization per row must be linear');
+  norm.mock.resetCalls();
+  await hybridScored(memories, 'query', { workspace, provider, semantic: 'on' });
+  assert.ok(norm.mock.callCount() <= 7 * memories.length + 5, 'recall must also reuse the query norm');
+  norm.mock.restore();
+  const expected = vectors.flatMap((left, i) => vectors.slice(i + 1).flatMap((right, offset) => {
+    const score = cosine(left, right);
+    return score >= 0.9 ? [{ action: 'merge', slug: memories[i].slug, target: memories[i + offset + 1].slug, previewOnly: true, reason: `Possible paraphrase (cosine ${score.toFixed(3)}); review meaning and contradictions; dry-run only` }] : [];
+  }));
+  assert.deepEqual(preview.proposals, expected);
+  assert.equal(unitCosine([1, 1e-7], [1, 1e-7]), 1);
+  assert.equal(unitCosine([-1, -1e-7], [1, 1e-7]), -1);
+});
 
 test('local adapter validates loopback, installed model identity and vector protocol', async t => {
   const { state, endpoint, provider } = await daemon(t);

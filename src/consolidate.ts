@@ -1,7 +1,7 @@
 import { jaccardSimilarity } from '@unbrained/pm-cli/sdk';
 import { active, DUPLICATE_THRESHOLD } from './memory.ts';
 import { digest, words, MemoryError } from './core.ts';
-import { cosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode } from './embeddings.ts';
+import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode } from './embeddings.ts';
 import type { SemanticOptions } from './embeddings.ts';
 import { metadata, Store } from './store.ts';
 import type { Memory, MemoryOptions, Proposal } from './types.ts';
@@ -85,8 +85,9 @@ export async function semanticProposals(memories: readonly Memory[], options: Me
     const vectors = await memoryVectors(rows, options.workspace, options.provider ?? new OllamaProvider());
     if (vectors === undefined) return { proposals: [], note: semanticFailure(mode) };
     const result: Proposal[] = [];
+    const unit = vectors.map(unitVector);
     for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
-      const score = cosine(vectors[i], vectors[j]);
+      const score = unitCosine(unit[i], unit[j]);
       if (score >= 0.9) result.push({ action: 'merge', slug: rows[i].slug, target: rows[j].slug, previewOnly: true, reason: `Possible paraphrase (cosine ${score.toFixed(3)}); review meaning and contradictions; dry-run only` });
     }
     return { proposals: result };

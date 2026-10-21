@@ -54,12 +54,14 @@ export function metrics(rankings: readonly string[][], queries: RecallFixture['q
 export async function benchmark(fixture: RecallFixture, workspace: string, provider: EmbeddingProvider, fallback = false) {
   const memories = fixtureMemories(fixture);
   const lexical: string[][] = []; const hybrid: string[][] = [];
+  const model = await provider.identity();
   for (const { query } of fixture.queries) {
     lexical.push(scored(memories, query).map(row => row.item.slug));
     const ranked = await hybridScored(memories, query, { workspace, provider, semantic: fallback ? 'auto' : 'on' });
+    if (await provider.identity() !== model) throw new Error('Embedding model changed during benchmark');
     hybrid.push(ranked.rows.map(row => row.item.slug));
   }
-  return { memories: memories.length, queries: fixture.queries.length, model: await provider.identity(), mode: fallback ? 'lexical-fallback' : 'hybrid', weights: { lexical: 0.3, cosine: 0.7, prior: 0.01 }, lexical: metrics(lexical, fixture.queries), hybrid: metrics(hybrid, fixture.queries), ranks: fixture.queries.map(({ query, gold }, index) => ({ query, gold, lexical: lexical[index].findIndex(slug => gold.includes(slug)) + 1, hybrid: hybrid[index].findIndex(slug => gold.includes(slug)) + 1 })) };
+  return { memories: memories.length, queries: fixture.queries.length, model, mode: fallback ? 'lexical-fallback' : 'hybrid', weights: { lexical: 0.3, cosine: 0.7, prior: 0.01 }, lexical: metrics(lexical, fixture.queries), hybrid: metrics(hybrid, fixture.queries), ranks: fixture.queries.map(({ query, gold }, index) => ({ query, gold, lexical: lexical[index].findIndex(slug => gold.includes(slug)) + 1, hybrid: hybrid[index].findIndex(slug => gold.includes(slug)) + 1 })) };
 }
 /** Run a reproducible local-only measurement; unavailable models fail explicitly. */
 export async function runBench(args: string[]): Promise<void> {
