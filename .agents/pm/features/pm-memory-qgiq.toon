@@ -1,0 +1,19 @@
+id: pm-memory-qgiq
+title: Measure secondary local embedding model quality
+description: "Follow-up to pm-memory-lc64: the installed qwen3-embedding:0.6b-fp16 model timed out during the labelled benchmark and an independent bounded embedding probe. Diagnose local availability without pulling models, then rerun the same public corpus and record recall@1, recall@5 and MRR. Do not treat this gap as a product defect or claim Qwen quality from the successful Gemma measurement."
+type: Feature
+status: open
+priority: 3
+tags: []
+created_at: "2026-10-21T15:43:20.889Z"
+updated_at: "2026-10-21T15:45:33.690Z"
+author: codex-agent
+acceptance_criteria: "Use localhost only and existing installed models; retain bounded requests; report the selected model digest and honest comparative metrics, or retain an explicit availability gap."
+parent: pm-memory-0kwy
+files[2]{path,scope}:
+  bench/recall.json,project
+  scripts/bench.ts,project
+docs[2]{path,scope}:
+  bench/embeddinggemma-2.results.json,project
+  README.md,project
+body: ""
