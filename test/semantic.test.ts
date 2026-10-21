@@ -245,7 +245,7 @@ test('benchmark entrypoint isolates synthetic caches and cleans success and fail
     assert.equal(directories.length, 1, 'benchmark must create a dedicated temporary workspace');
     workspaces.push(join(root, directories[0])); return 'isolated-benchmark';
   });
-  t.mock.method(OllamaProvider.prototype, 'embed', async (inputs: readonly string[]) => inputs.map(() => [1]));
+  const embedding = t.mock.method(OllamaProvider.prototype, 'embed', async (inputs: readonly string[]) => inputs.map(() => [1]));
   const log = t.mock.method(console, 'log', () => {});
   /** Verify that the benchmark removed its cache and left the real tracker untouched. */
   async function assertClean(): Promise<void> {
@@ -257,7 +257,7 @@ test('benchmark entrypoint isolates synthetic caches and cleans success and fail
     await runBench([]);
     await assertClean();
     assert.equal(log.mock.callCount(), 1);
-    t.mock.method(OllamaProvider.prototype, 'embed', async () => { throw new Error('Unavailable'); });
+    embedding.mock.mockImplementation(async () => { throw new Error('Unavailable'); });
     const completed = workspaces.length;
     await assert.rejects(runBench([]), /Local embedding model unavailable/);
     assert.ok(workspaces.length > completed);
@@ -438,5 +438,12 @@ test('non-git process runs real SDK semantic recall with no git executable and n
   for (const args of [['recall', 'x', '--semantic', 'onn'], ['recall', 'x', '--semantic', 'on'], ['consolidate', '--semantic', 'on', '--apply']]) {
     const result = await child([cli, 'memory', ...args], env, root); assert.equal(result.status, 2, result.stderr); assert.match(result.stderr + result.stdout, /semantic|Semantic/);
   }
-  const preview = await child([cli, 'memory', 'consolidate', '--semantic', 'auto', '--json'], env, root); assert.equal(preview.status, 0, preview.stderr); assert.match(JSON.parse(preview.stdout).note, /lexical/);
+  /** Exercise the native CLI preview for both singleton and pair-capable corpora. */
+  async function preview(): Promise<{ note?: string }> {
+    const result = await child([cli, 'memory', 'consolidate', '--semantic', 'auto', '--json'], env, root);
+    assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout) as { note?: string };
+  }
+  assert.equal((await preview()).note, undefined);
+  await remember('Other unrelated banana', { ...options, kind: 'project', slug: 'other' });
+  assert.match((await preview()).note!, /lexical/);
 });
