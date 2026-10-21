@@ -7,12 +7,14 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:44.557Z"
-updated_at: "2026-10-21T15:52:33.437Z"
+updated_at: "2026-10-21T16:33:20.438Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 90
 acceptance_criteria: "Rank lexical relevance, recency and standing guidance; entire packets stay within budget; process-concurrent recall counters; random-set property tests and packer revert proof."
 parent: pm-memory-0kwy
-comments[18]{created_at,author,text}:
+comments[22]{created_at,author,text}:
   "2026-10-19T13:32:34.261Z",codex-agent,"Behavioral revert proof: revert only the packer acceptance predicate so oversized rows are accepted. npm run build passes; node --test --test-name-pattern=\"budget packer\" test/memory.test.ts fails with AssertionError and exit 1. Restoring the predicate passes. Two independent processes start behind a shared barrier and produce exactly six recall increments."
   "2026-10-19T13:41:19.814Z",codex-agent,"Accepted aggregate recall packets stay under 800 estimated tokens. Four preselected references appeared at ranks 1, 1, 1 and 3; the release-workflow reference was omitted from its three returned rows. This budget tradeoff is documented rather than hidden. Index: 1498 of 1500 tokens. Random-set property and synchronized process-counter tests passed."
   "2026-10-19T14:00:52.642Z",codex-agent,"Recall now packs compact scored rows first, preserves top rank at small budgets, spends spare space on marked excerpts, and exposes full content via memory get. Ranking includes descriptions and slugs. Regression covers huge top bodies at budgets 200 and 800."
@@ -31,7 +33,11 @@ comments[18]{created_at,author,text}:
   "2026-10-21T15:24:12.129Z",codex-agent,"Final source head 822e4f5 passed CI on Node 22 and Node 26, including the direct-adapter guard. Each full suite passed 184/184 tests with 100/100/100/100 coverage across 22 source files, and packed npm/Bun acceptance passed 2/2. Node 26 also passed bun run release:check at unchanged thresholds. Evidence: https://github.com/unbraind/pm-memory/actions/runs/39624570740 and https://github.com/unbraind/pm-memory/pull/5. Local isolated npm run release:check remains in progress. Benchmark limitations remain explicit: small synthetic evaluation, one regressed query, motivating query rank unchanged, and no measured Qwen quality because of timeouts."
   "2026-10-21T15:45:52.144Z",codex-agent,"Final validation at source head 822e4f5: isolated npm run release:check passed all gates, 184/184 suite tests and 2/2 packed npm/Bun consumers; 22 intended source files measured at 100/100/100/100; production audit found zero vulnerabilities. CI Node 22 and Node 26 passed, including bun run release:check with the same counts and thresholds. Two behavioural reverts failed their targeted regressions, and both restored versions passed. Existing wall-clock privacy probes passed in the final local run. Public PR body and automated summaries were inspected for local paths; runtime/cache/build/dependency files are untracked. Follow-up pm-memory-qgiq records secondary-model availability and measurement. No pm CLI/SDK defect was established; normal-home health flags an external extension version skew while isolated health passes. PR https://github.com/unbraind/pm-memory/pull/5 remains open; no merge or release. Leave this item in progress for orchestrator verification."
   "2026-10-21T15:52:33.386Z",codex-agent,"Final tracking head 2a8fd43 passed CI on Node 22 and Node 26, including the Bun release gate; isolated tracker health and identity checks pass. Executable source is unchanged from tested source head 822e4f5. External review evidence remains incomplete: Cubic returned a neutral quota-limit result, and no approval review is recorded. Maintainer/orchestrator review remains pending. Technical gates, measured benchmark results and both revert proofs remain valid; the item stays in progress and unclaimed for verification."
-files[15]{path,scope}:
+  "2026-10-21T16:18:24.839Z",codex-agent,"PR #5 review round: verified unresolved thread PRRT_kwDOVPw2oc6u2YPE. Capture consolidation corpus and lexical proposals under the writer lock, release before loopback embedding HTTP requests, preserve advisory output and lexical apply semantics. Latest CodeRabbit review has no outside-diff findings. Self-review also found semantic recall holds the same lock during embedding; fix that instance while preserving atomic emitted-only counters and retrying changed corpus snapshots. Add slow-loopback concurrency regressions and function-only revert proofs; run unchanged npm and Bun release gates with isolated Git identity."
+  "2026-10-21T16:22:51.966Z",codex-agent,"Implemented review thread PRRT_kwDOVPw2oc6u2YPE and same-class recall correction. Slow loopback fixture withholds both embedding batches for a 17-memory preview while separate writer processes complete; lexical proposals and captured corpus remain stable and durable bytes change only from those writers. Recall releases the lock for document and query embeddings, retries insertions and content revisions, and atomically increments current counters without retrying counter-only drift. Typecheck, lint and zero-duplication checks passed. Function-only consolidate revert fails its targeted regression (0 passed, 1 failed, exit 1: writer blocked while embedding response is withheld); restored implementation passes (1 passed, 0 failed). Function-only recall revert fails with the same contention assertion (0 passed, 1 failed, exit 1). Final restored recall proof and full unchanged-threshold release gates follow."
+  "2026-10-21T16:23:15.495Z",codex-agent,"Completed both behavioural revert proofs against PR head 57e4a58: replace only consolidate with its original function and node --test --test-name-pattern=\"semantic preview releases\" test/semantic.test.ts fails 0/1 with the withheld-response writer assertion; restoration passes 1/1. Replace only recall and node --test --test-name-pattern=\"semantic recall releases\" test/semantic.test.ts likewise fails 0/1; restoration passes 1/1, including insertion/edit retries and counter-only concurrency during a blocked query embedding. Tests execute TypeScript sources directly. All functions are restored; no thresholds or dependency pins changed. Full release checks are next."
+  "2026-10-21T16:33:20.394Z",codex-agent,"Initial isolated npm release gate completed the suite at 185/186 with only the existing adversarial JWT privacy scanner exceeding its unchanged 500ms wall-clock assertion during host load. Both new concurrency regressions passed; all measured coverage dimensions were 100%, but the failed gate invalidated its reports. Immediate unchanged-limit retry with node --test --test-name-pattern=\"privacy scans adversarial JWT\" test/review-r1.test.ts passed 1/1. No scanner, deadline, gate threshold or test exemption was changed. Rerunning complete npm and Bun release gates; tracker strict health passes with one advisory queued-telemetry warning. Existing development dependency advisory remains tracked separately in pm-memory-eafx."
+files[16]{path,scope}:
   bench/recall.json,project
   index.ts,project
   package.json,project
@@ -46,8 +52,9 @@ files[15]{path,scope}:
   test/recaller.ts,project
   test/round2.test.ts,project
   test/semantic-process.ts,project
+  test/semantic-writer.ts,project
   test/semantic.test.ts,project
-tests[3]:
+tests[4]:
   - command: "node --test --test-name-pattern=\"independent process|budget property\" test/memory.test.ts"
     scope: project
     provenance:
@@ -72,6 +79,14 @@ tests[3]:
       source_ref: feat/semantic-recall
     updated_by: codex-agent
     updated_at: "2026-10-21T14:57:12.931Z"
+  - command: "node --test --test-name-pattern=\"semantic preview releases|semantic recall releases\" test/semantic.test.ts"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T16:20:55.555Z"
+      source_kind: local_mutation
+      source_ref: feat/semantic-recall
 docs[4]{path,scope}:
   ARCHITECTURE.md,project
   bench/embeddinggemma-2.results.json,project

@@ -16,7 +16,7 @@ import { tracker, snapshot } from './helpers.ts';
 
 /** An invented local protocol fixture; native tracker and SDK calls remain real. */
 async function daemon(t: TestContext) {
-  const state = { invalidJson: false, status: 200, redirect: false, delay: 0, payload: undefined as unknown, tags: { models: [{ name: 'test:local', digest: 'a'.repeat(64) }] } as unknown, inputs: [] as string[][], embed: (inputs: string[]) => inputs.map(input => /other|banana/i.test(input) ? [0, 1, 0] : /OIDC|registry|ship a release|federated publication/i.test(input) ? [1, 0, 0] : [0, 0, 1]) };
+  const state = { invalidJson: false, status: 200, redirect: false, delay: 0, payload: undefined as unknown, tags: { models: [{ name: 'test:local', digest: 'a'.repeat(64) }] } as unknown, inputs: [] as string[][], embed: (inputs: string[]): number[][] | Promise<number[][]> => inputs.map(input => /other|banana/i.test(input) ? [0, 1, 0] : /OIDC|registry|ship a release|federated publication/i.test(input) ? [1, 0, 0] : [0, 0, 1]) };
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
     if (state.delay > 0) await new Promise(resolve => { setTimeout(resolve, state.delay); });
@@ -27,7 +27,7 @@ async function daemon(t: TestContext) {
     else {
       const body = JSON.parse(Buffer.concat(chunks).toString()) as { input: string[]; truncate: boolean; model: string; keep_alive: string };
       assert.equal(req.url, '/api/embed'); assert.equal(body.truncate, false); assert.equal(body.model, 'test:local'); assert.equal(body.keep_alive, '5m');
-      state.inputs.push(body.input); res.end(JSON.stringify(state.payload ?? { embeddings: state.embed(body.input) }));
+      state.inputs.push(body.input); res.end(JSON.stringify(state.payload ?? { embeddings: await state.embed(body.input) }));
     }
   });
   await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve); });
@@ -43,6 +43,15 @@ async function child(args: string[], env: NodeJS.ProcessEnv, cwd: string) {
   process.stdout.on('data', chunk => { stdout += String(chunk); }); process.stderr.on('data', chunk => { stderr += String(chunk); });
   const status = await new Promise<number | null>(resolve => { process.on('close', resolve); });
   return { status, stdout, stderr };
+}
+/** Bound a concurrency assertion while callers retain responsibility for unblocking cleanup. */
+async function whileEmbedding<T>(pending: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([pending, new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Writer blocked while embedding response is withheld')), 10000);
+    })]);
+  } finally { clearTimeout(timer!); }
 }
 /** Small independent relevance example used by metrics and deterministic rank tests. */
 const fixture: RecallFixture = { memories: [{ slug: 'oidc', title: 'npm trusted publishing OIDC', body: 'Use the registry identity workflow' }, { slug: 'other', title: 'other ship a release', body: 'banana unrelated discussion' }], queries: [{ query: 'how do we ship a release', gold: ['oidc'] }] };
@@ -189,6 +198,89 @@ test('semantic consolidation shares vectors, is advisory and refuses apply befor
   const pair = duplicatePreview.proposals.filter(proposal => [proposal.slug, proposal.target].sort().join(':') === 'duplicate-one:duplicate-two');
   assert.equal(pair.length, 1); assert.equal(pair[0].previewOnly, undefined);
 
+});
+
+test('semantic preview releases the writer lock throughout every embedding batch', async t => {
+  const { options, workspace, root, store } = await tracker(t); const { provider, state } = await daemon(t);
+  for (let index = 0; index < 17; index++) await remember(`Registry guidance batch ${index}`, { ...options, kind: 'reference', slug: `batch-${index}`, forceNew: true });
+  const lexical = await consolidate(options);
+  const captured = await store.read();
+  const before = await snapshot(workspace);
+  let expected = before;
+  const ready = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+  const responses = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+  state.embed = async inputs => {
+    const index = state.inputs.length - 1; ready[index].resolve();
+    await responses[index].promise;
+    return inputs.map(() => [1, 0]);
+  };
+  let finished = false;
+  const preview = consolidate({ ...options, provider, semantic: 'on' }).finally(() => { finished = true; });
+  const writers: ReturnType<typeof child>[] = [];
+  try {
+    for (let index = 0; index < 2; index++) {
+      await whileEmbedding(ready[index].promise);
+      assert.deepEqual(await snapshot(workspace), expected);
+      const writer = child([join(import.meta.dirname, 'semantic-writer.ts'), workspace, `concurrent-${index}`], process.env, root);
+      writers.push(writer);
+      const result = await whileEmbedding(writer);
+      assert.equal(result.status, 0, result.stderr); assert.equal(finished, false);
+      assert.ok((await store.read()).some(item => item.slug === `concurrent-${index}`));
+      expected = await snapshot(workspace);
+      responses[index].resolve();
+    }
+    const result = await preview;
+    assert.equal(result.applied, false); assert.equal(result.note, undefined);
+    assert.deepEqual(result.proposals.filter(proposal => !proposal.previewOnly), lexical.proposals);
+    assert.equal(result.proposals.length, 17 * 16 / 2);
+    assert.ok(result.proposals.every(proposal => [proposal.slug, proposal.target].every(slug => captured.some(item => item.slug === slug))));
+    assert.deepEqual(state.inputs.map(inputs => inputs.length), [16, 1]);
+    assert.deepEqual(await snapshot(workspace), expected);
+  } finally {
+    for (const response of responses) response.resolve();
+    await Promise.allSettled([preview, ...writers]);
+  }
+});
+
+test('semantic recall releases the writer lock and retries changed snapshots without losing counters', async t => {
+  const { options, workspace, root, store } = await tracker(t); const { provider, state } = await daemon(t);
+  await remember('Original registry guidance', { ...options, kind: 'reference', slug: 'original' });
+  const ready = Promise.withResolvers<void>(); const response = Promise.withResolvers<void>();
+  const embed = state.embed;
+  state.embed = async inputs => { ready.resolve(); await response.promise; return embed(inputs); };
+  const pending = recall('registry', { ...options, provider, semantic: 'on', budget: 800 });
+  const writers: ReturnType<typeof child>[] = [];
+  try {
+    await whileEmbedding(ready.promise);
+    const writer = child([join(import.meta.dirname, 'semantic-writer.ts'), workspace, 'concurrent'], process.env, root); writers.push(writer);
+    const result = await whileEmbedding(writer); assert.equal(result.status, 0, result.stderr);
+    await whileEmbedding(remember('Revised registry guidance', { ...options, kind: 'reference', update: 'original' }));
+    // The original snapshot must retry after this insertion. A concurrent lexical recall
+    // also increments counters before the semantic recall commits its emitted rows.
+    const lexical = await whileEmbedding(recall('registry', { ...options, budget: 800 }));
+    response.resolve();
+    const packet = await pending;
+    assert.deepEqual(new Set(packet.memories!.map(item => item.slug)), new Set(['original', 'concurrent']));
+    const memories = await store.read();
+    for (const item of memories) assert.equal(item.recalls, Number(lexical.memories!.some(row => row.slug === item.slug)) + Number(packet.memories!.some(row => row.slug === item.slug)));
+    assert.equal(state.inputs.flat().filter(input => input.includes('Original registry guidance')).length, 1);
+    assert.ok(state.inputs.flat().some(input => input.includes('Revised registry guidance')));
+    assert.ok(state.inputs.flat().some(input => input.includes('Concurrent registry guidance')));
+  } finally { response.resolve(); await Promise.allSettled([pending, ...writers]); }
+
+  const queryReady = Promise.withResolvers<void>(); const queryResponse = Promise.withResolvers<void>();
+  state.embed = async inputs => { queryReady.resolve(); await queryResponse.promise; return embed(inputs); };
+  const before = await store.read(); const calls = state.inputs.length;
+  const counterOnly = recall('registry', { ...options, provider, semantic: 'on', budget: 800 });
+  try {
+    await whileEmbedding(queryReady.promise);
+    await whileEmbedding(recall('registry', { ...options, budget: 800 }));
+    queryResponse.resolve();
+    await counterOnly;
+    for (const item of await store.read()) assert.equal(item.recalls, before.find(previous => previous.id === item.id)!.recalls + 2);
+    // Counter-only drift reuses the ranked snapshot without a second query request.
+    assert.equal(state.inputs.length, calls + 1);
+  } finally { queryResponse.resolve(); await Promise.allSettled([counterOnly]); }
 });
 
 test('benchmark corpus is public synthetic, sufficiently large, and metrics include misses and multiple golds', async t => {

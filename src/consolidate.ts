@@ -124,17 +124,12 @@ export async function consolidate(options: MemoryOptions & SemanticOptions & { a
   const mode = semanticMode(options.semantic);
   if (options.apply && mode !== 'off') throw new MemoryError('invalid', 'Semantic consolidation is dry-run only', 'Review with --semantic on; use --semantic off for existing lexical actions');
   const store = new Store(options);
-  return store.write(async () => {
+  const { memories, planned } = await store.write(async () => {
     const memories = await store.read();
     const pending = memories.filter(item => item.merge !== '').map(item => ({ action: 'merge' as const, slug: item.slug, target: mergeReceipt(item, memories).target, reason: 'Resume recorded memory merge' }));
     const reserved = new Set<string | undefined>(pending.flatMap(proposal => [proposal.slug, proposal.target]));
     if (reserved.size !== pending.length * 2) throw new MemoryError('conflict', 'Pending memory merges reuse an action endpoint', 'Reconcile or clear overlapping memory_merge receipts through audited pm updates before retrying');
     const planned = [...pending, ...proposals(memories, options.minAgeDays).filter(proposal => !reserved.has(proposal.slug) && !reserved.has(proposal.target))];
-    if (mode !== 'off') {
-      const semantic = await semanticProposals(memories, options);
-      const pairs = new Set(planned.map(proposal => [proposal.slug, proposal.target].sort().join(':')));
-      return { applied: false, proposals: [...planned, ...semantic.proposals.filter(proposal => !pairs.has([proposal.slug, proposal.target].sort().join(':')))], ...(semantic.note === undefined ? {} : { note: semantic.note }) };
-    }
     if (options.apply === true && planned.length > 0) await store.register();
     if (options.apply === true) for (const proposal of planned) {
       const older = memories.find(item => item.slug === proposal.slug)!;
@@ -163,6 +158,12 @@ export async function consolidate(options: MemoryOptions & SemanticOptions & { a
         }
       }
     }
-    return { applied: options.apply === true, proposals: planned };
+    return { memories, planned };
   });
+  if (mode !== 'off') {
+    const semantic = await semanticProposals(memories, options);
+    const pairs = new Set(planned.map(proposal => [proposal.slug, proposal.target].sort().join(':')));
+    return { applied: false, proposals: [...planned, ...semantic.proposals.filter(proposal => !pairs.has([proposal.slug, proposal.target].sort().join(':')))], ...(semantic.note === undefined ? {} : { note: semantic.note }) };
+  }
+  return { applied: options.apply === true, proposals: planned };
 }

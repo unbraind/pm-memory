@@ -89,22 +89,32 @@ function excerpt(item: Memory, query: string, size: number): string {
   const start = Math.max(0, (match.length === 0 ? 0 : Math.min(...match)) - 100);
   return source.slice(start, start + size).toWellFormed();
 }
-/** Retrieve a bounded packet and atomically count only memories actually emitted. */
+/** Compare corpus snapshots independently of ordering and concurrent recall counters. */
+function recallRevision(memories: readonly Memory[]): string {
+  return JSON.stringify(memories.map(item => ({ ...item, recalls: 0 })).sort((a, b) => a.id.localeCompare(b.id)));
+}
+/** Rank outside the writer lock, then validate the snapshot and atomically count emitted memories. */
 export async function recall(query: string, options: MemoryOptions & SemanticOptions & { budget?: number; kind?: Memory['kind'] }): Promise<Packet> {
   text(query); const limit = budget(options.budget ?? 800);
   if (options.kind !== undefined) kind(options.kind);
   const store = new Store(options);
-  return store.write(async () => {
-    const memories = active(await store.read()).filter(item => options.kind === undefined || item.kind === options.kind);
+  for (;;) {
+    const snapshot = await store.write(() => store.read());
+    const memories = active(snapshot).filter(item => options.kind === undefined || item.kind === options.kind);
     const ranked = await hybridScored(memories, query, options);
-    const rows: RecallRow[] = ranked.rows.map(({ item, score }) => ({ slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
-    const packet = recallPacket(rows, memories, query, limit, ranked.note);
-    const emitted = packet.memories!.map(row => memories.find(memory => memory.slug === row.slug)!);
-    if (emitted.some(item => item.recalls === Number.MAX_SAFE_INTEGER)) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
-    if (emitted.length > 0) await store.register();
-    for (const item of emitted) await store.fields(item.id, { recalls: item.recalls + 1 });
-    return packet;
-  });
+    const packet = await store.write(async () => {
+      const current = await store.read();
+      if (recallRevision(snapshot) !== recallRevision(current)) return undefined;
+      const rows: RecallRow[] = ranked.rows.map(({ item, score }) => ({ slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
+      const packet = recallPacket(rows, memories, query, limit, ranked.note);
+      const emitted = packet.memories!.map(row => current.find(memory => memory.slug === row.slug)!);
+      if (emitted.some(item => item.recalls === Number.MAX_SAFE_INTEGER)) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
+      if (emitted.length > 0) await store.register();
+      for (const item of emitted) await store.fields(item.id, { recalls: item.recalls + 1 });
+      return packet;
+    });
+    if (packet !== undefined) return packet;
+  }
 }
 /** Pack compact rows in rank order first, then spend spare tokens on marked excerpts. */
 export function recallPacket(rows: RecallRow[], memories: readonly Memory[], query: string, limit: number, note?: string): Packet {
