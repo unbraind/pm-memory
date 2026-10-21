@@ -4,6 +4,7 @@
 
 ### Added
 
+- Outcome-linked memory utility with source denominators ([pm-memory-kkxg](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-kkxg.toon))
 - Recall and index ([pm-memory-lc64](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-lc64.toon))
 - Verify checkable claims ([pm-memory-4tbo](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-4tbo.toon))
 - Consolidate memory ([pm-memory-bj84](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-bj84.toon))

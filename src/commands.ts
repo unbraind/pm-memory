@@ -7,6 +7,8 @@ import { exportDir, harness, importDir } from './transfer.ts';
 import { verify } from './verify.ts';
 import { consolidate } from './consolidate.ts';
 import { semanticMode } from './embeddings.ts';
+import { observe, utility } from './utility.ts';
+import type { ObserveOptions } from './utility-types.ts';
 import { MEMORY_FIELDS } from './store.ts';
 
 /** Dispatch native command operands to the documented in-process API. */
@@ -16,6 +18,8 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     const options = ctx.options;
     if (command === 'remember') return await remember(text(ctx.args[0]), { ...base, kind: kind(options.kind), slug: options.slug === undefined ? undefined : text(options.slug), update: options.update === undefined ? undefined : text(options.update), why: options.why === undefined ? undefined : text(options.why), how: options.how === undefined ? undefined : text(options.how), pin: options.pin === true ? true : undefined, forceNew: options.forceNew === true, allowEmail: options.allowEmail === true, links: options.link === undefined ? [] : (Array.isArray(options.link) ? options.link : [options.link]).map(text) });
     if (command === 'recall') return await recall(text(ctx.args[0]), { ...base, budget: options.budget === undefined ? undefined : Number(options.budget), semantic: semanticMode(options.semantic), kind: options.kind === undefined ? undefined : kind(options.kind) });
+    if (command === 'observe') return await observe(text(ctx.args[0]), { ...base, recall: text(options.recall), task: text(options.task), feedback: text(options.feedback) as ObserveOptions['feedback'], outcome: text(options.outcome) as ObserveOptions['outcome'], attribution: text(options.attribution) as ObserveOptions['attribution'], evidence: text(options.evidence) });
+    if (command === 'utility') return await utility(text(ctx.args[0]), base);
     if (command === 'get') return await get(text(ctx.args[0]), base);
     if (command === 'index') return await index({ ...base, budget: options.budget === undefined ? undefined : Number(options.budget) });
     if (command === 'import') return await importDir(text(ctx.args[0]), { ...base, from: harness(options.from), allowEmail: options.allowEmail === true });
@@ -30,6 +34,12 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
 }
 /** Native flag descriptions include concrete examples in every option's help entry. */
 const OPTIONS: Record<string, string> = {
+  recall: 'Link the receipt returned by recall (example: --recall <receipt>)',
+  task: 'Link an existing native task outcome (example: --task task-id)',
+  feedback: 'Explicit helpfulness: helpful or unhelpful (example: --feedback helpful)',
+  outcome: 'Observed improved, unchanged, worsened or unknown performance (example: --outcome improved)',
+  attribution: 'Declare isolated, confounded or unknown attribution (example: --attribution confounded)',
+  evidence: 'Explain the baseline and confounders in 1-1000 characters (example: --evidence "Same gate, fewer failures")',
   semantic: 'Use auto, on or off local embeddings; default off (example: --semantic auto)',
   kind: 'Classify as user, feedback, project or reference (example: --kind project)',
   slug: 'Select a stable memory key (example: --slug release-policy)',
@@ -56,6 +66,8 @@ function flags(strings: string[], booleans: string[]): FlagDefinition[] {
 const HELP: Record<string, [string, string, string]> = {
   remember: ['Create or revise durable agent knowledge with privacy and duplicate checks', 'A durable fact or guidance to retain', 'pm memory remember "Run both release gates" --kind project --slug release-policy --pin'],
   recall: ['Rank memories and return compact rows then excerpts within a token budget', 'Words describing the context needed', 'pm memory recall "release workflow" --budget 800'],
+  observe: ['Record explicit memory feedback and a later native task outcome idempotently', 'Recalled memory slug', 'pm memory observe build --recall <receipt> --task task-id --feedback helpful --outcome improved --attribution isolated --evidence "Same gate, fewer failures"'],
+  utility: ['Report memory outcome evidence with complete source denominators', 'Memory slug, including archived guidance', 'pm memory utility build'],
   get: ['Read the full memory selected by its stable slug', 'Memory slug from recall or index', 'pm memory get release-policy'],
   index: ['Render a bounded memory index, with pinned guidance first', '', 'pm memory index --budget 1500'],
   import: ['Import portable harness memories idempotently and resolve wiki links', 'A directory or regular memory file', 'pm memory import ./memories --from claude-code'],
@@ -70,6 +82,8 @@ export function register(api: ExtensionApi): void {
   for (const [name, strings, booleans, argument] of [
     ['remember', ['kind', 'slug', 'update', 'why', 'how', 'link'], ['pin', 'force-new', 'allow-email'], 'fact'],
     ['recall', ['budget', 'kind', 'semantic'], [], 'query'],
+    ['observe', ['recall', 'task', 'feedback', 'outcome', 'attribution', 'evidence'], [], 'slug'],
+    ['utility', [], [], 'slug'],
     ['get', [], [], 'slug'],
     ['index', ['budget'], [], ''],
     ['import', ['from'], ['allow-email'], 'source'],

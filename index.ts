@@ -18,3 +18,8 @@ export default defineExtension({ name: 'pm-memory', version: '2026.10.19', descr
 /** Local embedding adapters and opt-in provider contracts. */
 export { OllamaProvider, LexicalProvider, EmbeddingInputError } from './src/embeddings.ts';
 export type { EmbeddingProvider, EmbeddingPurpose, SemanticMode, SemanticOptions } from './src/embeddings.ts';
+
+/** Record explicit memory feedback and inspect auditable outcome denominators. */
+export { observe, utility } from './src/utility.ts';
+/** Public outcome, attribution, observation and utility evidence contracts. */
+export type { TaskOutcome, Attribution, ObserveOptions, MemoryExposure, MemoryObservation, UtilityLedger, UtilityCounts, UtilityReport } from './src/utility-types.ts';

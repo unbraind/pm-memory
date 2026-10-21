@@ -1,8 +1,10 @@
+import { randomBytes } from 'node:crypto';
 import { parseMutationReceipt } from '@unbrained/pm-cli/sdk';
 import type { Memory, MemoryOptions, Packet, RememberOptions, RecallRow } from './types.ts';
 import { accounted, budget, digest, kind, MemoryError, pack, privacy, similarity, slug, text, words } from './core.ts';
 import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from './embeddings.ts';
 import type { SemanticOptions } from './embeddings.ts';
+import { memoryRevision, readUtility } from './utility.ts';
 import { metadata, Store } from './store.ts';
 
 /** Inclusive similarity threshold for a title-plus-body normalized token set. */
@@ -102,11 +104,17 @@ function recallRevision(memories: readonly Memory[]): string {
 async function commitRecall(store: Store, current: readonly Memory[], ranked: Awaited<ReturnType<typeof hybridScored>>, query: string, limit: number): Promise<Packet> {
   const memories = ranked.rows.map(row => row.item);
   const rows: RecallRow[] = ranked.rows.map(({ item, score }) => ({ slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
-  const packet = recallPacket(rows, memories, query, limit, ranked.note);
+  const receipt = randomBytes(12).toString('hex');
+  const packet = recallPacket(rows, memories, query, limit, ranked.note, receipt);
   const emitted = packet.memories!.map(row => current.find(memory => memory.slug === row.slug)!);
   if (emitted.some(item => item.recalls === Number.MAX_SAFE_INTEGER)) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
+  const ledgers = await Promise.all(emitted.map(item => readUtility(store, item)));
   if (emitted.length > 0) await store.register();
-  for (const item of emitted) await store.fields(item.id, { recalls: item.recalls + 1 });
+  for (const [position, item] of emitted.entries()) {
+    const ledger = ledgers[position];
+    ledger.exposures.push({ recall: receipt, revision: memoryRevision(item), at: new Date().toISOString() });
+    await store.fields(item.id, { recalls: item.recalls + 1, utility: JSON.stringify(ledger) });
+  }
   return packet;
 }
 /** Use one critical section for lexical recall; embed outside it and validate snapshots for semantic recall. */
@@ -133,8 +141,8 @@ export async function recall(query: string, options: MemoryOptions & SemanticOpt
   throw new MemoryError('conflict', 'Memory corpus kept changing during semantic recall', 'Retry when concurrent memory writes settle, or use --semantic off');
 }
 /** Pack compact rows in rank order first, then spend spare tokens on marked excerpts. */
-export function recallPacket(rows: RecallRow[], memories: readonly Memory[], query: string, limit: number, note?: string): Packet {
-  const render = (selected: RecallRow[], omitted: number) => ({ memories: selected, omitted, complete: true as const, ...(note === undefined ? {} : { note }) });
+export function recallPacket(rows: RecallRow[], memories: readonly Memory[], query: string, limit: number, note?: string, receipt?: string): Packet {
+  const render = (selected: RecallRow[], omitted: number) => ({ memories: selected, omitted, complete: true as const, ...(receipt === undefined ? {} : { recall: receipt }), ...(note === undefined ? {} : { note }) });
   // Compact even the first description until its row fits; never skip a higher-ranked row.
   const firstRender = (selected: RecallRow[]) => render(selected, rows.length - selected.length);
   const compact = rows.map(row => ({ ...row }));
