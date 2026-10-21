@@ -9,7 +9,7 @@ export function instant(value: unknown): string {
 }
 /** Bind renewal evidence to semantic content without treating recall or verification as edits. */
 export function guidanceHash(item: Memory): string {
-  return digest(JSON.stringify([item.title, item.body, item.kind, item.why, item.how, item.tags]));
+  return digest(JSON.stringify([item.title, item.description, item.body, item.kind, item.why, item.how, item.tags]));
 }
 /** Validate persisted metadata before any retrieval or renewal, refusing malformed windows. */
 export function readWindow(value: unknown): GuidanceWindow | undefined {

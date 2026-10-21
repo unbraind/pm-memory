@@ -62,11 +62,14 @@ test('content edits invalidate renewal evidence while verification and recall do
   const renewed = await renew('policy', { ...options, from, until, evidence });
   await store.fields(renewed.id, { verdict: 'verified', verified_at: from });
   assert.equal((await recall('release', options)).memories![0].validity, 'current');
+  await store.client.update(renewed.id, { description: 'An updated release instruction hook' });
+  assert.equal((await recall('release', options)).memories!.length, 0);
+  await renew('policy', { ...options, from, until, evidence: 'Updated retrieval description reviewed' });
   await remember('Run the updated release checklist', { ...options, kind: 'project', update: 'policy' });
   assert.equal((await recall('release', options)).memories!.length, 0);
   assert.equal((await recall('release', { ...options, validity: 'label' })).memories![0].validity, 'needs-renewal');
   const second = await renew('policy', { ...options, from, until, evidence: 'Updated checklist reviewed' });
-  assert.equal(second.validity.revision, 2);
+  assert.equal(second.validity.revision, 3);
   assert.equal((await recall('release', options)).memories![0].validity, 'current');
   await store.fields(second.id, { pinned: false });
   assert.equal(guidanceState(await get('policy', options), Date.now()), 'needs-renewal');

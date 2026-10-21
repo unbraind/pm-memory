@@ -90,7 +90,7 @@ Use canonical UTC timestamps with milliseconds. Start is inclusive; end is exclu
 
 Renewals require an existing active pinned memory, explicit bounds and nonblank evidence; privacy checks reject credential-shaped evidence. Each successful renewal increments a revision under the shared process lock and writes the whole window in one native mutation. Earlier evidence remains in append-only native item history, including competing renewals. The last serialized renewal is current; it may deliberately shorten a window. A window describes the latest authored policy, not a historical reconstruction query. A failed native mutation retains its normal SDK refusal and retry contract.
 
-The evidence digest covers title, body, kind, rationale, application instructions and tags. Changed content or removal of the pin yields `needs-renewal` until reviewed again. Recall counters and claim verification never renew validity, reset its bounds or refresh content recency. Evidence records an author's assertion; the package does not automatically establish that it is true. Direct tracker writers do not participate in the package lock.
+The evidence digest covers title, description, body, kind, rationale, application instructions and tags. Changed content or removal of the pin yields `needs-renewal` until reviewed again. Recall counters and claim verification never renew validity, reset its bounds or refresh content recency. Evidence records an author's assertion; the package does not automatically establish that it is true. Direct tracker writers do not participate in the package lock.
 
 ```ts
 import { renew, recall, get, guidanceState } from 'pm-memory';
