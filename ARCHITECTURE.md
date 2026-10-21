@@ -132,3 +132,13 @@ critical sections; a second run under contention measured 32020.08 ms
 tracker. These measurements are observations, not an upper bound for arbitrary corpus sizes or slow storage; keeping the existing
 one-hour TTL avoids shortening the lease below a possible long operation.
 Even longer live critical sections remain protected by force-required policy.
+
+## Optional semantic retrieval
+
+`src/embeddings.ts` defines an async installed-model identity and batch embedding interface. The loopback-only Ollama adapter rejects cloud aliases during model discovery and refuses redirects and oversized inputs. The lexical adapter returns no semantic evidence. New providers must preserve local-only execution and change identity whenever weights or preprocessing change.
+
+The retrieval cache is disposable tracker runtime, separate from Knowledge items and append-only history. Namespace keys hash model identity (including its installed digest and format version); entries hash every embedded retrieval field. Batches fill cache misses with private atomic files. Operational metadata does not invalidate embeddings. Query vectors remain transient. Reads validate finite nonzero vectors with consistent dimensions before cosine calculation. Invalid evidence cannot participate in ranking.
+
+Recall blends normalized lexical scores at 0.30 with nonnegative cosine at 0.70, then sends the resulting order through the existing packet builder. The builder counts fallback notes, omission receipts and both output encodings before writing recall counters. Off mode bypasses embeddings and retains exact lexical output. Auto handles provider/cache failures with one safe note; on fails explicitly. The existing process-safe writer lock covers snapshot retrieval, ranking and emitted-only counter updates, so a slow daemon can extend the critical section by the number of uncached batches; each request is bounded, total corpus work is not constant-time.
+
+Consolidation shares the cache but only previews semantic candidates at cosine 0.90 or higher. It refuses semantic apply before opening the mutation path. Existing lexical proposals remain intact; semantic evidence is advisory and cannot establish equivalence or absence of contradiction. The benchmark uses production ranking code and a versioned synthetic corpus, with full per-query evidence kept as text.

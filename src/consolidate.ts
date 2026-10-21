@@ -1,6 +1,8 @@
 import { jaccardSimilarity } from '@unbrained/pm-cli/sdk';
 import { active, DUPLICATE_THRESHOLD } from './memory.ts';
 import { digest, words, MemoryError } from './core.ts';
+import { cosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode } from './embeddings.ts';
+import type { SemanticOptions } from './embeddings.ts';
 import { metadata, Store } from './store.ts';
 import type { Memory, MemoryOptions, Proposal } from './types.ts';
 
@@ -73,6 +75,22 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
   }
   return result.filter(proposal => accepted.has(proposal));
 }
+/** Suggest high-cosine paraphrases for human review without scheduling a mutation. */
+export async function semanticProposals(memories: readonly Memory[], options: MemoryOptions & SemanticOptions): Promise<{ proposals: Proposal[]; note?: string }> {
+  const mode = semanticMode(options.semantic);
+  if (mode === 'off') return { proposals: [] };
+  try {
+    const rows = active(memories);
+    const vectors = await memoryVectors(rows, options.workspace, options.provider ?? new OllamaProvider());
+    if (vectors === undefined) return { proposals: [], note: semanticFailure(mode) };
+    const result: Proposal[] = [];
+    for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+      const score = cosine(vectors[i], vectors[j]);
+      if (score >= 0.9) result.push({ action: 'merge', slug: rows[i].slug, target: rows[j].slug, previewOnly: true, reason: `Possible paraphrase (cosine ${score.toFixed(3)}); review meaning and contradictions; dry-run only` });
+    }
+    return { proposals: result };
+  } catch { return { proposals: [], note: semanticFailure(mode) }; }
+}
 /** Durable merge evidence binds replay to the original source and both target states. */
 interface MergeReceipt {
   /** Stable destination slug. */
@@ -102,7 +120,9 @@ function mergeReceipt(source: Memory, memories: readonly Memory[]): MergeReceipt
   return receipt;
 }
 /** Preview consolidation without writes; explicitly applied actions preserve all content and audited history. */
-export async function consolidate(options: MemoryOptions & { apply?: boolean; minAgeDays?: number }): Promise<{ applied: boolean; proposals: Proposal[] }> {
+export async function consolidate(options: MemoryOptions & SemanticOptions & { apply?: boolean; minAgeDays?: number }): Promise<{ applied: boolean; proposals: Proposal[]; note?: string }> {
+  const mode = semanticMode(options.semantic);
+  if (options.apply && mode !== 'off') throw new MemoryError('invalid', 'Semantic consolidation is dry-run only', 'Review with --semantic on; use --semantic off for existing lexical actions');
   const store = new Store(options);
   return store.write(async () => {
     const memories = await store.read();
@@ -110,6 +130,11 @@ export async function consolidate(options: MemoryOptions & { apply?: boolean; mi
     const reserved = new Set<string | undefined>(pending.flatMap(proposal => [proposal.slug, proposal.target]));
     if (reserved.size !== pending.length * 2) throw new MemoryError('conflict', 'Pending memory merges reuse an action endpoint', 'Reconcile or clear overlapping memory_merge receipts through audited pm updates before retrying');
     const planned = [...pending, ...proposals(memories, options.minAgeDays).filter(proposal => !reserved.has(proposal.slug) && !reserved.has(proposal.target))];
+    if (mode !== 'off') {
+      const semantic = await semanticProposals(memories, options);
+      const pairs = new Set(planned.map(proposal => [proposal.slug, proposal.target].sort().join(':')));
+      return { applied: false, proposals: [...planned, ...semantic.proposals.filter(proposal => !pairs.has([proposal.slug, proposal.target].sort().join(':')))], ...(semantic.note === undefined ? {} : { note: semantic.note }) };
+    }
     if (options.apply === true && planned.length > 0) await store.register();
     if (options.apply === true) for (const proposal of planned) {
       const older = memories.find(item => item.slug === proposal.slug)!;

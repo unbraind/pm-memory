@@ -1,6 +1,8 @@
 import { parseMutationReceipt } from '@unbrained/pm-cli/sdk';
 import type { Memory, MemoryOptions, Packet, RememberOptions, RecallRow } from './types.ts';
 import { accounted, budget, digest, kind, MemoryError, pack, privacy, similarity, slug, text, words } from './core.ts';
+import { cosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from './embeddings.ts';
+import type { SemanticOptions } from './embeddings.ts';
 import { metadata, Store } from './store.ts';
 
 /** Inclusive similarity threshold for a title-plus-body normalized token set. */
@@ -65,6 +67,21 @@ export function scored(memories: readonly Memory[], query: string): { item: Memo
 }
 /** Preserve the public ranking projection while exposing scores in recall rows. */
 export function rank(memories: readonly Memory[], query: string): Memory[] { return scored(memories, query).map(entry => entry.item); }
+/** Blend bounded lexical relevance (30%) and nonnegative cosine similarity (70%). */
+export async function hybridScored(memories: readonly Memory[], query: string, options: MemoryOptions & SemanticOptions): Promise<{ rows: { item: Memory; score: number }[]; note?: string }> {
+  const rows = scored(memories, query); const mode = semanticMode(options.semantic);
+  if (mode === 'off' || memories.length === 0) return { rows };
+  try {
+    const provider = options.provider ?? new OllamaProvider();
+    const vectors = await memoryVectors(memories, options.workspace, provider);
+    if (vectors === undefined) return { rows, note: semanticFailure(mode) };
+    const [queryVector] = validateVectors(await provider.embed([query], 'query'), 1);
+    validateVectors([...vectors, queryVector], memories.length + 1);
+    const maximum = Math.max(...rows.map(row => row.score));
+    const positions = new Map(memories.map((item, index) => [item.slug, index]));
+    return { rows: rows.map(({ item, score }) => ({ item, score: 0.3 * (maximum === 0 ? 0 : score / maximum) + 0.7 * Math.max(0, cosine(vectors[positions.get(item.slug)!], queryVector)) })).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
+  } catch { return { rows, note: semanticFailure(mode) }; }
+}
 /** Return a query-centered excerpt without charging oversized full memory bodies to the packet. */
 function excerpt(item: Memory, query: string, size: number): string {
   const source = [item.body, item.why, item.how].filter(Boolean).join('\n');
@@ -73,14 +90,15 @@ function excerpt(item: Memory, query: string, size: number): string {
   return source.slice(start, start + size).toWellFormed();
 }
 /** Retrieve a bounded packet and atomically count only memories actually emitted. */
-export async function recall(query: string, options: MemoryOptions & { budget?: number; kind?: Memory['kind'] }): Promise<Packet> {
+export async function recall(query: string, options: MemoryOptions & SemanticOptions & { budget?: number; kind?: Memory['kind'] }): Promise<Packet> {
   text(query); const limit = budget(options.budget ?? 800);
   if (options.kind !== undefined) kind(options.kind);
   const store = new Store(options);
   return store.write(async () => {
     const memories = active(await store.read()).filter(item => options.kind === undefined || item.kind === options.kind);
-    const rows: RecallRow[] = scored(memories, query).map(({ item, score }) => ({ slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
-    const packet = recallPacket(rows, memories, query, limit);
+    const ranked = await hybridScored(memories, query, options);
+    const rows: RecallRow[] = ranked.rows.map(({ item, score }) => ({ slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
+    const packet = recallPacket(rows, memories, query, limit, ranked.note);
     const emitted = packet.memories!.map(row => memories.find(memory => memory.slug === row.slug)!);
     if (emitted.some(item => item.recalls === Number.MAX_SAFE_INTEGER)) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
     if (emitted.length > 0) await store.register();
@@ -89,8 +107,8 @@ export async function recall(query: string, options: MemoryOptions & { budget?: 
   });
 }
 /** Pack compact rows in rank order first, then spend spare tokens on marked excerpts. */
-export function recallPacket(rows: RecallRow[], memories: readonly Memory[], query: string, limit: number): Packet {
-  const render = (selected: RecallRow[], omitted: number) => ({ memories: selected, omitted, complete: true as const });
+export function recallPacket(rows: RecallRow[], memories: readonly Memory[], query: string, limit: number, note?: string): Packet {
+  const render = (selected: RecallRow[], omitted: number) => ({ memories: selected, omitted, complete: true as const, ...(note === undefined ? {} : { note }) });
   // Compact even the first description until its row fits; never skip a higher-ranked row.
   const firstRender = (selected: RecallRow[]) => render(selected, rows.length - selected.length);
   const compact = rows.map(row => ({ ...row }));

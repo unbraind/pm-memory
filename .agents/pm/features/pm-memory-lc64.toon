@@ -2,16 +2,19 @@ id: pm-memory-lc64
 title: Recall and index
 description: ""
 type: Feature
+pm_format_version: 2
 status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:44.557Z"
-updated_at: "2026-10-19T15:20:06.721Z"
+updated_at: "2026-10-21T15:02:35.342Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 estimated_minutes: 90
 acceptance_criteria: "Rank lexical relevance, recency and standing guidance; entire packets stay within budget; process-concurrent recall counters; random-set property tests and packer revert proof."
 parent: pm-memory-0kwy
-comments[9]{created_at,author,text}:
+comments[13]{created_at,author,text}:
   "2026-10-19T13:32:34.261Z",codex-agent,"Behavioral revert proof: revert only the packer acceptance predicate so oversized rows are accepted. npm run build passes; node --test --test-name-pattern=\"budget packer\" test/memory.test.ts fails with AssertionError and exit 1. Restoring the predicate passes. Two independent processes start behind a shared barrier and produce exactly six recall increments."
   "2026-10-19T13:41:19.814Z",codex-agent,"Accepted aggregate recall packets stay under 800 estimated tokens. Four preselected references appeared at ranks 1, 1, 1 and 3; the release-workflow reference was omitted from its three returned rows. This budget tradeoff is documented rather than hidden. Index: 1498 of 1500 tokens. Random-set property and synchronized process-counter tests passed."
   "2026-10-19T14:00:52.642Z",codex-agent,"Recall now packs compact scored rows first, preserves top rank at small budgets, spends spare space on marked excerpts, and exposes full content via memory get. Ranking includes descriptions and slugs. Regression covers huge top bodies at budgets 200 and 800."
@@ -21,17 +24,53 @@ comments[9]{created_at,author,text}:
   "2026-10-19T15:15:43.292Z",codex-agent,"Release-gate regression: scoring sampled Date.now independently for each memory. Advancing time during a ranking pass can incorrectly break a score tie before the slug tie-breaker. Capture one timestamp per pass; a real SDK memory plus a controlled advancing clock proves that equal-timestamp memories keep stable slug order. No SDK mocks."
   "2026-10-19T15:16:35.412Z",codex-agent,"Clock regression proof: the advancing-clock fixture passes with one timestamp per scoring pass, and fails with only scored reverted to b958419 (beta incorrectly precedes alpha). Both the direct and pm-linked regression pass after restoration. This removes the timing-dependent ranking failure without changing the tie contract."
   "2026-10-19T15:20:04.485Z",codex-agent,"Final verification: the advancing-clock regression is included in both isolated release gates, each passing 93/93 suite tests plus 2/2 packed npx/bunx consumers with 100/100/100/100 coverage. The scoring-only revert fails the regression; restored implementation passes. Release-gate timing failure resolved."
-files[6]{path,scope}:
+  "2026-10-21T14:39:32.039Z",codex-agent,"Extend existing recall with opt-in localhost Ollama embeddings, content-addressed runtime vectors, documented hybrid weights, budgeted lexical fallback notes, preview-only semantic duplicate proposals and a labelled synthetic retrieval benchmark. Preserve default lexical scores and pinned SDK version. Verify non-git execution, behavioural revert and unchanged npm/Bun release gates."
+  "2026-10-21T14:47:57.014Z",codex-agent,"Implemented loopback-only Ollama provider, deterministic no-model adapter and model-digest plus content-hash vector cache under runtime. Default stays lexical; explicit hybrid uses 30% normalized lexical score and 70% nonnegative cosine. Auto notes are included in token accounting. Synthetic corpus has 64 memories and 64 labelled queries. Initial embeddinggemma-2 measurement: lexical recall@1 0.203125, recall@5 0.5, MRR 0.332508; hybrid 0.28125, 0.625, 0.435186. These are full-ranking evaluation results, not budgeted or held-out generalization claims. Additional installed-model measurement and unchanged gates remain in progress."
+  "2026-10-21T14:53:02.303Z",codex-agent,"Behavioural revert proof: replacing only hybridScored with the pre-feature lexical ranking makes node --test --test-name-pattern=\"hybrid ranking promotes paraphrases\" test/semantic.test.ts fail (0 passed, 1 failed; unrelated lexical hit precedes OIDC). Restoring hybridScored passes (1 passed, 0 failed). Tests import TypeScript source directly. Added published model-card query/document prompts and bumped cache input version to v2. Final measured embeddinggemma-2 hybrid recall@1 0.28125, recall@5 0.671875, MRR 0.442726 versus lexical 0.203125, 0.5, 0.332508. Qwen benchmark and independent embedding probe timed out; no Qwen quality claim."
+  "2026-10-21T15:02:25.840Z",codex-agent,"Final design uses direct node:http requests to bypass environment proxies, loopback origin validation, installed local-model checks and model-card query/document prompts. Cache includes a private ignore rule for custom tracker locations. Semantic consolidation stays advisory and refuses apply before writes. Non-git regression removes Git from PATH and blocks ancestor discovery. Isolated health passes; normal-home health reports global pm-github host-version skew against the unchanged pinned host. Existing wall-clock privacy probe failed once under shared load; limits remain unchanged. Linked semantic test timeout is now 600 seconds to accommodate observed host contention."
+files[14]{path,scope}:
+  bench/recall.json,project
+  index.ts,project
+  scripts/bench.ts,project
   src/commands.ts,project
+  src/consolidate.ts,project
   src/core.ts,project
+  src/embeddings.ts,project
   src/memory.ts,project
+  src/types.ts,project
   test/memory.test.ts,project
   test/recaller.ts,project
   test/round2.test.ts,project
-tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  "node --test --test-name-pattern=\"independent process|budget property\" test/memory.test.ts",project,codex-agent,"2026-10-19T13:18:54.723Z",local_mutation,feat/memory
-  node --test --test-name-pattern=one.scoring.pass test/memory.test.ts,project,codex-agent,"2026-10-19T15:16:32.231Z",local_mutation,feat/memory
-docs[2]{path,scope}:
+  test/semantic-process.ts,project
+  test/semantic.test.ts,project
+tests[3]:
+  - command: "node --test --test-name-pattern=\"independent process|budget property\" test/memory.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-19T13:18:54.723Z"
+      source_kind: local_mutation
+      source_ref: feat/memory
+  - command: node --test --test-name-pattern=one.scoring.pass test/memory.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-19T15:16:32.231Z"
+      source_kind: local_mutation
+      source_ref: feat/memory
+  - command: node --test test/semantic.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T14:48:27.953Z"
+      source_kind: local_mutation
+      source_ref: feat/semantic-recall
+    updated_by: codex-agent
+    updated_at: "2026-10-21T14:57:12.931Z"
+docs[4]{path,scope}:
   ARCHITECTURE.md,project
+  bench/embeddinggemma-2.results.json,project
+  bench/recall.json,project
   README.md,project
 body: ""

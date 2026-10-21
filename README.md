@@ -131,3 +131,34 @@ Behavioral reverts of only the extractor, import parser and recall function each
 | 4 | Privacy refusal | Remove credentials; explicitly allow email only when intended |
 
 `npm run release:check` and `bun run release:check` run the fleet gates. Publication is separately held by the manual-only workflow and the maintainer-controlled release enable variable.
+
+## Optional local semantic recall
+
+Lexical recall remains the default (`--semantic off`) and keeps its existing scores and tie ordering. Use `pm memory recall "how do we ship a release" --semantic auto --budget 800` to try a locally installed embedding model, or `--semantic on` to require it. `auto` falls back to the original lexical ranking with the single-line packet note `Semantic model unavailable; using lexical ranking.` Missing models, timeouts, invalid vectors and cache failures follow this policy. `on` refuses with a remedy instead of silently degrading. An empty corpus needs no model. The fallback note participates in the complete packet's token accounting and may reduce the number of emitted rows; the omission receipt and emitted-only counters still apply. Very small budgets can refuse when the receipt cannot fit.
+
+The built-in `OllamaProvider` defaults to `embeddinggemma-2:latest` on loopback port 11434. Set `PM_MEMORY_MODEL=qwen3-embedding:0.6b-fp16` to select another **already installed local** model. It uses [Ollama's embedding endpoint](https://docs.ollama.com/api/embed) and resolves model digests from the [installed model list](https://docs.ollama.com/api/tags). It never pulls models, follows redirects, or uses cloud-backed aliases. The CLI has no remote endpoint flag; SDK endpoint overrides accept HTTP loopback origins only. Discovery has a 1.5-second deadline and each embedding batch a 30-second deadline. Long inputs exceeding the model context refuse rather than being silently truncated. Document batches contain at most 16 memories. SDK callers may supply a local `EmbeddingProvider`; `LexicalProvider` explicitly supplies no semantic evidence.
+
+Hybrid score is **0.30 × lexical / maximum lexical + 0.70 × max(0, cosine)**, with a zero normalized lexical component when all lexical scores are zero. Lexical includes the existing bounded pin and recency priors. Equal hybrid scores use slug order. Embeddings cover slug, title, description, body, rationale, application instructions and tags; the query is embedded separately. The adapter applies query/document task prefixes from the [EmbeddingGemma model card](https://huggingface.co/google/embeddinggemma-2) and query instructions from the [Qwen model card](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B); other local models receive raw text. The same excerpt packing and omission contract applies after ranking. These fixed weights are transparent defaults, not a claim of optimal retrieval.
+
+Vectors live only in the selected tracker's `runtime/memory-embeddings/` cache. The model revision and input-format version select a hashed namespace; the complete embedded content selects a hashed entry. Content or model changes rebuild vectors, while recall counters, verification verdicts and timestamps do not trigger embedding work. Malformed entries are rebuilt. Cache writes use private file permissions and atomic rename; a failed write follows the selected fallback policy. Queries are not cached. The cache carries its own ignore rule, including for custom tracker locations. Runtime files are never included in package archives; the cache is disposable and can be rebuilt. Old content revisions remain until runtime cache cleanup. Embeddings are derived private data: keep the runtime directory within the tracker's access boundary.
+
+`pm memory consolidate --semantic on` reuses these vectors to add possible paraphrase pairs at cosine **≥ 0.90**, marked `previewOnly: true`. Similarity does not prove identical guidance: review contradictions and context yourself. Every semantic consolidation invocation is a dry run, and combining `--semantic auto|on` with `--apply` refuses before mutations. Existing lexical consolidation remains available with `--semantic off`.
+
+## Retrieval benchmark
+
+Run `npm run bench` with an installed local model; set `PM_MEMORY_MODEL` to select it. `npm run bench -- --lexical-only` requires no model and explicitly labels its second result `lexical-fallback`. The script uses the production lexical and hybrid rankers and caches only synthetic document vectors in tracker runtime. It prints recall@1, recall@5, mean reciprocal rank (MRR), model digest, weights, corpus size and each query's gold rank. A missing required model fails the run instead of reporting lexical results as semantic quality.
+
+The committed `bench/recall.json` contains **64 invented software-team memories and 64 paraphrased queries**, each with a labelled gold slug. It includes related distractors across release, security, databases and operations. Recall@k is the fraction of labelled relevant documents in the first k positions, averaged over queries; MRR averages the reciprocal position of the first relevant document, counting a miss as zero. This is a full-ranking evaluation before token truncation, using equal fixed document ages. It is a small hand-labelled evaluation set, not a held-out production or multilingual generalization claim. No weights were tuned on these labels.
+
+Measured with `embeddinggemma-2:latest` (digest and full per-query ranks in `bench/embeddinggemma-2.results.json`):
+
+| Ranker | recall@1 | recall@5 | MRR |
+| --- | ---: | ---: | ---: |
+| Lexical | 20.3125% | 50.0000% | 0.332508 |
+| Hybrid (30% lexical, 70% cosine) | 28.1250% | 67.1875% | 0.442726 |
+
+The improvement is modest and individual queries can regress. A separate attempt with the installed `qwen3-embedding:0.6b-fp16` timed out; no Qwen quality metrics are claimed. Model availability and hardware latency are separate from ranking quality.
+
+## Without git
+
+Remember, recall (including local semantic recall), get, index, import, export, verify and consolidation work in an initialized plain-directory tracker. They do not require a Git executable. Verification searches source trees independently of repository metadata; optional network checks still require explicit `--network`. Git-based release/changelog tooling needs repository history. Regression tests exercise semantic recall in a real non-git tracker with ancestor Git discovery blocked and a PATH containing no Git executable.

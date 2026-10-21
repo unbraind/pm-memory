@@ -6,6 +6,7 @@ import { remember, recall, index, get } from './memory.ts';
 import { exportDir, harness, importDir } from './transfer.ts';
 import { verify } from './verify.ts';
 import { consolidate } from './consolidate.ts';
+import { semanticMode } from './embeddings.ts';
 import { MEMORY_FIELDS } from './store.ts';
 
 /** Dispatch native command operands to the documented in-process API. */
@@ -14,13 +15,13 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     const base = { workspace: ctx.pm_root, ...(ctx.global.author === undefined ? {} : { author: ctx.global.author }), client: ctx.sdk?.client };
     const options = ctx.options;
     if (command === 'remember') return await remember(text(ctx.args[0]), { ...base, kind: kind(options.kind), slug: options.slug === undefined ? undefined : text(options.slug), update: options.update === undefined ? undefined : text(options.update), why: options.why === undefined ? undefined : text(options.why), how: options.how === undefined ? undefined : text(options.how), pin: options.pin === true ? true : undefined, forceNew: options.forceNew === true, allowEmail: options.allowEmail === true, links: options.link === undefined ? [] : (Array.isArray(options.link) ? options.link : [options.link]).map(text) });
-    if (command === 'recall') return await recall(text(ctx.args[0]), { ...base, budget: options.budget === undefined ? undefined : Number(options.budget), kind: options.kind === undefined ? undefined : kind(options.kind) });
+    if (command === 'recall') return await recall(text(ctx.args[0]), { ...base, budget: options.budget === undefined ? undefined : Number(options.budget), semantic: semanticMode(options.semantic), kind: options.kind === undefined ? undefined : kind(options.kind) });
     if (command === 'get') return await get(text(ctx.args[0]), base);
     if (command === 'index') return await index({ ...base, budget: options.budget === undefined ? undefined : Number(options.budget) });
     if (command === 'import') return await importDir(text(ctx.args[0]), { ...base, from: harness(options.from), allowEmail: options.allowEmail === true });
     if (command === 'export') return await exportDir(text(ctx.args[0]), { ...base, to: harness(options.to, true) as 'claude-code' | 'agents-md' });
     if (command === 'verify') return await verify({ ...base, root: options.root === undefined ? undefined : (Array.isArray(options.root) ? options.root : [options.root]).map(text), slug: options.slug === undefined ? undefined : text(options.slug), network: options.network === true });
-    if (command === 'consolidate') return await consolidate({ ...base, apply: options.apply === true, minAgeDays: options.minAgeDays === undefined ? undefined : Number(options.minAgeDays) });
+    if (command === 'consolidate') return await consolidate({ ...base, apply: options.apply === true, semantic: semanticMode(options.semantic), minAgeDays: options.minAgeDays === undefined ? undefined : Number(options.minAgeDays) });
     throw new MemoryError('invalid', 'Unknown memory command', 'Run pm memory --help');
   } catch (error) {
     const refusal = error instanceof MemoryError ? error : new MemoryError('sdk', 'Memory operation could not complete', 'Check source permissions, tracker integrity and pm health before retrying');
@@ -29,6 +30,7 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
 }
 /** Native flag descriptions include concrete examples in every option's help entry. */
 const OPTIONS: Record<string, string> = {
+  semantic: 'Use auto, on or off local embeddings; default off (example: --semantic auto)',
   kind: 'Classify as user, feedback, project or reference (example: --kind project)',
   slug: 'Select a stable memory key (example: --slug release-policy)',
   update: 'Revise an existing memory (example: --update release-policy)',
@@ -67,13 +69,13 @@ export function register(api: ExtensionApi): void {
   api.registerItemTypes([{ name: 'Knowledge', folder: 'knowledge', description: 'Durable agent knowledge', default_status: 'open' }]);
   for (const [name, strings, booleans, argument] of [
     ['remember', ['kind', 'slug', 'update', 'why', 'how', 'link'], ['pin', 'force-new', 'allow-email'], 'fact'],
-    ['recall', ['budget', 'kind'], [], 'query'],
+    ['recall', ['budget', 'kind', 'semantic'], [], 'query'],
     ['get', [], [], 'slug'],
     ['index', ['budget'], [], ''],
     ['import', ['from'], ['allow-email'], 'source'],
     ['export', ['to'], [], 'directory'],
     ['verify', ['slug', 'root'], ['network'], ''],
-    ['consolidate', ['min-age-days'], ['apply'], ''],
+    ['consolidate', ['min-age-days', 'semantic'], ['apply'], ''],
   ] as const) api.registerCommand(defineCommand({ name: `memory ${name}`, description: HELP[name][0], intent: 'Project management = context management; agents manage their own memory', arguments: argument === '' ? [] : [{ name: argument, required: true, description: HELP[name][1] + ` (example: ${HELP[name][2]})` }], flags: flags([...strings], [...booleans]), examples: [HELP[name][2]], run: ctx => runCommand(name, ctx) }));
 
 }

@@ -1,0 +1,711 @@
+{
+  "description": "Invented software-team memories and independently worded questions. One annotated relevant slug per query; semantically adjacent distractors are deliberately retained. Fixed corpus, no private data. Evaluation set, not a held-out generalization claim.",
+  "memories": [
+    {
+      "slug": "npm-oidc",
+      "title": "npm trusted publishing (OIDC)",
+      "body": "The registry accepts short-lived identity claims from the approved CI workflow. A protected version tag triggers the package publication job after validation. Do not store long-lived registry credentials."
+    },
+    {
+      "slug": "release-gates",
+      "title": "Release validation checklist",
+      "body": "Before creating a version tag, run type checking, linting, unit tests, coverage and a packed consumer installation. Both supported runtimes must pass the same thresholds."
+    },
+    {
+      "slug": "rollback",
+      "title": "Deployment rollback procedure",
+      "body": "Retain the previous immutable container image digest. If a rollout causes errors, restore that digest and verify the health endpoint before resuming traffic."
+    },
+    {
+      "slug": "semver",
+      "title": "Semantic version policy",
+      "body": "An incompatible public API change requires a major version. New compatible functionality is minor and a compatible defect correction is patch."
+    },
+    {
+      "slug": "changelog",
+      "title": "Changelog generation",
+      "body": "Build release notes from tracked work items and version boundaries. Regenerate the text after tracker changes and require the generated output to match in CI."
+    },
+    {
+      "slug": "canary",
+      "title": "Canary deployment",
+      "body": "Send a small fraction of requests to a candidate instance. Compare latency and failure ratios before expanding the rollout to every instance."
+    },
+    {
+      "slug": "db-migrations",
+      "title": "Database schema migrations",
+      "body": "Apply additive schema changes before deploying code that uses them. Destructive column removal waits until old application instances have drained."
+    },
+    {
+      "slug": "db-backups",
+      "title": "Postgres backup verification",
+      "body": "Nightly logical dumps are encrypted and retained off-site. A scheduled restore into an isolated database verifies table counts and representative queries."
+    },
+    {
+      "slug": "db-pooling",
+      "title": "Database connection pooling",
+      "body": "Set a bounded pool per process and reserve connections for administrative recovery. The sum across replicas must stay below the database connection limit."
+    },
+    {
+      "slug": "db-indexes",
+      "title": "Query index selection",
+      "body": "Use EXPLAIN ANALYZE on a representative read. Add a selective index when scans dominate cost, then measure write overhead and the execution plan again."
+    },
+    {
+      "slug": "db-transactions",
+      "title": "Atomic database updates",
+      "body": "Related writes belong in a transaction. Commit only after every invariant passes; otherwise roll back the entire unit of work."
+    },
+    {
+      "slug": "db-deadlock",
+      "title": "Deadlock retry policy",
+      "body": "Acquire row locks in consistent order. Retry serialization and deadlock failures with a bounded jittered backoff around the entire transaction."
+    },
+    {
+      "slug": "http-retry",
+      "title": "HTTP retry safety",
+      "body": "Retry transient network failures only for idempotent operations or requests carrying a stable idempotency key. Bound attempts and use exponential jitter."
+    },
+    {
+      "slug": "http-timeout",
+      "title": "Outbound request deadlines",
+      "body": "Each downstream call has a finite timeout shorter than the incoming request deadline. Abort outstanding work when the caller disconnects."
+    },
+    {
+      "slug": "http-rate-limit",
+      "title": "API rate limiting",
+      "body": "Return status 429 with Retry-After when a client exceeds its token bucket. Separate authenticated tenant quotas and cap bursts."
+    },
+    {
+      "slug": "http-pagination",
+      "title": "Cursor pagination",
+      "body": "List endpoints return a stable opaque continuation token. Consumers must follow tokens until none remains rather than guessing page numbers."
+    },
+    {
+      "slug": "http-cache",
+      "title": "Conditional HTTP responses",
+      "body": "Send ETag for immutable representations and honor If-None-Match with status 304. Vary the cache key by every negotiated representation header."
+    },
+    {
+      "slug": "http-webhook",
+      "title": "Webhook authentication",
+      "body": "Verify the HMAC over the original request bytes using a constant-time comparison. Reject stale timestamps and deduplicate event identifiers."
+    },
+    {
+      "slug": "security-secrets",
+      "title": "Secret management",
+      "body": "Applications read sensitive values from a dedicated vault at runtime. Repository files and logs contain only references and never credential values."
+    },
+    {
+      "slug": "security-rotation",
+      "title": "Credential rotation",
+      "body": "Introduce the replacement credential, verify consumers have switched, then revoke the old credential. Keep the overlap short and audit every transition."
+    },
+    {
+      "slug": "security-csrf",
+      "title": "Cross-site request forgery defense",
+      "body": "State-changing browser requests require an origin check and a session-bound CSRF token. SameSite cookies provide additional protection."
+    },
+    {
+      "slug": "security-xss",
+      "title": "HTML injection prevention",
+      "body": "Escape untrusted text at the rendering boundary. Sanitize intentional rich markup with a small allowlist and enforce a restrictive content security policy."
+    },
+    {
+      "slug": "security-paths",
+      "title": "Filesystem traversal defense",
+      "body": "Resolve user-supplied file names under an explicit allowed root. Refuse traversal components and symbolic links that escape that boundary."
+    },
+    {
+      "slug": "security-sql",
+      "title": "SQL injection prevention",
+      "body": "Use bound parameters for data values. Select dynamic identifiers from a fixed allowlist rather than concatenating user input into statements."
+    },
+    {
+      "slug": "security-logs",
+      "title": "Log redaction",
+      "body": "Structured application logs omit authorization headers, cookies and personal message bodies. Test redaction with synthetic sensitive fixtures."
+    },
+    {
+      "slug": "security-permissions",
+      "title": "Least privilege roles",
+      "body": "Grant service identities only the operations they need. Separate administrative and runtime accounts and audit permission changes."
+    },
+    {
+      "slug": "auth-oidc",
+      "title": "OpenID Connect login",
+      "body": "Validate issuer, audience, signature and expiry of identity tokens. Bind authorization code responses to the initiating browser using state and PKCE."
+    },
+    {
+      "slug": "auth-sessions",
+      "title": "Browser session cookies",
+      "body": "Use Secure, HttpOnly cookies with explicit SameSite settings. Regenerate the session identifier after authentication and privilege elevation."
+    },
+    {
+      "slug": "auth-passwords",
+      "title": "Password hashing",
+      "body": "Store salted Argon2id password hashes with calibrated memory and time cost. Never encrypt passwords for later recovery or store plaintext."
+    },
+    {
+      "slug": "auth-recovery",
+      "title": "Account recovery",
+      "body": "Password reset links are random, short-lived and single-use. Respond uniformly whether an account exists and invalidate sessions after a successful reset."
+    },
+    {
+      "slug": "auth-mfa",
+      "title": "Multi-factor authentication",
+      "body": "Prefer passkeys or hardware security keys. Offer recovery codes once and store their hashes; require fresh verification for sensitive changes."
+    },
+    {
+      "slug": "auth-logout",
+      "title": "Session revocation",
+      "body": "Signing out invalidates the server-side session and expires the browser cookie. A stolen session must remain invalid on subsequent requests."
+    },
+    {
+      "slug": "ops-readiness",
+      "title": "Readiness probe",
+      "body": "The traffic gate checks whether the process can serve requests, including essential dependencies. A failing readiness check removes the replica from routing."
+    },
+    {
+      "slug": "ops-liveness",
+      "title": "Liveness probe",
+      "body": "The watchdog checks process responsiveness rather than transient downstream availability. Repeated failures restart a stuck process."
+    },
+    {
+      "slug": "ops-shutdown",
+      "title": "Graceful shutdown",
+      "body": "On termination stop accepting new work, drain active requests within a deadline, then close pools and exit. Queue jobs must become retryable."
+    },
+    {
+      "slug": "ops-disk",
+      "title": "Disk reserve guard",
+      "body": "Pause large staging operations before free capacity falls below the configured reserve. Never remove unrelated files automatically to make space."
+    },
+    {
+      "slug": "ops-alerts",
+      "title": "Actionable alert policy",
+      "body": "Page only on user-visible symptoms with an owner and a runbook. Group correlated notifications and tune thresholds using measured service objectives."
+    },
+    {
+      "slug": "ops-tracing",
+      "title": "Distributed request tracing",
+      "body": "Propagate trace context between services and correlate spans with structured logs. Sample successful requests and retain representative failures."
+    },
+    {
+      "slug": "ops-metrics",
+      "title": "Latency histograms",
+      "body": "Record request durations in histogram buckets and compare tail percentiles over fixed windows. Averages alone hide a small set of very slow responses."
+    },
+    {
+      "slug": "ops-capacity",
+      "title": "Load test capacity",
+      "body": "Use representative traffic and gradually increase concurrency. Record saturation, error rate and tail latency instead of extrapolating from health checks."
+    },
+    {
+      "slug": "cache-invalidation",
+      "title": "Content-addressed cache",
+      "body": "Key derived artifacts by source content hash and transformation version. A content edit creates a new entry; timestamps alone cannot establish freshness."
+    },
+    {
+      "slug": "cache-stampede",
+      "title": "Cache stampede prevention",
+      "body": "Coalesce concurrent misses for the same key and jitter expiration. Allow bounded stale reads during refresh when the consistency contract permits it."
+    },
+    {
+      "slug": "queue-delivery",
+      "title": "At-least-once job delivery",
+      "body": "Workers acknowledge only after durable completion. Handlers must tolerate duplicate delivery using stable job identifiers and idempotent writes."
+    },
+    {
+      "slug": "queue-poison",
+      "title": "Poison message handling",
+      "body": "After bounded attempts move consistently failing jobs to a dead-letter queue with sanitized failure evidence. Operators can inspect and explicitly replay them."
+    },
+    {
+      "slug": "files-atomic",
+      "title": "Atomic file publication",
+      "body": "Write to a sibling temporary file, flush required data and rename on the same filesystem. Readers should observe either the previous complete file or the new complete file."
+    },
+    {
+      "slug": "files-locking",
+      "title": "Shared writer lock",
+      "body": "Independent processes modifying the same tracker acquire one shared writer lease around the entire read-modify-write operation. Avoid lost updates."
+    },
+    {
+      "slug": "files-backup",
+      "title": "Original media preservation",
+      "body": "Treat source files as irreplaceable. Probe and hash them read-only; publish converted outputs separately and require explicit retirement approval."
+    },
+    {
+      "slug": "files-symlinks",
+      "title": "Symbolic link safety",
+      "body": "Inspect links without following them outside the allowed tree. Refuse imports that point to external content and retain the original source."
+    },
+    {
+      "slug": "tests-fixtures",
+      "title": "Synthetic test fixtures",
+      "body": "Use invented records and credential-shaped placeholders in regression tests. Public fixtures must not contain real customer information."
+    },
+    {
+      "slug": "tests-revert",
+      "title": "Behavioural regression proof",
+      "body": "Temporarily restore only the changed function and rerun the targeted regression. A passing restored version and failing reverted version establish test sensitivity."
+    },
+    {
+      "slug": "tests-isolation",
+      "title": "Isolated test environments",
+      "body": "Create temporary trackers with no ancestor discovery and controlled process configuration. Tests must not depend on developer git identity or home settings."
+    },
+    {
+      "slug": "tests-coverage",
+      "title": "Coverage dimensions",
+      "body": "Measure statements, branches, functions and lines over all intended source files. An unexecuted file must appear in the denominator."
+    },
+    {
+      "slug": "tests-contract",
+      "title": "Packed consumer acceptance",
+      "body": "Install the produced package archive into a clean consumer and exercise documented commands. Source-only unit tests cannot establish published entry-point correctness."
+    },
+    {
+      "slug": "tests-determinism",
+      "title": "Deterministic ranking ties",
+      "body": "Capture a single clock per ranking pass. Break equal scores with stable identifiers so scheduling and loop duration cannot change the order."
+    },
+    {
+      "slug": "frontend-keyboard",
+      "title": "Keyboard navigation",
+      "body": "Every interactive control has a visible focus indicator and can be reached in logical tab order. Dialogs restore focus when dismissed."
+    },
+    {
+      "slug": "frontend-motion",
+      "title": "Reduced motion preference",
+      "body": "Respect prefers-reduced-motion by disabling nonessential transitions. Keep state changes understandable without relying on animation."
+    },
+    {
+      "slug": "frontend-labels",
+      "title": "Accessible form labels",
+      "body": "Associate each input with a visible label and connect help and error text with described-by references. Placeholder text is insufficient."
+    },
+    {
+      "slug": "frontend-layout",
+      "title": "Responsive layout",
+      "body": "Use fluid widths with bounded readable text and let grids collapse at content-driven breakpoints. Avoid horizontal scrolling on narrow screens."
+    },
+    {
+      "slug": "frontend-images",
+      "title": "Image loading policy",
+      "body": "Specify dimensions to reserve layout space and defer offscreen media. The primary above-the-fold image should load eagerly."
+    },
+    {
+      "slug": "frontend-errors",
+      "title": "Recoverable form errors",
+      "body": "Keep submitted input when validation fails and place a clear error beside the relevant field. Offer a retry path for transient failures."
+    },
+    {
+      "slug": "git-tags",
+      "title": "Version tag discipline",
+      "body": "Create annotated version tags only for verified commits. Do not retarget a tag already consumed by the release workflow."
+    },
+    {
+      "slug": "git-review",
+      "title": "Pull request review",
+      "body": "Describe the concrete trigger, resulting behavior and exact validation evidence. Unavailable automated reviewers provide no approval evidence."
+    },
+    {
+      "slug": "git-commits",
+      "title": "Explicit staging",
+      "body": "Stage intended source paths explicitly and inspect the staged diff. Keep generated caches and binary artifacts out of version control."
+    },
+    {
+      "slug": "tracker-no-git",
+      "title": "Tracker independence",
+      "body": "Knowledge items, recall and consolidation operate in a plain directory. Source-control integration is optional and must not be required to read context."
+    }
+  ],
+  "queries": [
+    {
+      "query": "how do we ship a release",
+      "gold": [
+        "npm-oidc"
+      ]
+    },
+    {
+      "query": "what checks must pass before publishing",
+      "gold": [
+        "release-gates"
+      ]
+    },
+    {
+      "query": "the new deployment broke production how can we undo it",
+      "gold": [
+        "rollback"
+      ]
+    },
+    {
+      "query": "which version component changes for a breaking interface",
+      "gold": [
+        "semver"
+      ]
+    },
+    {
+      "query": "where do the notes describing each shipment come from",
+      "gold": [
+        "changelog"
+      ]
+    },
+    {
+      "query": "can we try an update on a few visitors first",
+      "gold": [
+        "canary"
+      ]
+    },
+    {
+      "query": "how can we alter tables without interrupting older servers",
+      "gold": [
+        "db-migrations"
+      ]
+    },
+    {
+      "query": "how do we know our saved database copies can recover data",
+      "gold": [
+        "db-backups"
+      ]
+    },
+    {
+      "query": "why do more replicas exhaust all database sessions",
+      "gold": [
+        "db-pooling"
+      ]
+    },
+    {
+      "query": "a table lookup is slow how do we speed it up",
+      "gold": [
+        "db-indexes"
+      ]
+    },
+    {
+      "query": "two records must either both change or neither change",
+      "gold": [
+        "db-transactions"
+      ]
+    },
+    {
+      "query": "what should we do when concurrent writes block each other",
+      "gold": [
+        "db-deadlock"
+      ]
+    },
+    {
+      "query": "can a failed web request be sent again without duplicating an order",
+      "gold": [
+        "http-retry"
+      ]
+    },
+    {
+      "query": "how do we stop a dependency from hanging a request forever",
+      "gold": [
+        "http-timeout"
+      ]
+    },
+    {
+      "query": "how should the service tell callers they are sending too fast",
+      "gold": [
+        "http-rate-limit"
+      ]
+    },
+    {
+      "query": "how can I fetch all results when the list is split into batches",
+      "gold": [
+        "http-pagination"
+      ]
+    },
+    {
+      "query": "how can clients avoid downloading a resource that has not changed",
+      "gold": [
+        "http-cache"
+      ]
+    },
+    {
+      "query": "how do we prove an incoming event callback is authentic",
+      "gold": [
+        "http-webhook"
+      ]
+    },
+    {
+      "query": "where should we keep confidential application passwords",
+      "gold": [
+        "security-secrets"
+      ]
+    },
+    {
+      "query": "how do we replace a key without breaking callers",
+      "gold": [
+        "security-rotation"
+      ]
+    },
+    {
+      "query": "how do we stop another website from submitting actions as a signed-in visitor",
+      "gold": [
+        "security-csrf"
+      ]
+    },
+    {
+      "query": "how can we prevent a comment from executing javascript in a browser",
+      "gold": [
+        "security-xss"
+      ]
+    },
+    {
+      "query": "someone supplied dot dot slash to read outside the upload folder",
+      "gold": [
+        "security-paths"
+      ]
+    },
+    {
+      "query": "how should user text be inserted into a database query safely",
+      "gold": [
+        "security-sql"
+      ]
+    },
+    {
+      "query": "what must be removed before diagnostic output is shared publicly",
+      "gold": [
+        "security-logs"
+      ]
+    },
+    {
+      "query": "should the application run with unrestricted administrator access",
+      "gold": [
+        "security-permissions"
+      ]
+    },
+    {
+      "query": "what must be checked when accepting a federated sign-in token",
+      "gold": [
+        "auth-oidc"
+      ]
+    },
+    {
+      "query": "how should we store the browser login session securely",
+      "gold": [
+        "auth-sessions"
+      ]
+    },
+    {
+      "query": "how should user passwords be represented in the account database",
+      "gold": [
+        "auth-passwords"
+      ]
+    },
+    {
+      "query": "a visitor forgot their login secret what is the recovery flow",
+      "gold": [
+        "auth-recovery"
+      ]
+    },
+    {
+      "query": "how do we require another proof beyond knowing a password",
+      "gold": [
+        "auth-mfa"
+      ]
+    },
+    {
+      "query": "why does a copied cookie still work after signing out",
+      "gold": [
+        "auth-logout"
+      ]
+    },
+    {
+      "query": "when should a newly started instance begin receiving traffic",
+      "gold": [
+        "ops-readiness"
+      ]
+    },
+    {
+      "query": "how do we recover an application process that is alive but frozen",
+      "gold": [
+        "ops-liveness"
+      ]
+    },
+    {
+      "query": "how can a server stop without dropping in-flight work",
+      "gold": [
+        "ops-shutdown"
+      ]
+    },
+    {
+      "query": "the volume is almost full should the background importer keep running",
+      "gold": [
+        "ops-disk"
+      ]
+    },
+    {
+      "query": "how can we reduce noisy pages that require no action",
+      "gold": [
+        "ops-alerts"
+      ]
+    },
+    {
+      "query": "how do we follow one slow request through several services",
+      "gold": [
+        "ops-tracing"
+      ]
+    },
+    {
+      "query": "why does average speed look good while some users wait a long time",
+      "gold": [
+        "ops-metrics"
+      ]
+    },
+    {
+      "query": "how many simultaneous clients can the system actually support",
+      "gold": [
+        "ops-capacity"
+      ]
+    },
+    {
+      "query": "how do we avoid reusing calculated results after the input changes",
+      "gold": [
+        "cache-invalidation"
+      ]
+    },
+    {
+      "query": "many workers recalculate the same expired value at once",
+      "gold": [
+        "cache-stampede"
+      ]
+    },
+    {
+      "query": "can the same queued task run twice and what must handlers do",
+      "gold": [
+        "queue-delivery"
+      ]
+    },
+    {
+      "query": "one malformed job is retried forever how do we isolate it",
+      "gold": [
+        "queue-poison"
+      ]
+    },
+    {
+      "query": "how do we keep readers from seeing half-written documents",
+      "gold": [
+        "files-atomic"
+      ]
+    },
+    {
+      "query": "two agents edit the same record how do we avoid overwriting one another",
+      "gold": [
+        "files-locking"
+      ]
+    },
+    {
+      "query": "is it okay to overwrite the only original while converting a video",
+      "gold": [
+        "files-backup"
+      ]
+    },
+    {
+      "query": "can importing a linked file escape the selected directory",
+      "gold": [
+        "files-symlinks"
+      ]
+    },
+    {
+      "query": "can a production user export be checked into tests",
+      "gold": [
+        "tests-fixtures"
+      ]
+    },
+    {
+      "query": "how can we demonstrate that the new test catches the original bug",
+      "gold": [
+        "tests-revert"
+      ]
+    },
+    {
+      "query": "why does a test pass locally but fail on a fresh build machine",
+      "gold": [
+        "tests-isolation"
+      ]
+    },
+    {
+      "query": "does full line coverage prove every conditional outcome was tested",
+      "gold": [
+        "tests-coverage"
+      ]
+    },
+    {
+      "query": "how do we check that the package customers install actually works",
+      "gold": [
+        "tests-contract"
+      ]
+    },
+    {
+      "query": "why do equally relevant search hits swap position between runs",
+      "gold": [
+        "tests-determinism"
+      ]
+    },
+    {
+      "query": "can someone operate the interface without a mouse",
+      "gold": [
+        "frontend-keyboard"
+      ]
+    },
+    {
+      "query": "how should animations behave for visitors sensitive to movement",
+      "gold": [
+        "frontend-motion"
+      ]
+    },
+    {
+      "query": "how does a screen reader know what a form field means",
+      "gold": [
+        "frontend-labels"
+      ]
+    },
+    {
+      "query": "how can the same page fit a phone and a desktop",
+      "gold": [
+        "frontend-layout"
+      ]
+    },
+    {
+      "query": "how do we stop pictures from pushing the page around while loading",
+      "gold": [
+        "frontend-images"
+      ]
+    },
+    {
+      "query": "should a failed submission erase everything the visitor typed",
+      "gold": [
+        "frontend-errors"
+      ]
+    },
+    {
+      "query": "can an existing published version marker be moved to another commit",
+      "gold": [
+        "git-tags"
+      ]
+    },
+    {
+      "query": "what belongs in the description when asking someone to inspect a change",
+      "gold": [
+        "git-review"
+      ]
+    },
+    {
+      "query": "how can we avoid accidentally committing temporary generated files",
+      "gold": [
+        "git-commits"
+      ]
+    },
+    {
+      "query": "can project memory work in a folder with no repository",
+      "gold": [
+        "tracker-no-git"
+      ]
+    }
+  ]
+}

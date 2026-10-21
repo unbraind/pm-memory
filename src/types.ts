@@ -108,6 +108,8 @@ export interface RecallRow {
 }
 /** A whole response measured in both native host encodings. */
 export interface Packet {
+  /** One-line semantic fallback diagnostic, included in token accounting. */
+  note?: string;
   /** Estimated tokens including envelope and receipt. */
   estimated_tokens: number;
   /** Memories removed by the declared budget. */
@@ -141,6 +143,8 @@ export interface ClaimResult extends Claim {
 }
 /** One auditable consolidation operation. */
 export interface Proposal {
+  /** Semantic candidates are advisory and cannot be applied automatically. */
+  previewOnly?: true;
   /** Duplicate merge, contradictory supersession, or unused stale archive. */
   action: 'merge' | 'supersedes' | 'archive';
   /** Older or archived memory key. */
