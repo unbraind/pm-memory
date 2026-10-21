@@ -105,7 +105,7 @@ test('utility refuses unexposed, malformed, private, artifact and missing-task o
   }
   await assert.rejects(observe('safe', { ...valid, evidence: 'token=fake00000000000000000000' }), refusal('privacy'));
   await assert.rejects(observe('safe', { ...valid, task: saved.id }), refusal('invalid'));
-  await assert.rejects(observe('safe', { ...valid, task: 'missing-task' }));
+  await assert.rejects(observe('safe', { ...valid, task: 'missing-task' }), refusal('task'));
   assert.deepEqual(await snapshot(workspace), before);
   await store.fields(saved.id, { artifact: true });
   await assert.rejects(utility('safe', options), refusal('missing'));

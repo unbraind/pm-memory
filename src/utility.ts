@@ -1,3 +1,4 @@
+import type { GetResult } from '@unbrained/pm-cli/sdk';
 import { readSettings, resolveRuntimeStatusRegistry } from '@unbrained/pm-cli/sdk';
 import type { Memory, MemoryOptions } from './types.ts';
 import type { MemoryExposure, MemoryObservation, ObserveOptions, UtilityCounts, UtilityLedger, UtilityReport } from './utility-types.ts';
@@ -65,7 +66,9 @@ export async function observe(key: string, options: ObserveOptions): Promise<{ s
     const memory = await select(store, key); const ledger = await readUtility(store, memory);
     const recalled = ledger.exposures.find(row => row.recall === options.recall);
     if (recalled === undefined) throw new MemoryError('missing', 'No matching memory recall receipt', 'Recall this memory first and pass the returned recall receipt; legacy counters cannot establish an exposure');
-    const task = (await store.client.get(options.task, { full: true })).item;
+    let task: GetResult['item'];
+    try { task = (await store.client.get(options.task, { full: true })).item; }
+    catch { throw new MemoryError('task', 'Native task snapshot is unavailable', 'Select an existing task with pm list; check task permissions and pm health before retrying'); }
     const input = { recall: options.recall, task: text(task.id), feedback: options.feedback, outcome: options.outcome, attribution: options.attribution, evidence: options.evidence };
     const previous = ledger.observations.find(row => row.task === input.task);
     if (previous !== undefined) {
