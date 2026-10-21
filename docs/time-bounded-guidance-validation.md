@@ -33,3 +33,20 @@ Reproduce against a read-only extracted tracker with `node test/validate-guidanc
 ## Boundaries
 
 Renewal is an attributable assertion with evidence, not automatic proof of truth. Native history retains prior windows; the latest serialized revision wins. Direct tracker writers bypass the package lock. Portable export refuses active bounded guidance because the existing harness formats cannot preserve its metadata; follow-up `pm-memory-1363` tracks a safe round-trip contract. Applying consolidation merges involving bounded guidance also refuses before writes, preventing expired content from becoming unbounded advice. Hosted Postgres/MCP deployment is not established by file-backend validation.
+
+
+## CI release evidence
+
+Implementation commit `a410421a48bce2116027bf663ab9447f745a0a60` passed [CI run 39684481942](https://github.com/unbraind/pm-memory/actions/runs/39684481942).
+
+| Gate context | Suite passed | Failed / skipped | Coverage sources | Statements / branches / functions / lines | Packed install acceptance |
+| --- | ---: | --- | ---: | --- | ---: |
+| npm release steps, Node 22 | 207 | 0 / 0 | 23 | 100 / 100 / 100 / 100 | 2 passed |
+| npm release steps, Node 26 | 207 | 0 / 0 | 23 | 100 / 100 / 100 / 100 | 2 passed |
+| `bun run release:check`, Node 26 | 207 | 0 / 0 | 23 | 100 / 100 / 100 / 100 | 2 passed |
+
+The npm workflow executes the release script's constituent gates, including identity, typecheck, lint, zero duplication, build, docstrings, coverage, production audit, package contents, changelog, publish attestation and packed npm/Bun acceptance. The Bun job invokes the full release script. Thresholds and source scope are unchanged. Full gates ran in CI because the shared host was saturated. The final PR head receives another CI run after committing this tracker/evidence receipt; that exact-head run is linked in the PR body.
+
+Local commands: `npm run typecheck`, `npm run lint`, `npm run duplication`, `npm run docstring`, `npm run changelog:check`; combined `node --test test/guidance.test.ts test/commands.test.ts` passed 10 before adding the consolidation safeguard; its additional targeted regression passed 1. `pm test pm-memory-wvy5 --run --progress` passed the then-current 6 validity regressions. All 7 current feature regressions are included in each 207-test CI suite. Targeted c8 measurement covered the new guidance module at 100/100/100/100. Behavioral removal of eligibility, renewal persistence and consolidation preflight each caused one intended regression failure; all changes were restored.
+
+No completed automated reviewer approval was available: skipped, quota-limited and neutral results are not approval. The PR remains ready for review and dependent on #5. The tracker item remains in progress for orchestrator verification; no PR merge or release was performed.
