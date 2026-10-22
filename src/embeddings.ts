@@ -119,9 +119,22 @@ export function cosine(left: readonly number[], right: readonly number[]): numbe
 export function embeddingText(item: Memory): string {
   return [item.slug, item.title, item.description, item.body, item.why, item.how, ...item.tags].join('\n');
 }
-/** Rebuild corrupt or missing cache entries rather than trusting malformed runtime data. */
+/** Classify filesystem failures without leaking local paths or suggesting daemon repair. */
+async function cacheIO<T>(operation: () => Promise<T>): Promise<T> {
+  try { return await operation(); }
+  catch { throw new MemoryError('cache', 'Local embedding cache unavailable', 'Check tracker runtime permissions, file types and free disk space; retry or use --semantic off'); }
+}
+/** Missing runtime files are cache misses; other filesystem errors remain actionable. */
+async function readCache(path: string): Promise<string | undefined> {
+  return cacheIO(() => readFile(path, 'utf8').catch((error: unknown) => {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
+    throw error;
+  }));
+}
+/** Rebuild corrupt or missing cache entries while retaining filesystem error classification. */
 async function cached(path: string): Promise<number[] | undefined> {
-  try { return validateVectors([JSON.parse(await readFile(path, 'utf8')) as unknown], 1)[0]; }
+  const content = await readCache(path);
+  try { return validateVectors([JSON.parse(content ?? '') as unknown], 1)[0]; }
   catch { return undefined; }
 }
 /** Atomically publish private runtime vectors or rejection markers, cleaning failed publications. */
@@ -146,13 +159,18 @@ export async function memoryVectors(memories: readonly Memory[], workspace: stri
   const identity = await provider.identity();
   if (identity === 'lexical') return undefined;
   const directory = join(workspace, 'runtime', 'memory-embeddings', digest(identity));
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  await writeFile(join(directory, '..', '.gitignore'), '*\n', { mode: 0o600 });
+  await cacheIO(async () => {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await writeFile(join(directory, '..', '.gitignore'), '*\n', { mode: 0o600 });
+  });
   const inputs = memories.map(embeddingText);
   const paths = inputs.map(input => join(directory, `${digest(input)}.json`));
-  const vectors = await Promise.all(paths.map(cached));
+  const vectors: (number[] | undefined)[] = []; const rejected: boolean[] = [];
   const marker = JSON.stringify(REJECTION_MARKER);
-  const rejected = await Promise.all(paths.map(path => readFile(`${path}.rejected`, 'utf8').then(value => value === marker, () => false)));
+  for (let start = 0; start < paths.length; start += 16) {
+    const entries = await Promise.all(paths.slice(start, start + 16).map(async path => ({ vector: await cached(path), rejected: await readCache(`${path}.rejected`) === marker })));
+    vectors.push(...entries.map(entry => entry.vector)); rejected.push(...entries.map(entry => entry.rejected));
+  }
   const missing = vectors.flatMap((vector, index) => vector === undefined && !rejected[index] ? [index] : []);
   for (let start = 0; start < missing.length; start += 16) {
     const batch = missing.slice(start, start + 16);
@@ -160,7 +178,7 @@ export async function memoryVectors(memories: readonly Memory[], workspace: stri
     for (let offset = 0; offset < batch.length; offset++) {
       const index = batch[offset]; const vector = embedded[offset];
       vectors[index] = vector;
-      await publish(vector === undefined ? `${paths[index]}.rejected` : paths[index], vector ?? REJECTION_MARKER);
+      await cacheIO(() => publish(vector === undefined ? `${paths[index]}.rejected` : paths[index], vector ?? REJECTION_MARKER));
     }
   }
   const available = vectors.filter(vector => vector !== undefined);
@@ -176,8 +194,14 @@ export interface SemanticOptions {
 }
 /** Keep unavailable-provider diagnostics concise and free of memory content or topology. */
 export const SEMANTIC_FALLBACK = 'Semantic model unavailable; using lexical ranking.';
+/** Account partial document evidence and its recovery action in every emitted packet. */
+export const INCOMPLETE_EMBEDDINGS = 'Some memories lack embeddings and use lexical evidence only. Increase daemon context limits and clear runtime/memory-embeddings/, or use --semantic off.';
 /** Apply strict on versus graceful auto failure policy. */
-export function semanticFailure(mode: SemanticMode): string {
+export function semanticFailure(mode: SemanticMode, error?: unknown): string {
+  if (error instanceof MemoryError && error.code === 'cache') {
+    if (mode === 'on') throw error;
+    return 'Local embedding cache unavailable; using lexical ranking. Check tracker runtime permissions, file types and free disk space.';
+  }
   if (mode === 'on') throw new MemoryError('semantic', 'Local embedding model unavailable', 'Start local Ollama with an installed embedding model, or use --semantic off');
   return SEMANTIC_FALLBACK;
 }

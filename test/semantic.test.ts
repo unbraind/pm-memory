@@ -3,11 +3,12 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdir, readdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+import fs, { mkdir, readdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { Store } from '../src/store.ts';
 import { digest, packetTokens } from '../src/core.ts';
-import { cosine, unitCosine, embeddingInput, embeddingText, EmbeddingInputError, LexicalProvider, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from '../src/embeddings.ts';
+import { cosine, unitCosine, embeddingInput, embeddingText, EmbeddingInputError, LexicalProvider, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors, INCOMPLETE_EMBEDDINGS } from '../src/embeddings.ts';
 import type { EmbeddingProvider } from '../src/embeddings.ts';
 import { HYBRID_WEIGHTS, hybridScored, recall, remember, scored } from '../src/memory.ts';
 import { consolidate, proposals, semanticProposals } from '../src/consolidate.ts';
@@ -15,6 +16,7 @@ import { benchmark, fixtureMemories, metrics, runBench } from '../scripts/bench.
 import type { RecallFixture } from '../scripts/bench.ts';
 import { testEnvironment } from '../scripts/environment.ts';
 import { tracker, snapshot } from './helpers.ts';
+import { importDir } from '../src/transfer.ts';
 
 /** An invented local protocol fixture; native tracker and SDK calls remain real. */
 async function daemon(t: TestContext) {
@@ -41,8 +43,10 @@ async function daemon(t: TestContext) {
   return { state, endpoint, provider: new OllamaProvider('test:local', endpoint) };
 }
 /** Launch a real process asynchronously so the local fixture can answer requests. */
-async function child(args: string[], env: NodeJS.ProcessEnv, cwd: string) {
-  const process = spawn(globalThis.process.execPath, args, { env, cwd });
+async function child(args: string[], env: NodeJS.ProcessEnv, cwd: string, lowDescriptorLimit = false) {
+  const command = lowDescriptorLimit ? 'bash' : globalThis.process.execPath;
+  const operands = lowDescriptorLimit ? ['-c', 'ulimit -n 64; exec "$@"', 'bounded-cache', globalThis.process.execPath, ...args] : args;
+  const process = spawn(command, operands, { env, cwd });
   let stdout = ''; let stderr = '';
   process.stdout.on('data', chunk => { stdout += String(chunk); }); process.stderr.on('data', chunk => { stderr += String(chunk); });
   const status = await new Promise<number | null>(resolve => { process.on('close', resolve); });
@@ -114,13 +118,13 @@ test('review benchmark refuses rejected document evidence while recall keeps iso
   for (const semantic of ['on', 'auto'] as const) {
     const memories = await store.read();
     const ranked = await hybridScored(memories, fixture.queries[0].query, { workspace, provider, semantic });
-    assert.equal(ranked.incompleteVectors, true); assert.equal(ranked.note, undefined);
+    assert.equal(ranked.incompleteVectors, true); assert.equal(ranked.note, INCOMPLETE_EMBEDDINGS);
     assert.equal(ranked.rows.length, memories.length);
     const lexical = scored(memories, fixture.queries[0].query); const maximum = Math.max(...lexical.map(row => row.lexical));
     const rejected = lexical.find(row => row.item.slug === 'oidc')!;
     assert.equal(ranked.rows.find(row => row.item.slug === 'oidc')!.score, HYBRID_WEIGHTS.lexical * (rejected.lexical / maximum) + HYBRID_WEIGHTS.prior * rejected.prior);
     const packet = await recall(fixture.queries[0].query, { ...options, provider, semantic, budget: 800 });
-    assert.equal(packet.note, undefined); assert.equal(packet.memories!.length, 2); assert.ok(packetTokens(packet) <= 800);
+    assert.equal(packet.note, INCOMPLETE_EMBEDDINGS); assert.equal(packet.memories!.length, 2); assert.ok(packetTokens(packet) <= 800);
     assert.equal(Object.hasOwn(packet, 'incompleteVectors'), false);
   }
   const allowed = await benchmark(fixture, workspace, provider, true);
@@ -781,7 +785,7 @@ test('review rejected documents retain zero-cosine lexical evidence and healthy 
   assert.equal((await readdir(directory)).length, 3);
   const before = await snapshot(workspace);
   const preview = await semanticProposals(memories, { workspace, provider, semantic: 'on' });
-  assert.equal(preview.note, undefined);
+  assert.equal(preview.note, INCOMPLETE_EMBEDDINGS);
   assert.deepEqual(preview.proposals.map(({ slug, target }) => [slug, target]), [['oidc', 'registry']]);
   assert.deepEqual(await snapshot(workspace), before);
   for (const semantic of ['on', 'auto'] as const) {
@@ -789,10 +793,10 @@ test('review rejected documents retain zero-cosine lexical evidence and healthy 
     const lexical = scored(memories, 'imported memory');
     const maximum = Math.max(...lexical.map(row => row.lexical));
     const rejected = lexical.find(row => row.item.slug === 'oversized')!;
-    assert.equal(ranked.note, undefined);
+    assert.equal(ranked.note, INCOMPLETE_EMBEDDINGS);
     assert.equal(ranked.rows.find(row => row.item.slug === 'oversized')!.score, HYBRID_WEIGHTS.lexical * (rejected.lexical / maximum) + HYBRID_WEIGHTS.prior * rejected.prior);
     const packet = await recall('registry', { ...options, provider, semantic, budget: 800 });
-    assert.equal(packet.note, undefined); assert.ok(packetTokens(packet) <= 800);
+    assert.equal(packet.note, INCOMPLETE_EMBEDDINGS); assert.ok(packetTokens(packet) <= 800);
     assert.ok(packet.memories!.some(row => row.slug === 'oversized'));
   }
   assert.deepEqual(state.inputs.slice(4), [['imported memory'], ['registry'], ['imported memory'], ['registry']], 'only transient queries may be embedded after documents and rejections are cached');
@@ -812,9 +816,9 @@ test('review document rejection isolation preserves daemon model protocol and qu
   const all = memories.map(item => ({ ...item, body: 'rejected' }));
   state.rejectInput = 'rejected';
   assert.deepEqual(await memoryVectors(all, workspace, provider), [undefined, undefined]);
-  assert.deepEqual(await semanticProposals(all, { workspace, provider, semantic: 'on' }), { proposals: [] });
+  assert.deepEqual(await semanticProposals(all, { workspace, provider, semantic: 'on' }), { proposals: [], note: INCOMPLETE_EMBEDDINGS });
   const ranked = await hybridScored(all, 'absent', { workspace, provider, semantic: 'on' });
-  assert.equal(ranked.note, undefined);
+  assert.equal(ranked.note, INCOMPLETE_EMBEDDINGS);
   // Fresh misses keep the failure-policy assertions independent of rejection markers.
   await rm(join(workspace, 'runtime'), { recursive: true, force: true });
   state.rejectInput = '';
@@ -833,10 +837,129 @@ test('review document rejection isolation preserves daemon model protocol and qu
   assert.match((await hybridScored(memories, 'query-rejection', { workspace, provider, semantic: 'auto' })).note!, /lexical/);
 });
 
+test('orchestrator rejected length packets account the degradation note and remedy', async t => {
+  const { root, workspace, options, store } = await tracker(t); const { provider, state } = await daemon(t);
+  const source = join(root, 'synthetic-import'); await mkdir(source);
+  await writeFile(join(source, 'too-long.md'), `---\nname: too-long\n---\nExact quasar deployment instructions. ${'Extended imported guidance. '.repeat(1000)}`);
+  await importDir(source, { ...options, from: 'claude-code' });
+  await remember('Generic unrelated instructions', { ...options, slug: 'healthy', kind: 'reference' });
+  state.rejectInput = 'too-long'; state.embed = inputs => inputs.map(() => [1, 0]);
+  const before = await store.read(); const emissions = new Map<string, number>();
+  for (const semantic of ['on', 'auto'] as const) for (const budget of [200, 800]) {
+    const packet = await recall('Exact quasar deployment', { ...options, semantic, provider, budget });
+    assert.equal(packet.note, INCOMPLETE_EMBEDDINGS);
+    assert.match(packet.note!, /context limits.*clear runtime\/memory-embeddings\/.*--semantic off/);
+    assert.ok(packetTokens(packet) <= budget); assert.equal(packetTokens(packet), packet.estimated_tokens);
+    assert.equal(packet.memories![0].slug, 'healthy', 'reproduce a generic semantic row outranking rejected exact text');
+    assert.equal(packet.memories!.length + packet.omitted, 2);
+    for (const row of packet.memories!) emissions.set(row.slug, (emissions.get(row.slug) ?? 0) + 1);
+  }
+  for (const row of await store.read()) assert.equal(row.recalls, before.find(item => item.slug === row.slug)!.recalls + (emissions.get(row.slug) ?? 0));
+  assert.equal((await readdir(join(workspace, 'runtime', 'memory-embeddings'))).length, 2);
+});
+
+test('orchestrator auto conflicts fall back on the latest filtered corpus and counters', async t => {
+  const { options, store } = await tracker(t);
+  await remember('Initial registry guidance', { ...options, kind: 'reference', slug: 'registry' });
+  await remember('Unrelated project', { ...options, kind: 'project', slug: 'other' });
+  let queries = 0;
+  const provider: EmbeddingProvider = {
+    identity: async () => 'auto-conflict-fallback',
+    embed: async (inputs, purpose) => {
+      if (purpose === 'query') {
+        await remember(`Registry revision ${++queries}`, { ...options, kind: 'reference', update: 'registry' });
+        await store.fields((await store.read()).find(item => item.slug === 'registry')!.id, { recalls: queries * 10 });
+      }
+      return inputs.map(() => [1, 0]);
+    },
+  };
+  const packet = await recall('registry', { ...options, provider, semantic: 'auto', kind: 'reference', budget: 200 });
+  assert.equal(queries, 5); assert.match(packet.note!, /corpus kept changing; using lexical ranking/);
+  assert.deepEqual(packet.memories!.map(row => row.slug), ['registry']); assert.ok(packetTokens(packet) <= 200);
+  assert.match(packet.memories![0].text!, /Registry revision 5/);
+  const rows = await store.read(); assert.equal(rows.find(row => row.slug === 'registry')!.recalls, 51); assert.equal(rows.find(row => row.slug === 'other')!.recalls, 0);
+});
+
+test('orchestrator cache faults retain filesystem remedies in recall and consolidation', async t => {
+  const { workspace } = await tracker(t); const { provider } = await daemon(t); const memories = fixtureMemories(fixture);
+  for (const [method, code] of [['readFile', 'EACCES'], ['rename', 'ENOSPC'], ['readFile', 'UNKNOWN'], ['readFile', 'NON_ERROR']] as const) {
+    await rm(join(workspace, 'runtime', 'memory-embeddings'), { recursive: true, force: true });
+    const fault = t.mock.method(fs, method, async () => {
+      if (code === 'UNKNOWN') throw new Error('synthetic-private-detail');
+      if (code === 'NON_ERROR') return Promise.reject('synthetic-private-detail');
+      throw Object.assign(new Error('synthetic-private-detail'), { code });
+    });
+    syncBuiltinESMExports();
+    try {
+      for (const run of [() => hybridScored(memories, 'query', { workspace, provider, semantic: 'on' }), () => semanticProposals(memories, { workspace, provider, semantic: 'on' })]) {
+        await assert.rejects(run(), (error: unknown) => {
+          assert.ok(error instanceof Error && 'code' in error && error.code === 'cache' && 'remedy' in error);
+          assert.match(String(error.remedy), /permissions.*file types.*free disk space/);
+          assert.doesNotMatch(error.message, /model|synthetic-private-detail/); return true;
+        });
+      }
+      for (const result of [await hybridScored(memories, 'query', { workspace, provider, semantic: 'auto' }), await semanticProposals(memories, { workspace, provider, semantic: 'auto' })]) {
+        assert.match(result.note!, /cache unavailable; using lexical ranking/); assert.doesNotMatch(result.note!, /model|synthetic-private-detail/);
+      }
+    } finally { fault.mock.restore(); syncBuiltinESMExports(); }
+  }
+  const directory = join(workspace, 'runtime', 'memory-embeddings', digest(await provider.identity()));
+  await mkdir(join(directory, `${digest(embeddingText(memories[0]))}.json`), { recursive: true });
+  await assert.rejects(memoryVectors(memories, workspace, provider), { code: 'cache' });
+});
+
+test('orchestrator bounded cache reads retain order and markers under a low descriptor limit', async t => {
+  const { root, workspace } = await tracker(t);
+  const memories = fixtureMemories({ memories: Array.from({ length: 512 }, (_, index) => ({ slug: `doc-${index}`, title: `Synthetic document ${index}`, body: 'Synthetic cache evidence' })), queries: [] });
+  const identity = 'bounded-cache-review';
+  const provider: EmbeddingProvider = { identity: async () => identity, embed: async inputs => {
+    if (inputs.some(input => Number(input.split('\n')[0].slice(4)) % 13 === 0)) throw new EmbeddingInputError('Synthetic input limit');
+    return inputs.map(input => [1, Number(input.split('\n')[0].slice(4)) + 1]);
+  } };
+  const expected = await memoryVectors(memories, workspace, provider);
+  assert.deepEqual(await memoryVectors([], workspace, provider), []);
+  const data = join(root, 'synthetic-cache-input.json'); await writeFile(data, JSON.stringify(memories));
+  const script = `import {readFile} from 'node:fs/promises'; import {memoryVectors} from './src/embeddings.ts'; const memories=JSON.parse(await readFile(process.argv[2],'utf8')); console.log(JSON.stringify(await memoryVectors(memories,process.argv[1],{identity:async()=>${JSON.stringify(identity)},embed:async()=>{throw new Error('Unexpected cache miss')}})));`;
+  const result = await child(['--input-type=module', '-e', script, workspace, data], process.env, join(import.meta.dirname, '..'), true);
+  assert.equal(result.status, 0, result.stderr); assert.deepEqual(JSON.parse(result.stdout), JSON.parse(JSON.stringify(expected)));
+});
+
+test('orchestrator recall preserves imported source provenance under semantic hubness', async t => {
+  const instant = Date.now(); t.mock.method(Date, 'now', () => instant);
+  const { root, options } = await tracker(t); const { provider, state } = await daemon(t);
+  const source = join(root, 'source'); await mkdir(source); await writeFile(join(source, 'aa-import.md'), '---\nname: aa-import\n---\nGeneric imported instructions.');
+  await importDir(source, { ...options, from: 'claude-code' });
+  await remember('Native standing guidance', { ...options, kind: 'reference', slug: 'zz-native' });
+  state.embed = inputs => inputs.map(() => [1, 0]);
+  for (const semantic of ['on', 'off'] as const) {
+    const packet = await recall('Unrelated quasar', { ...options, provider, semantic, budget: 800 });
+    assert.equal(packet.memories![0].slug, 'aa-import');
+    assert.equal(packet.memories![0].source, 'claude-code:relative-file');
+    assert.equal(packet.memories![1].source, 'native:item'); assert.ok(packetTokens(packet) <= 800);
+  }
+});
+
+test('orchestrator daemon trust is documented as unauthenticated local process trust', async () => {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  assert.match(readme, /Loopback access does not authenticate the daemon process/);
+  assert.match(readme, /impersonating local service can receive.*model digests are self-reported/);
+  const architecture = await readFile(new URL('../ARCHITECTURE.md', import.meta.url), 'utf8');
+  assert.match(architecture, /Loopback is a transport boundary, not process authentication/);
+});
+
+test('orchestrator benchmark exposes cosine-only metrics from production vectors', async t => {
+  const { workspace } = await tracker(t); const { provider } = await daemon(t);
+  const ranking = await hybridScored(fixtureMemories(fixture), fixture.queries[0].query, { workspace, provider, semantic: 'on' });
+  assert.deepEqual(ranking.rows.map(row => row.cosine), [1, 0]);
+  const result = await benchmark(fixture, workspace, provider);
+  assert.deepEqual(result.cosine, { recallAt1: 1, recallAt5: 1, mrr: 1 }); assert.equal(result.ranks[0].cosine, 1);
+  const fallback = await benchmark(fixture, workspace, new LexicalProvider(), true); assert.deepEqual(fallback.cosine, fallback.lexical);
+});
+
 test('review semantic recall stops after five content conflicts without incrementing counters', async t => {
   const { options, store } = await tracker(t);
   await remember('Initial registry guidance', { ...options, kind: 'reference', slug: 'registry' });
-  for (const semantic of ['on', 'auto'] as const) {
+  for (const semantic of ['on'] as const) {
     const before = (await store.read())[0].recalls;
     let queries = 0;
     const provider: EmbeddingProvider = {

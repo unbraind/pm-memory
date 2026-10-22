@@ -91,6 +91,8 @@ export interface Memory {
 }
 /** A ranked, bounded recall row. */
 export interface RecallRow {
+  /** Origin label distinguishing native guidance from imported content. */
+  source?: string;
   /** Stable key usable with --update. */
   slug: string;
   /** Heading. */

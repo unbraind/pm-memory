@@ -1,7 +1,7 @@
 import { jaccardSimilarity } from '@unbrained/pm-cli/sdk';
 import { active, DUPLICATE_THRESHOLD } from './memory.ts';
 import { digest, words, MemoryError } from './core.ts';
-import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode } from './embeddings.ts';
+import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, INCOMPLETE_EMBEDDINGS } from './embeddings.ts';
 import type { SemanticOptions } from './embeddings.ts';
 import { metadata, Store } from './store.ts';
 import type { Memory, MemoryOptions, Proposal } from './types.ts';
@@ -97,8 +97,8 @@ export async function semanticProposals(memories: readonly Memory[], options: Me
       const score = unitCosine(left, right);
       if (score >= 0.9) result.push({ action: 'merge', slug: rows[i].slug, target: rows[j].slug, previewOnly: true, reason: `Possible paraphrase (cosine ${score.toFixed(3)}); review meaning and contradictions; dry-run only` });
     }
-    return { proposals: result };
-  } catch { return { proposals: [], note: semanticFailure(mode) }; }
+    return { proposals: result, ...(vectors.some(vector => vector === undefined) ? { note: INCOMPLETE_EMBEDDINGS } : {}) };
+  } catch (error) { return { proposals: [], note: semanticFailure(mode, error) }; }
 }
 /** Durable merge evidence binds replay to the original source and both target states. */
 interface MergeReceipt {
