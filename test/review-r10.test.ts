@@ -63,7 +63,7 @@ test('SDK documentation includes the complete verify return contract', async t =
   const result = await verify({ ...options, root });
   assert.deepEqual(Object.keys(result).sort(), ['checked', 'results', 'skipped', 'stale']);
   const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
-  const contract = readme.slice(readme.indexOf('All eight functions'), readme.indexOf('Embedded SDK clients'));
+  const contract = readme.slice(readme.indexOf('## SDK\n'), readme.indexOf('Embedded SDK clients'));
   assert.match(contract, /`verify\(options\)` returns checked\/stale counts, `skipped: string\[\]` containing slugs for snapshots changed or archived during verification, and per-memory claim results/);
 });
 

@@ -9,7 +9,8 @@
   },
   "include": [
     "test/**/*.ts",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "examples/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -118,6 +118,8 @@ export interface RecallRow {
 }
 /** A whole response measured in both native host encodings. */
 export interface Packet {
+  /** Durable receipt for feedback on emitted memories, included in token accounting. */
+  recall?: string;
   /** One-line semantic fallback diagnostic, included in token accounting. */
   note?: string;
   /** Estimated tokens including envelope and receipt. */

@@ -8,7 +8,7 @@ import { writerLock } from './writer-lock.ts';
 
 /** All memory metadata uses registered SDK fields, including lossless source artifacts. */
 export const MEMORY_FIELDS: SchemaFieldDefinition[] = [
-  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
+  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
   ...['pinned', 'edited', 'artifact'].map(name => ({ name: `memory_${name}`, type: 'boolean' as const, optional: true })),
   { name: 'memory_recalls', type: 'number', optional: true },
 ];

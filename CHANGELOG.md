@@ -5,6 +5,7 @@
 ### Added
 
 - Time-bounded standing guidance with renewal evidence ([pm-memory-wvy5](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-wvy5.toon))
+- Outcome-linked memory utility with source denominators ([pm-memory-kkxg](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-kkxg.toon))
 - Recall and index ([pm-memory-lc64](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-lc64.toon))
 - Remember and deduplicate ([pm-memory-ne0p](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-ne0p.toon))
 - Import and export ([pm-memory-rt3s](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-rt3s.toon))

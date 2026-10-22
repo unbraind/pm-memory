@@ -9,7 +9,7 @@ import { remember, recall, index, get, renew, guidanceState, packetTokens, expor
 import type { GuidanceWindow, Packet } from '../index.ts';
 import { instant, readWindow, guidancePolicy, eligibleGuidance } from '../src/guidance.ts';
 import { runCommand } from '../src/commands.ts';
-import { tracker, snapshot, installExtension } from './helpers.ts';
+import { tracker, snapshot, installExtension, gitlessCli } from './helpers.ts';
 import type { EmbeddingProvider } from '../src/embeddings.ts';
 
 const from = '2026-10-21T00:00:00.000Z';
@@ -136,7 +136,7 @@ test('real CLI renew and recall render bounded TOON and JSON without any git exe
   const { root, workspace } = await tracker(t);
   await installExtension(workspace);
   /** Invoke the installed host with no possible git lookup. */
-  const cli = (args: string[]) => spawnSync(process.execPath, [join(import.meta.dirname, '../node_modules/.bin/pm'), 'memory', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, PM_PATH: workspace, PM_AUTHOR: 'memory-test', GIT_CEILING_DIRECTORIES: dirname(root), PATH: root } });
+  const cli = gitlessCli(root, workspace);
   const remembered = cli(['remember', 'Run the release checklist', '--kind', 'project', '--slug', 'policy', '--pin', '--json']); assert.equal(remembered.status, 0, remembered.stderr);
   const renewed = cli(['renew', 'policy', '--valid-from', from, '--valid-until', until, '--evidence', evidence, '--json']); assert.equal(renewed.status, 0, renewed.stderr);
   assert.equal(JSON.parse(renewed.stdout).validity.revision, 1);

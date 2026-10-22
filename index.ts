@@ -19,6 +19,10 @@ export default defineExtension({ name: 'pm-memory', version: '2026.10.19', descr
 export { OllamaProvider, LexicalProvider, EmbeddingInputError } from './src/embeddings.ts';
 export type { EmbeddingProvider, EmbeddingPurpose, SemanticMode, SemanticOptions } from './src/embeddings.ts';
 
+/** Record explicit memory feedback and inspect auditable outcome denominators. */
+export { observe, utility } from './src/utility.ts';
+/** Public outcome, attribution, observation and utility evidence contracts. */
+export type { TaskOutcome, Attribution, ObserveOptions, MemoryExposure, MemoryObservation, UtilityLedger, UtilityCounts, UtilityReport } from './src/utility-types.ts';
 /** Renew standing guidance with explicit validity bounds and attributable evidence. */
 export { renew, guidanceState } from './src/guidance.ts';
 export type { GuidanceWindow, GuidanceState, GuidanceOptions, RenewOptions } from './src/types.ts';
