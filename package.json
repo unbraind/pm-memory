@@ -44,7 +44,8 @@
     "merge:install": "pm merge install",
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts",
     "verify:release-publish-attestation": "node scripts/verify-release-publish-attestation.ts",
-    "identity:check": "node scripts/identity-gate.ts"
+    "identity:check": "node scripts/identity-gate.ts",
+    "bench": "node scripts/bench.ts"
   },
   "peerDependencies": {
     "@unbrained/pm-cli": ">=2026.10.19"
