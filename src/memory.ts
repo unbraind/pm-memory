@@ -1,7 +1,7 @@
 import { parseMutationReceipt } from '@unbrained/pm-cli/sdk';
 import type { Memory, MemoryOptions, Packet, RememberOptions, RecallRow, GuidanceOptions } from './types.ts';
 import { accounted, budget, digest, kind, MemoryError, pack, privacy, similarity, slug, text, words } from './core.ts';
-import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors } from './embeddings.ts';
+import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors, INCOMPLETE_EMBEDDINGS } from './embeddings.ts';
 import type { SemanticOptions } from './embeddings.ts';
 import { eligibleGuidance, guidancePolicy, guidanceState } from './guidance.ts';
 import { metadata, Store } from './store.ts';
@@ -32,9 +32,9 @@ export async function remember(fact: string, options: RememberOptions): Promise<
     }
     await store.register();
     const why = options.why ?? previous?.why ?? ''; const how = options.how ?? previous?.how ?? ''; const pinned = options.pin ?? previous?.pinned ?? false;
-    const unchanged = previous !== undefined && previous.title === title && previous.body === fact.trim() && previous.kind === options.kind && previous.why === why && previous.how === how && previous.pinned === pinned && (options.tags === undefined || JSON.stringify(previous.tags) === JSON.stringify(options.tags));
+    const unchanged = previous !== undefined && previous.title === title && previous.body === fact.trim() && previous.kind === options.kind && previous.why === why && previous.how === how && (options.tags === undefined || JSON.stringify(previous.tags) === JSON.stringify(options.tags));
     const fields: Record<string, string | number | boolean> = { slug: key, kind: options.kind, why, how, pinned, source: previous?.source ?? 'native:item', recalls: previous?.recalls ?? 0, changed_at: unchanged ? previous.updated : new Date().toISOString() };
-    if (!unchanged) Object.assign(fields, { verdict: 'unknown', verified_at: '', edited: true });
+    if (!unchanged || previous.pinned !== pinned) Object.assign(fields, { verdict: 'unknown', verified_at: '', edited: true });
     let id: string;
     if (previous === undefined) {
       const created = await store.client.run('create', { options: { title, body: fact, type: 'Knowledge', tags: (options.tags ?? []).join(','), allowDuplicate: true, ...metadata(fields) } });
@@ -71,8 +71,8 @@ export function scored(memories: readonly Memory[], query: string): { item: Memo
 export function rank(memories: readonly Memory[], query: string): Memory[] { return scored(memories, query).map(entry => entry.item); }
 /** Shared production coefficients reported by the retrieval benchmark. */
 export const HYBRID_WEIGHTS = Object.freeze({ lexical: 0.3, cosine: 0.7, prior: 0.01 });
-/** Blend lexical relevance (30%) and cosine (70%), with a small additive pin/age prior. */
-export async function hybridScored(memories: readonly Memory[], query: string, options: MemoryOptions & SemanticOptions): Promise<{ rows: { item: Memory; score: number }[]; note?: string }> {
+/** Blend relevance and cosine with a bounded prior, exposing incomplete document vectors. */
+export async function hybridScored(memories: readonly Memory[], query: string, options: MemoryOptions & SemanticOptions): Promise<{ rows: { item: Memory; score: number; cosine?: number }[]; note?: string; incompleteVectors?: true }> {
   const rows = scored(memories, query); const mode = semanticMode(options.semantic);
   if (mode === 'off' || memories.length === 0) return { rows };
   try {
@@ -85,8 +85,11 @@ export async function hybridScored(memories: readonly Memory[], query: string, o
     const unit = vectors.map(vector => vector === undefined ? undefined : unitVector(vector)); const queryUnit = unitVector(queryVector);
     const maximum = Math.max(...rows.map(row => row.lexical));
     const positions = new Map(memories.map((item, index) => [item.slug, index]));
-    return { rows: rows.map(({ item, lexical, prior }) => ({ item, score: HYBRID_WEIGHTS.lexical * (maximum === 0 ? 0 : lexical / maximum) + HYBRID_WEIGHTS.cosine * Math.max(0, unitCosine(unit[positions.get(item.slug)!] ?? [], queryUnit)) + HYBRID_WEIGHTS.prior * prior })).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
-  } catch { return { rows, note: semanticFailure(mode) }; }
+    return { ...(available.length < vectors.length ? { incompleteVectors: true as const, note: INCOMPLETE_EMBEDDINGS } : {}), rows: rows.map(({ item, lexical, prior }) => {
+      const cosine = unitCosine(unit[positions.get(item.slug)!] ?? [], queryUnit);
+      return { item, cosine, score: HYBRID_WEIGHTS.lexical * (maximum === 0 ? 0 : lexical / maximum) + HYBRID_WEIGHTS.cosine * Math.max(0, cosine) + HYBRID_WEIGHTS.prior * prior };
+    }).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
+  } catch (error) { return { rows, note: semanticFailure(mode, error) }; }
 }
 /** Return a query-centered excerpt without charging oversized full memory bodies to the packet. */
 function excerpt(item: Memory, query: string, size: number): string {
@@ -105,7 +108,7 @@ async function commitRecall(store: Store, current: readonly Memory[], ranked: Aw
   const visible = new Set(eligibleGuidance(ranked.rows.map(row => row.item), policy, now).map(item => item.id));
   const rankedRows = ranked.rows.filter(row => visible.has(row.item.id));
   const memories = rankedRows.map(row => row.item);
-  const rows: RecallRow[] = rankedRows.map(({ item, score }) => ({ ...(item.validity === undefined ? {} : { validity: guidanceState(item, now), valid_from: item.validity.from, valid_until: item.validity.until }), slug: item.slug, kind: item.kind, pinned: item.pinned, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
+  const rows: RecallRow[] = rankedRows.map(({ item, score }) => ({ ...(item.validity === undefined ? {} : { validity: guidanceState(item, now), valid_from: item.validity.from, valid_until: item.validity.until }), slug: item.slug, kind: item.kind, pinned: item.pinned, source: item.source, description: (item.description || item.why || item.body).replace(/\s+/g, ' ').slice(0, 60).toWellFormed(), score: Math.round(score * 1000) / 1000 }));
   const packet = recallPacket(rows, memories, query, limit, ranked.note);
   const emitted = packet.memories!.map(row => current.find(memory => memory.slug === row.slug)!);
   if (emitted.some(item => item.recalls === Number.MAX_SAFE_INTEGER)) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
@@ -120,7 +123,8 @@ export async function recall(query: string, options: MemoryOptions & SemanticOpt
   const store = new Store(options);
   /** Keep kind and active filtering identical in both recall modes. */
   const eligible = (memories: readonly Memory[]) => eligibleGuidance(active(memories), policy, Date.now()).filter(item => options.kind === undefined || item.kind === options.kind);
-  if (semanticMode(options.semantic) === 'off') return store.write(async () => {
+  const mode = semanticMode(options.semantic);
+  if (mode === 'off') return store.write(async () => {
     const current = await store.read();
     return commitRecall(store, current, await hybridScored(eligible(current), query, options), query, limit, policy);
   });
@@ -134,6 +138,10 @@ export async function recall(query: string, options: MemoryOptions & SemanticOpt
     });
     if (packet !== undefined) return packet;
   }
+  if (mode === 'auto') return store.write(async () => {
+    const current = await store.read();
+    return commitRecall(store, current, { rows: scored(eligible(current), query), note: 'Memory corpus kept changing; using lexical ranking.' }, query, limit, policy);
+  });
   throw new MemoryError('conflict', 'Memory corpus kept changing during semantic recall', 'Retry when concurrent memory writes settle, or use --semantic off');
 }
 /** Pack compact rows in rank order first, then spend spare tokens on marked excerpts. */

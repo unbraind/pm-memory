@@ -50,18 +50,20 @@ export function metrics(rankings: readonly string[][], queries: RecallFixture['q
   });
   return { recallAt1: totals.recallAt1 / queries.length, recallAt5: totals.recallAt5 / queries.length, mrr: totals.mrr / queries.length };
 }
-/** Measure the exact production rankers; a no-model run is explicitly labelled fallback. */
+/** Require complete semantic evidence unless the run explicitly permits fallback. */
 export async function benchmark(fixture: RecallFixture, workspace: string, provider: EmbeddingProvider, fallback = false) {
   const memories = fixtureMemories(fixture);
-  const lexical: string[][] = []; const hybrid: string[][] = [];
+  const lexical: string[][] = []; const hybrid: string[][] = []; const cosine: string[][] = [];
   const model = await provider.identity();
   for (const { query } of fixture.queries) {
     lexical.push(scored(memories, query).map(row => row.item.slug));
     const ranked = await hybridScored(memories, query, { workspace, provider, semantic: fallback ? 'auto' : 'on' });
+    if (!fallback && ranked.incompleteVectors) throw new Error('Benchmark requires vectors for every document; clear the runtime cache after correcting input limits');
     if (await provider.identity() !== model) throw new Error('Embedding model changed during benchmark');
     hybrid.push(ranked.rows.map(row => row.item.slug));
+    cosine.push((fallback ? ranked.rows : [...ranked.rows].sort((a, b) => b.cosine! - a.cosine! || a.item.slug.localeCompare(b.item.slug))).map(row => row.item.slug));
   }
-  return { memories: memories.length, queries: fixture.queries.length, model, mode: fallback ? 'lexical-fallback' : 'hybrid', weights: HYBRID_WEIGHTS, lexical: metrics(lexical, fixture.queries), hybrid: metrics(hybrid, fixture.queries), ranks: fixture.queries.map(({ query, gold }, index) => ({ query, gold, lexical: lexical[index].findIndex(slug => gold.includes(slug)) + 1, hybrid: hybrid[index].findIndex(slug => gold.includes(slug)) + 1 })) };
+  return { memories: memories.length, queries: fixture.queries.length, model, mode: fallback ? 'lexical-fallback' : 'hybrid', weights: HYBRID_WEIGHTS, lexical: metrics(lexical, fixture.queries), hybrid: metrics(hybrid, fixture.queries), cosine: metrics(cosine, fixture.queries), ranks: fixture.queries.map(({ query, gold }, index) => ({ query, gold, lexical: lexical[index].findIndex(slug => gold.includes(slug)) + 1, hybrid: hybrid[index].findIndex(slug => gold.includes(slug)) + 1, cosine: cosine[index].findIndex(slug => gold.includes(slug)) + 1 })) };
 }
 /** Run a reproducible local-only measurement; unavailable models fail explicitly. */
 export async function runBench(args: string[]): Promise<void> {

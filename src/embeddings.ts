@@ -7,6 +7,8 @@ import type { Memory } from './types.ts';
 
 /** Direct connections never inherit environment proxies from the global agent. */
 const LOOPBACK_AGENT = new Agent({ keepAlive: false });
+/** Distinguish confirmed input rejections from legacy status-only cache markers. */
+const REJECTION_MARKER = 'document-input:v1';
 
 /** Explicit semantic opt-in; off preserves the original ranking exactly. */
 export type SemanticMode = 'auto' | 'on' | 'off';
@@ -54,13 +56,18 @@ export class OllamaProvider implements EmbeddingProvider {
   private async request(path: string, input?: readonly string[]): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const request = httpRequest(this.endpoint + path, { agent: LOOPBACK_AGENT, method: input === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(input === undefined ? Math.min(1500, this.timeoutMs) : this.timeoutMs), ...(input === undefined ? {} : { headers: { 'Content-Type': 'application/json' } }) }, response => {
-        if (response.statusCode !== 200) { response.resume(); reject(new (input !== undefined && [400, 413].includes(response.statusCode!) ? EmbeddingInputError : Error)('Local embedding request failed')); return; }
+        if (response.statusCode !== 200 && !(input !== undefined && response.statusCode === 400)) { response.resume(); reject(new (input !== undefined && response.statusCode === 413 ? EmbeddingInputError : Error)('Local embedding request failed')); return; }
         const chunks: Buffer[] = [];
         response.on('data', (chunk: Buffer) => { chunks.push(chunk); });
         response.on('error', reject);
         response.on('end', () => {
-          try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown); }
-          catch (error) { reject(error); }
+          try {
+            const result = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { error?: unknown } | null;
+            if (response.statusCode === 400) {
+              const inputRejected = typeof result?.error === 'string' && /^(?:the )?input length exceeds (?:the )?context (?:length|window)$/i.test(result.error);
+              reject(new (inputRejected ? EmbeddingInputError : Error)('Local embedding request failed'));
+            } else resolve(result);
+          } catch (error) { reject(response.statusCode === 400 ? new Error('Local embedding request failed') : error); }
         });
       });
       request.on('error', reject);
@@ -112,13 +119,26 @@ export function cosine(left: readonly number[], right: readonly number[]): numbe
 export function embeddingText(item: Memory): string {
   return [item.slug, item.title, item.description, item.body, item.why, item.how, ...item.tags].join('\n');
 }
-/** Rebuild corrupt or missing cache entries rather than trusting malformed runtime data. */
+/** Classify filesystem failures without leaking local paths or suggesting daemon repair. */
+async function cacheIO<T>(operation: () => Promise<T>): Promise<T> {
+  try { return await operation(); }
+  catch { throw new MemoryError('cache', 'Local embedding cache unavailable', 'Check tracker runtime permissions, file types and free disk space; retry or use --semantic off'); }
+}
+/** Missing runtime files are cache misses; other filesystem errors remain actionable. */
+async function readCache(path: string): Promise<string | undefined> {
+  return cacheIO(() => readFile(path, 'utf8').catch((error: unknown) => {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
+    throw error;
+  }));
+}
+/** Rebuild corrupt or missing cache entries while retaining filesystem error classification. */
 async function cached(path: string): Promise<number[] | undefined> {
-  try { return validateVectors([JSON.parse(await readFile(path, 'utf8')) as unknown], 1)[0]; }
+  const content = await readCache(path);
+  try { return validateVectors([JSON.parse(content ?? '') as unknown], 1)[0]; }
   catch { return undefined; }
 }
-/** Atomically publish private runtime vectors, cleaning a failed temporary publication. */
-async function publish(path: string, vector: number[]): Promise<void> {
+/** Atomically publish private runtime vectors or rejection markers, cleaning failed publications. */
+async function publish(path: string, vector: number[] | typeof REJECTION_MARKER): Promise<void> {
   const temporary = `${path}.${randomUUID()}`;
   try { await writeFile(temporary, JSON.stringify(vector), { mode: 0o600 }); await rename(temporary, path); }
   finally { await rm(temporary, { force: true }); }
@@ -134,23 +154,31 @@ async function embedDocuments(provider: EmbeddingProvider, inputs: readonly stri
     return result;
   }
 }
-/** Resolve content-addressed tracker-local vectors, batching only cache misses. */
+/** Resolve content-addressed vectors; clear runtime/memory-embeddings after daemon context-window changes. */
 export async function memoryVectors(memories: readonly Memory[], workspace: string, provider: EmbeddingProvider): Promise<(number[] | undefined)[] | undefined> {
   const identity = await provider.identity();
   if (identity === 'lexical') return undefined;
   const directory = join(workspace, 'runtime', 'memory-embeddings', digest(identity));
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  await writeFile(join(directory, '..', '.gitignore'), '*\n', { mode: 0o600 });
+  await cacheIO(async () => {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await writeFile(join(directory, '..', '.gitignore'), '*\n', { mode: 0o600 });
+  });
   const inputs = memories.map(embeddingText);
   const paths = inputs.map(input => join(directory, `${digest(input)}.json`));
-  const vectors = await Promise.all(paths.map(cached));
-  const missing = vectors.flatMap((vector, index) => vector === undefined ? [index] : []);
+  const vectors: (number[] | undefined)[] = []; const rejected: boolean[] = [];
+  const marker = JSON.stringify(REJECTION_MARKER);
+  for (let start = 0; start < paths.length; start += 16) {
+    const entries = await Promise.all(paths.slice(start, start + 16).map(async path => ({ vector: await cached(path), rejected: await readCache(`${path}.rejected`) === marker })));
+    vectors.push(...entries.map(entry => entry.vector)); rejected.push(...entries.map(entry => entry.rejected));
+  }
+  const missing = vectors.flatMap((vector, index) => vector === undefined && !rejected[index] ? [index] : []);
   for (let start = 0; start < missing.length; start += 16) {
     const batch = missing.slice(start, start + 16);
     const embedded = await embedDocuments(provider, batch.map(index => inputs[index]));
     for (let offset = 0; offset < batch.length; offset++) {
       const index = batch[offset]; const vector = embedded[offset];
-      if (vector !== undefined) { vectors[index] = vector; await publish(paths[index], vector); }
+      vectors[index] = vector;
+      await cacheIO(() => publish(vector === undefined ? `${paths[index]}.rejected` : paths[index], vector ?? REJECTION_MARKER));
     }
   }
   const available = vectors.filter(vector => vector !== undefined);
@@ -166,8 +194,14 @@ export interface SemanticOptions {
 }
 /** Keep unavailable-provider diagnostics concise and free of memory content or topology. */
 export const SEMANTIC_FALLBACK = 'Semantic model unavailable; using lexical ranking.';
+/** Account partial document evidence and its recovery action in every emitted packet. */
+export const INCOMPLETE_EMBEDDINGS = 'Some memories lack embeddings and use lexical evidence only. Increase daemon context limits and clear runtime/memory-embeddings/, or use --semantic off.';
 /** Apply strict on versus graceful auto failure policy. */
-export function semanticFailure(mode: SemanticMode): string {
+export function semanticFailure(mode: SemanticMode, error?: unknown): string {
+  if (error instanceof MemoryError && error.code === 'cache') {
+    if (mode === 'on') throw error;
+    return 'Local embedding cache unavailable; using lexical ranking. Check tracker runtime permissions, file types and free disk space.';
+  }
   if (mode === 'on') throw new MemoryError('semantic', 'Local embedding model unavailable', 'Start local Ollama with an installed embedding model, or use --semantic off');
   return SEMANTIC_FALLBACK;
 }

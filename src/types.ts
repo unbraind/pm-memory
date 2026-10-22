@@ -99,6 +99,8 @@ export interface RecallRow {
   valid_from?: string;
   /** Exclusive validity end, present with a status label. */
   valid_until?: string;
+  /** Origin label distinguishing native guidance from imported content. */
+  source?: string;
   /** Stable key usable with --update. */
   slug: string;
   /** Heading. */
