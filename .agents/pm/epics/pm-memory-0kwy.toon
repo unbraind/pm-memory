@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:06.178Z"
-updated_at: "2026-10-20T11:56:12.418Z"
+updated_at: "2026-10-22T12:06:21.710Z"
 author: codex-agent
 estimated_minutes: 450
 acceptance_criteria: Eight commands and documented SDK API; certified reads; safe counters; lossless import and export; private aggregate proof; all fleet gates pass at full thresholds.
-comments[84]:
+comments[87]:
   - created_at: "2026-10-19T12:57:31.272Z"
     author: codex-agent
     text: "Companion specification: pm-cli-website-zchz (read only). Local package only; release held for maintainer approval. Use native Knowledge items, registered fields, certified reads, host token estimation and process-safe memory mutation locking."
@@ -265,7 +265,19 @@ comments[84]:
   - created_at: "2026-10-20T11:56:08.814Z"
     author: codex-agent
     text: "Round 13 final acceptance: taskset -c 0,1,2 npm run release:check and taskset -c 0,1,2 bun run release:check both PASS all 12 stages, with isolated HOME/Git settings and unchanged thresholds. Each passes 175/175 suite tests and 2/2 real packed npm/npx and Bun/bunx consumers, with zero final failures, cancellations or skips. Both measure all 20 source files at 100%: 2048/2048 statements and lines, 1310/1310 branches, 107/107 functions. Duplication 0/5261 lines across 47 sources; 89 declarations documented; production audit zero vulnerabilities; 46 allowed packed files; changelog and publish attestation pass. Focused command node --test test/review-r13.test.ts passed 6/6 directly and through pm test; reverting only importDir reopening failed all 6, and the separate unchanged-branch reopening mutation failed snapshot equality. All 55 captured authored source/config/test/doc hashes remain unchanged across both final gates. Initial shared-host timing failure is documented above; no deadlines, thresholds, dependencies or unrelated source changed. Latest review has no Outside diff range findings; no additional content write-path fix was needed. Existing development advisories remain tracked separately; no new PM CLI/SDK defect identified. Claim released for orchestrator verification; item stays in progress. Threads remain untouched; no merge or release."
-files[39]:
+  - created_at: "2026-10-22T12:02:32.065Z"
+    author: codex-agent
+    text: "PR #6 review verification: reuse the parent context item to track the correction without reopening or re-closing delivered child items. Pulled the remote branch and merged current main, 68a7321c8e11d5f419b7b4653d028b0ccbdbc5df. npm ci passed. Verified unresolved thread PRRT_kwDOVPw2oc6vDHmD: both closure fields on pm-memory-c3gv cite the wrong test file. Current main test/review-r5.test.ts contains the pending merge receipt regression for intervening source/target edits and exactly-once retries; src/consolidate.ts validates source_revision and target_before/target_after. This branch has no implementation difference from main. Correct the two fields through an audited update, append clarification, retain original comments and append-only history, inspect every other PR citation, regenerate the changelog and run tracker-only gates. Latest CodeRabbit review has no outside-diff findings."
+  - created_at: "2026-10-22T12:04:22.730Z"
+    author: codex-agent
+    text: "Evidence proof for the tracker-only correction: both original closure fields cited test/consolidate.test.ts; both now exactly match their prior values except for test/review-r5.test.ts. Verified the named pending merge receipt regression and its source-edit, target-edit, refusal and durable-snapshot assertions directly on current main 68a7321c8e11d5f419b7b4653d028b0ccbdbc5df. Status, closed_at and completed_at remain unchanged (3/3 lifecycle fields), and all 7 changed history streams retain the complete main history as byte-identical prefixes. All implementation, tests and package files match main. Self-review checked every current closure citation in the full PR; the same mistaken citation in the PR description will be corrected, while historical comments and history events are retained with an appended clarification. No other valid instance or outside-diff finding remains. No source-code regression or behavioural revert applies to this evidence-only change."
+  - created_at: "2026-10-22T12:06:10.560Z"
+    author: codex-agent
+    text: "PR #6 required tracker-only gates passed: npm ci; npm run changelog:full and npm run changelog:check; strict isolated pm health with required merge drivers (ok=true, exit 0). The linked npm run changelog:check passed 1/1 via pm test pm-memory-0kwy --run --only-last --progress --timeout 600. Evidence verification passed 2/2 corrected closure citations, 3/3 preserved lifecycle fields and 7/7 append-only history prefixes; implementation, test and package files remain identical to current main. No local timeout occurred. No source-code revert is applicable. No new pm CLI/SDK defect established; existing development advisories and the unrelated normal-home extension mismatch remain outside this correction. Keep the parent context item in progress for orchestrator verification and release the claim; no child lifecycle transition, merge, release or review-thread interaction is authorized."
+files[40]:
+  - path: .agents/pm/issues/pm-memory-c3gv.toon
+    scope: project
+    note: Corrected both retained regression citations without changing closure state
   - path: eslint.config.ts
     scope: project
   - path: index.ts
@@ -326,6 +338,7 @@ files[39]:
     scope: project
   - path: test/review-r5.test.ts
     scope: project
+    note: Actual pending receipt regression rechecked against current main
   - path: test/review-r6.test.ts
     scope: project
   - path: test/review-r7.test.ts
@@ -346,7 +359,7 @@ files[39]:
     scope: project
   - path: tsconfig.json
     scope: project
-tests[15]:
+tests[16]:
   - command: "npm run release:check"
     scope: project
     provenance:
@@ -462,9 +475,19 @@ tests[15]:
       created_at: "2026-10-20T11:17:54.599Z"
       source_kind: local_mutation
       source_ref: review/memory-r1
+  - command: "npm run changelog:check"
+    scope: project
+    pm_context_mode: tracker
+    workspace_context_mode: source
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-22T12:03:04.131Z"
+      source_kind: local_mutation
+      source_ref: chore/reconcile-tracker-1021
 docs[3]:
   - path: ARCHITECTURE.md
     scope: project
+    note: Native memory receipt revision and exactly-once recovery contract
   - path: CHANGELOG.md
     scope: project
   - path: README.md
