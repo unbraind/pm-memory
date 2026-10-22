@@ -70,8 +70,8 @@ export function scored(memories: readonly Memory[], query: string): { item: Memo
 export function rank(memories: readonly Memory[], query: string): Memory[] { return scored(memories, query).map(entry => entry.item); }
 /** Shared production coefficients reported by the retrieval benchmark. */
 export const HYBRID_WEIGHTS = Object.freeze({ lexical: 0.3, cosine: 0.7, prior: 0.01 });
-/** Blend lexical relevance (30%) and cosine (70%), with a small additive pin/age prior. */
-export async function hybridScored(memories: readonly Memory[], query: string, options: MemoryOptions & SemanticOptions): Promise<{ rows: { item: Memory; score: number }[]; note?: string }> {
+/** Blend relevance and cosine with a bounded prior, exposing incomplete document vectors. */
+export async function hybridScored(memories: readonly Memory[], query: string, options: MemoryOptions & SemanticOptions): Promise<{ rows: { item: Memory; score: number }[]; note?: string; incompleteVectors?: true }> {
   const rows = scored(memories, query); const mode = semanticMode(options.semantic);
   if (mode === 'off' || memories.length === 0) return { rows };
   try {
@@ -84,7 +84,7 @@ export async function hybridScored(memories: readonly Memory[], query: string, o
     const unit = vectors.map(vector => vector === undefined ? undefined : unitVector(vector)); const queryUnit = unitVector(queryVector);
     const maximum = Math.max(...rows.map(row => row.lexical));
     const positions = new Map(memories.map((item, index) => [item.slug, index]));
-    return { rows: rows.map(({ item, lexical, prior }) => ({ item, score: HYBRID_WEIGHTS.lexical * (maximum === 0 ? 0 : lexical / maximum) + HYBRID_WEIGHTS.cosine * Math.max(0, unitCosine(unit[positions.get(item.slug)!] ?? [], queryUnit)) + HYBRID_WEIGHTS.prior * prior })).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
+    return { ...(available.length < vectors.length ? { incompleteVectors: true as const } : {}), rows: rows.map(({ item, lexical, prior }) => ({ item, score: HYBRID_WEIGHTS.lexical * (maximum === 0 ? 0 : lexical / maximum) + HYBRID_WEIGHTS.cosine * Math.max(0, unitCosine(unit[positions.get(item.slug)!] ?? [], queryUnit)) + HYBRID_WEIGHTS.prior * prior })).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
   } catch { return { rows, note: semanticFailure(mode) }; }
 }
 /** Return a query-centered excerpt without charging oversized full memory bodies to the packet. */

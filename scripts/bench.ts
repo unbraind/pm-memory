@@ -50,7 +50,7 @@ export function metrics(rankings: readonly string[][], queries: RecallFixture['q
   });
   return { recallAt1: totals.recallAt1 / queries.length, recallAt5: totals.recallAt5 / queries.length, mrr: totals.mrr / queries.length };
 }
-/** Measure the exact production rankers; a no-model run is explicitly labelled fallback. */
+/** Require complete semantic evidence unless the run explicitly permits fallback. */
 export async function benchmark(fixture: RecallFixture, workspace: string, provider: EmbeddingProvider, fallback = false) {
   const memories = fixtureMemories(fixture);
   const lexical: string[][] = []; const hybrid: string[][] = [];
@@ -58,6 +58,7 @@ export async function benchmark(fixture: RecallFixture, workspace: string, provi
   for (const { query } of fixture.queries) {
     lexical.push(scored(memories, query).map(row => row.item.slug));
     const ranked = await hybridScored(memories, query, { workspace, provider, semantic: fallback ? 'auto' : 'on' });
+    if (!fallback && ranked.incompleteVectors) throw new Error('Benchmark requires vectors for every document; clear the runtime cache after correcting input limits');
     if (await provider.identity() !== model) throw new Error('Embedding model changed during benchmark');
     hybrid.push(ranked.rows.map(row => row.item.slug));
   }

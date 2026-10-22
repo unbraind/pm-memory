@@ -101,6 +101,61 @@ test('local adapter canonicalizes untagged names including registry ports', asyn
   }
 });
 
+test('review benchmark refuses rejected document evidence while recall keeps isolation', async t => {
+  const instant = Date.now(); t.mock.method(Date, 'now', () => instant);
+  const { workspace, options, store } = await tracker(t); const { state, provider } = await daemon(t);
+  state.rejectInput = 'oidc';
+  for (const item of fixture.memories) await remember(`${item.title}\n${item.body}`, { ...options, kind: 'project', slug: item.slug });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(benchmark(fixture, workspace, provider), /Benchmark requires vectors for every document/);
+  }
+  const allRejected = { ...fixture, memories: [fixture.memories[0]] };
+  await assert.rejects(benchmark(allRejected, workspace, provider), /Benchmark requires vectors for every document/);
+  for (const semantic of ['on', 'auto'] as const) {
+    const memories = await store.read();
+    const ranked = await hybridScored(memories, fixture.queries[0].query, { workspace, provider, semantic });
+    assert.equal(ranked.incompleteVectors, true); assert.equal(ranked.note, undefined);
+    assert.equal(ranked.rows.length, memories.length);
+    const lexical = scored(memories, fixture.queries[0].query); const maximum = Math.max(...lexical.map(row => row.lexical));
+    const rejected = lexical.find(row => row.item.slug === 'oidc')!;
+    assert.equal(ranked.rows.find(row => row.item.slug === 'oidc')!.score, HYBRID_WEIGHTS.lexical * (rejected.lexical / maximum) + HYBRID_WEIGHTS.prior * rejected.prior);
+    const packet = await recall(fixture.queries[0].query, { ...options, provider, semantic, budget: 800 });
+    assert.equal(packet.note, undefined); assert.equal(packet.memories!.length, 2); assert.ok(packetTokens(packet) <= 800);
+    assert.equal(Object.hasOwn(packet, 'incompleteVectors'), false);
+  }
+  const allowed = await benchmark(fixture, workspace, provider, true);
+  assert.equal(allowed.mode, 'lexical-fallback');
+  const lexical = await benchmark(fixture, workspace, new LexicalProvider(), true);
+  assert.deepEqual(lexical.lexical, lexical.hybrid);
+  state.rejectInput = '';
+  await rm(join(workspace, 'runtime', 'memory-embeddings'), { recursive: true, force: true });
+  const recovered = await benchmark(fixture, workspace, provider);
+  assert.equal(recovered.mode, 'hybrid'); assert.equal(recovered.hybrid.recallAt1, 1);
+  const complete = await hybridScored(fixtureMemories(fixture), fixture.queries[0].query, { workspace, provider, semantic: 'on' });
+  assert.equal(complete.incompleteVectors, undefined);
+});
+
+test('review context-window changes require documented cache clearing to retry rejections', async t => {
+  const { workspace } = await tracker(t); const { state, provider } = await daemon(t);
+  const memories = fixtureMemories(fixture); const model = await provider.identity();
+  state.rejectInput = 'oidc';
+  const rejected = await memoryVectors(memories, workspace, provider);
+  assert.deepEqual(rejected, [undefined, [0, 1, 0]]);
+  const before = await snapshot(workspace); const calls = state.inputs.length;
+  state.rejectInput = ''; // The daemon now accepts the input without changing model identity or content.
+  assert.equal(await provider.identity(), model);
+  assert.deepEqual(await memoryVectors(memories, workspace, provider), rejected);
+  assert.equal(state.inputs.length, calls, 'current markers persist until explicit invalidation');
+  await rm(join(workspace, 'runtime', 'memory-embeddings'), { recursive: true, force: true });
+  const recovered = await memoryVectors(memories, workspace, provider);
+  assert.deepEqual(recovered, [[1, 0, 0], [0, 1, 0]]);
+  assert.equal(state.inputs.length, calls + 1); assert.deepEqual(await snapshot(workspace), before);
+  for (const file of ['README.md', 'ARCHITECTURE.md']) {
+    const documentation = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
+    assert.match(documentation, /(?:After|after) changing the daemon context window, (?:clear|operators must clear)[^\n]*`runtime\/memory-embeddings\/`/);
+  }
+});
+
 test('benchmark rejects model revisions changing between queries', async t => {
   const { workspace } = await tracker(t);
   const corpus = { ...fixture, queries: [...fixture.queries, ...fixture.queries] };
@@ -349,6 +404,13 @@ test('benchmark entrypoint isolates synthetic caches and cleans success and fail
     await runBench([]);
     await assertClean();
     assert.equal(log.mock.callCount(), 1);
+    embedding.mock.mockImplementation(async (inputs: readonly string[], purpose?: 'query' | 'document') => {
+      if (purpose !== 'query') throw new EmbeddingInputError('Input exceeds the configured context window');
+      return inputs.map(() => [1]);
+    });
+    await assert.rejects(runBench([]), /Benchmark requires vectors for every document/);
+    assert.equal(log.mock.callCount(), 1, 'an incomplete benchmark must not print metrics');
+    await assertClean();
     embedding.mock.mockImplementation(async () => { throw new Error('Unavailable'); });
     const completed = workspaces.length;
     await assert.rejects(runBench([]), /Local embedding model unavailable/);

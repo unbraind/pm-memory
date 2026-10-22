@@ -141,7 +141,7 @@ async function embedDocuments(provider: EmbeddingProvider, inputs: readonly stri
     return result;
   }
 }
-/** Resolve content-addressed tracker-local vectors, batching only cache misses. */
+/** Resolve content-addressed vectors; clear runtime/memory-embeddings after daemon context-window changes. */
 export async function memoryVectors(memories: readonly Memory[], workspace: string, provider: EmbeddingProvider): Promise<(number[] | undefined)[] | undefined> {
   const identity = await provider.identity();
   if (identity === 'lexical') return undefined;
