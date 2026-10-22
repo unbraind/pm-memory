@@ -150,14 +150,15 @@ Run `npm run bench` with an installed local model; set `PM_MEMORY_MODEL` to sele
 
 The committed `bench/recall.json` contains **64 invented software-team memories and 64 paraphrased queries**, each with a labelled gold slug. It includes related distractors across release, security, databases and operations. Recall@k is the fraction of labelled relevant documents in the first k positions, averaged over queries; MRR averages the reciprocal position of the first relevant document, counting a miss as zero. This is a full-ranking evaluation before token truncation, using equal document ages within each run. It is a small hand-labelled evaluation set, not a held-out production or multilingual generalization claim. The lexical/cosine weights were not tuned on these labels. A separate deterministic two-query benchmark in `test/semantic.test.ts` covers a fresh pinned distractor, an old relevant memory and an intermediate-age distractor. The 0.01 prior weight retains the semantically relevant result (cosines 0.75 versus 0.45) and breaks equal-cosine ties in favor of standing guidance: recall@1, recall@5 and MRR are all 1.0. This controlled check selects a bounded tie preference, not an optimal weight or a model-quality claim.
 
-Historical measurement with the original prior-inclusive normalization and `embeddinggemma-2:latest` (digest and full per-query ranks in `bench/embeddinggemma-2.results.json`; these results predate the separate-prior correction):
+Current-ranker measurement with `embeddinggemma-2:latest`, run using `npm run bench` at implementation commit `c6863aed6ae0ed898ecdc7d8c6e52e7e58394971` (model digest, fixture hash and all per-query ranks in `bench/embeddinggemma-2.current.results.json`). The default weights are 0.30 lexical relevance, 0.70 cosine and 0.01 prior; the cosine-only arm uses the same vectors without lexical or prior terms. All 64 documents had complete vectors.
 
 | Ranker | recall@1 | recall@5 | MRR |
 | --- | ---: | ---: | ---: |
 | Lexical | 20.3125% | 50.0000% | 0.332508 |
-| Hybrid (30% lexical, 70% cosine) | 28.1250% | 67.1875% | 0.442726 |
+| Hybrid (0.30 lexical, 0.70 cosine, 0.01 prior) | 28.1250% | 67.1875% | 0.442726 |
+| Cosine only | 73.4375% | 90.6250% | 0.820197 |
 
-The improvement is modest and individual queries can regress. A separate attempt with the installed `qwen3-embedding:0.6b-fp16` timed out; no Qwen quality metrics are claimed. Model availability and hardware latency are separate from ranking quality.
+These measurements cover the shipped ranker on the synthetic fixture; they are not a held-out or production-quality guarantee. Individual queries can regress, and generic high-cosine imported content can rank highly despite no lexical overlap. Source labels expose provenance; recalled content remains untrusted context. The older pre-prior-normalization run remains archived in `bench/embeddinggemma-2.results.json` for comparison. A historical Qwen attempt timed out; no Qwen metrics are claimed. Model availability and hardware latency are separate from ranking quality.
 
 ## Without git
 
