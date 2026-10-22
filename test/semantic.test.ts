@@ -575,7 +575,7 @@ test('review semantic pairs always use older sources and deterministic equal-age
   assert.deepEqual(await semanticProposals([...memories].reverse(), { workspace, provider, semantic: 'on' }), preview);
 });
 
-test('review pin-only updates preserve content age verification and semantic source ordering', async t => {
+test('review pin-only updates preserve content age and semantic source ordering', async t => {
   const { options, workspace, store } = await tracker(t);
   const older = await remember('Durable registry guidance', { ...options, kind: 'reference', slug: 'older' });
   const newer = await remember('Independent publication guidance', { ...options, kind: 'reference', slug: 'newer' });
@@ -587,7 +587,7 @@ test('review pin-only updates preserve content age verification and semantic sou
     const memory = (await store.read()).find(item => item.slug === 'older')!;
     assert.equal(memory.pinned, pin);
     assert.equal(memory.updated, '2026-01-01T00:00:00.000Z');
-    assert.equal(memory.verdict, 'verified'); assert.equal(memory.edited, false);
+    assert.equal(memory.verdict, 'unknown'); assert.equal(memory.edited, true);
     assert.deepEqual((await semanticProposals(await store.read(), { workspace, provider, semantic: 'on' })).proposals.map(({ slug, target }) => [slug, target]), [['older', 'newer']]);
   }
   await remember('Revised registry content', { ...options, kind: 'reference', update: 'older', pin: true });

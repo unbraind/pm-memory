@@ -33,7 +33,7 @@ export async function remember(fact: string, options: RememberOptions): Promise<
     const why = options.why ?? previous?.why ?? ''; const how = options.how ?? previous?.how ?? ''; const pinned = options.pin ?? previous?.pinned ?? false;
     const unchanged = previous !== undefined && previous.title === title && previous.body === fact.trim() && previous.kind === options.kind && previous.why === why && previous.how === how && (options.tags === undefined || JSON.stringify(previous.tags) === JSON.stringify(options.tags));
     const fields: Record<string, string | number | boolean> = { slug: key, kind: options.kind, why, how, pinned, source: previous?.source ?? 'native:item', recalls: previous?.recalls ?? 0, changed_at: unchanged ? previous.updated : new Date().toISOString() };
-    if (!unchanged) Object.assign(fields, { verdict: 'unknown', verified_at: '', edited: true });
+    if (!unchanged || previous.pinned !== pinned) Object.assign(fields, { verdict: 'unknown', verified_at: '', edited: true });
     let id: string;
     if (previous === undefined) {
       const created = await store.client.run('create', { options: { title, body: fact, type: 'Knowledge', tags: (options.tags ?? []).join(','), allowDuplicate: true, ...metadata(fields) } });
