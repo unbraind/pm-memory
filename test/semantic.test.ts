@@ -697,6 +697,9 @@ test('review rejection markers skip repeated documents and invalidate on content
   assert.ok(rebuilt!.every(vector => vector !== undefined));
   assert.equal(state.inputs.length, calls + 3);
   assert.equal(state.inputs.at(-1)!.length, 2);
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  assert.match(readme, /Malformed entries and legacy rejection markers are rebuilt\./);
+  assert.match(readme, /Current rejection markers are reused until content or model identity changes\./);
 });
 
 test('review rejected documents retain zero-cosine lexical evidence and healthy semantic pairs', async t => {
