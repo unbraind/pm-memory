@@ -117,8 +117,8 @@ async function cached(path: string): Promise<number[] | undefined> {
   try { return validateVectors([JSON.parse(await readFile(path, 'utf8')) as unknown], 1)[0]; }
   catch { return undefined; }
 }
-/** Atomically publish private runtime vectors, cleaning a failed temporary publication. */
-async function publish(path: string, vector: number[]): Promise<void> {
+/** Atomically publish private runtime vectors or rejection markers, cleaning failed publications. */
+async function publish(path: string, vector: number[] | null): Promise<void> {
   const temporary = `${path}.${randomUUID()}`;
   try { await writeFile(temporary, JSON.stringify(vector), { mode: 0o600 }); await rename(temporary, path); }
   finally { await rm(temporary, { force: true }); }
@@ -144,13 +144,15 @@ export async function memoryVectors(memories: readonly Memory[], workspace: stri
   const inputs = memories.map(embeddingText);
   const paths = inputs.map(input => join(directory, `${digest(input)}.json`));
   const vectors = await Promise.all(paths.map(cached));
-  const missing = vectors.flatMap((vector, index) => vector === undefined ? [index] : []);
+  const rejected = await Promise.all(paths.map(path => readFile(`${path}.rejected`, 'utf8').then(value => value === 'null', () => false)));
+  const missing = vectors.flatMap((vector, index) => vector === undefined && !rejected[index] ? [index] : []);
   for (let start = 0; start < missing.length; start += 16) {
     const batch = missing.slice(start, start + 16);
     const embedded = await embedDocuments(provider, batch.map(index => inputs[index]));
     for (let offset = 0; offset < batch.length; offset++) {
       const index = batch[offset]; const vector = embedded[offset];
-      if (vector !== undefined) { vectors[index] = vector; await publish(paths[index], vector); }
+      vectors[index] = vector;
+      await publish(vector === undefined ? `${paths[index]}.rejected` : paths[index], vector ?? null);
     }
   }
   const available = vectors.filter(vector => vector !== undefined);

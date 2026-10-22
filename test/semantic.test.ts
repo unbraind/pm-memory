@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { Store } from '../src/store.ts';
 import { digest, packetTokens } from '../src/core.ts';
@@ -575,6 +575,58 @@ test('review semantic pairs always use older sources and deterministic equal-age
   assert.deepEqual(await semanticProposals([...memories].reverse(), { workspace, provider, semantic: 'on' }), preview);
 });
 
+test('review pin-only updates preserve content age verification and semantic source ordering', async t => {
+  const { options, workspace, store } = await tracker(t);
+  const older = await remember('Durable registry guidance', { ...options, kind: 'reference', slug: 'older' });
+  const newer = await remember('Independent publication guidance', { ...options, kind: 'reference', slug: 'newer' });
+  await store.fields(older.id, { changed_at: '2026-01-01T00:00:00.000Z', verdict: 'verified', verified_at: '2026-02-01T00:00:00.000Z', edited: false });
+  await store.fields(newer.id, { changed_at: '2026-02-01T00:00:00.000Z' });
+  const provider: EmbeddingProvider = { identity: async () => 'pin-content-age', embed: async inputs => inputs.map(() => [1, 0]) };
+  for (const pin of [true, false]) {
+    await remember('Durable registry guidance', { ...options, kind: 'reference', update: 'older', pin });
+    const memory = (await store.read()).find(item => item.slug === 'older')!;
+    assert.equal(memory.pinned, pin);
+    assert.equal(memory.updated, '2026-01-01T00:00:00.000Z');
+    assert.equal(memory.verdict, 'verified'); assert.equal(memory.edited, false);
+    assert.deepEqual((await semanticProposals(await store.read(), { workspace, provider, semantic: 'on' })).proposals.map(({ slug, target }) => [slug, target]), [['older', 'newer']]);
+  }
+  await remember('Revised registry content', { ...options, kind: 'reference', update: 'older', pin: true });
+  const revised = (await store.read()).find(item => item.slug === 'older')!;
+  assert.notEqual(revised.updated, '2026-01-01T00:00:00.000Z');
+  assert.deepEqual({ verdict: revised.verdict, edited: revised.edited }, { verdict: 'unknown', edited: true });
+  const changedOrder = await semanticProposals(await store.read(), { workspace, provider, semantic: 'on' });
+  assert.equal(changedOrder.proposals[0].slug, 'newer'); assert.equal(changedOrder.proposals[0].target, 'older');
+});
+
+test('review rejection markers skip repeated documents and invalidate on content model or corruption', async t => {
+  const { workspace } = await tracker(t); const { provider, state } = await daemon(t);
+  const memories = fixtureMemories(fixture);
+  state.rejectInput = 'oidc';
+  const initial = await memoryVectors(memories, workspace, provider);
+  assert.deepEqual(initial, [undefined, [0, 1, 0]]);
+  const directory = join(workspace, 'runtime', 'memory-embeddings', digest(await provider.identity()));
+  const marker = join(directory, `${digest(embeddingText(memories[0]))}.json.rejected`);
+  assert.equal(await readFile(marker, 'utf8'), 'null');
+  assert.equal((await stat(marker)).mode & 0o777, 0o600);
+  const calls = state.inputs.length;
+  for (let attempt = 0; attempt < 3; attempt++) assert.deepEqual(await memoryVectors(memories, workspace, provider), initial);
+  memories[0].recalls++; memories[0].pinned = true; memories[0].verdict = 'verified';
+  assert.deepEqual(await memoryVectors(memories, workspace, provider), initial);
+  assert.equal(state.inputs.length, calls, 'no rejected or healthy document should be resubmitted');
+  await writeFile(marker, 'corrupt');
+  assert.deepEqual(await memoryVectors(memories, workspace, provider), initial);
+  assert.equal(state.inputs.length, calls + 1);
+  assert.equal(await readFile(marker, 'utf8'), 'null');
+  memories[0].body += ' revised';
+  assert.deepEqual(await memoryVectors(memories, workspace, provider), initial);
+  assert.equal(state.inputs.length, calls + 2);
+  state.rejectInput = ''; state.tags = { models: [{ name: 'test:local', digest: 'b'.repeat(64) }] };
+  const rebuilt = await memoryVectors(memories, workspace, provider);
+  assert.ok(rebuilt!.every(vector => vector !== undefined));
+  assert.equal(state.inputs.length, calls + 3);
+  assert.equal(state.inputs.at(-1)!.length, 2);
+});
+
 test('review rejected documents retain zero-cosine lexical evidence and healthy semantic pairs', async t => {
   const instant = Date.now(); t.mock.method(Date, 'now', () => instant);
   const { options, workspace, store } = await tracker(t); const { provider, state } = await daemon(t);
@@ -589,7 +641,7 @@ test('review rejected documents retain zero-cosine lexical evidence and healthy 
   assert.equal(vectors.filter(vector => vector !== undefined).length, 2);
   assert.deepEqual(state.inputs.map(inputs => inputs.length), [3, 1, 1, 1]);
   const directory = join(workspace, 'runtime', 'memory-embeddings', digest(await provider.identity()));
-  assert.equal((await readdir(directory)).length, 2);
+  assert.equal((await readdir(directory)).length, 3);
   const before = await snapshot(workspace);
   const preview = await semanticProposals(memories, { workspace, provider, semantic: 'on' });
   assert.equal(preview.note, undefined);
@@ -606,7 +658,7 @@ test('review rejected documents retain zero-cosine lexical evidence and healthy 
     assert.equal(packet.note, undefined); assert.ok(packetTokens(packet) <= 800);
     assert.ok(packet.memories!.some(row => row.slug === 'oversized'));
   }
-  assert.ok(state.inputs.slice(4).every(inputs => inputs.length === 1), 'healthy cached documents must never be re-embedded');
+  assert.deepEqual(state.inputs.slice(4), [['imported memory'], ['registry'], ['imported memory'], ['registry']], 'only transient queries may be embedded after documents and rejections are cached');
   for (const item of await store.read()) assert.equal(item.recalls, 2);
 });
 
@@ -615,6 +667,7 @@ test('review document rejection isolation preserves daemon model protocol and qu
   const memories = fixtureMemories(fixture);
   state.rejectInput = ''; state.rejectStatus = 400;
   for (const status of [400, 413]) {
+    memories[0].body += ` status-${status}`;
     state.rejectInput = 'oidc'; state.rejectStatus = status;
     assert.deepEqual(await memoryVectors([memories[0]], workspace, provider), [undefined]);
   }
@@ -625,6 +678,8 @@ test('review document rejection isolation preserves daemon model protocol and qu
   assert.deepEqual(await semanticProposals(all, { workspace, provider, semantic: 'on' }), { proposals: [] });
   const ranked = await hybridScored(all, 'absent', { workspace, provider, semantic: 'on' });
   assert.equal(ranked.note, undefined);
+  // Fresh misses keep the failure-policy assertions independent of rejection markers.
+  await rm(join(workspace, 'runtime'), { recursive: true, force: true });
   state.rejectInput = '';
   state.status = 503;
   await assert.rejects(memoryVectors(memories, workspace, provider));
