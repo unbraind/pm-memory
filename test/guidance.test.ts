@@ -10,6 +10,7 @@ import type { GuidanceWindow, Packet } from '../index.ts';
 import { instant, readWindow, guidancePolicy, eligibleGuidance } from '../src/guidance.ts';
 import { runCommand } from '../src/commands.ts';
 import { tracker, snapshot, installExtension } from './helpers.ts';
+import type { EmbeddingProvider } from '../src/embeddings.ts';
 
 const from = '2026-10-21T00:00:00.000Z';
 const until = '2026-10-22T00:00:00.000Z';
@@ -169,6 +170,28 @@ test('semantic recall rechecks expiry after embedding outside the writer lock', 
   assert.equal(labelled.memories![0].validity, 'expired');
 });
 
+
+test('stacked auto fallback preserves labelled validity and provenance after expiry', async t => {
+  const { options } = await tracker(t);
+  await remember('Time-bound release policy', { ...options, kind: 'project', slug: 'policy', pin: true });
+  await remember('Unbounded fallback guidance', { ...options, kind: 'reference', slug: 'legacy' });
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse(from) });
+  await renew('policy', { ...options, from, until, evidence });
+  let queries = 0;
+  const provider: EmbeddingProvider = { identity: async () => 'stacked-validity-fallback', embed: async (inputs, purpose) => {
+    if (purpose === 'query') {
+      await remember(`Fallback guidance revision ${++queries}`, { ...options, kind: 'reference', update: 'legacy' });
+      if (queries === 5) t.mock.timers.setTime(Date.parse(until));
+    }
+    return inputs.map(() => [1, 0]);
+  } };
+  const packet = await recall('release policy', { ...options, provider, semantic: 'auto', validity: 'label', budget: 800 });
+  assert.equal(queries, 5); assert.match(packet.note!, /corpus kept changing; using lexical ranking/);
+  const policy = packet.memories!.find(row => row.slug === 'policy');
+  assert.ok(policy); assert.equal(policy.validity, 'expired'); assert.equal(policy.valid_from, from); assert.equal(policy.valid_until, until);
+  assert.equal(policy.source, 'native:item'); assert.equal(packet.memories!.length, 2); assert.ok(packetTokens(packet) <= 800);
+  assert.equal((await get('policy', options)).recalls, 1); assert.equal((await get('legacy', options)).recalls, 1);
+});
 
 test('consolidation refuses bounded merge endpoints before any mutation', async t => {
   const { options, store } = await tracker(t);
