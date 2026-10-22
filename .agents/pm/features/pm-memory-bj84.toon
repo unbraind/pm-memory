@@ -2,15 +2,18 @@ id: pm-memory-bj84
 title: Consolidate memory
 description: ""
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-19T12:58:17.802Z"
-updated_at: "2026-10-19T14:38:56.073Z"
+updated_at: "2026-10-21T18:45:20.029Z"
+closed_at: "2026-10-21T18:45:14.218Z"
+completed_at: "2026-10-21T18:45:14.218Z"
 author: codex-agent
 estimated_minutes: 45
 acceptance_criteria: "Dry run makes zero writes; propose duplicate merges, contradictory supersession and unused stale archives; apply preserves audited history."
 parent: pm-memory-0kwy
+resolution: "Reverified main 97727010814d (unchanged since audit): [PR #1](https://github.com/unbraind/pm-memory/pull/1) (8bf8396), src/ and test/ deliver typed memory, bounded recall/index, claim verification, audited consolidation, privacy refusals and lossless harness import/export. Source delivery is distinct from the unpublished npm release. Retained evidence: index.ts, src/commands.ts, src/consolidate.ts."
 comments[5]{created_at,author,text}:
   "2026-10-19T13:34:51.001Z",codex-agent,"Private aggregate review exposed false supersession proposals from equivalent negated guidance. Tightened consolidation to normalize negated enable/disable, require exclusive opposing signals, and require matching remaining guidance for always/never. Added a 48-case signal matrix plus explicit equivalent, ambiguous and changed-action cases. Dry runs remain read-only."
   "2026-10-19T13:36:00.994Z",codex-agent,"Additional behavioral revert proof: restore only opposite() from the initial implementation commit. npm run build passes; node --test --test-name-pattern=\"consolidation respects\" test/edges.test.ts fails with AssertionError, exit 1. Restore current opposite(): the same test passes. Consolidation plus edge suite: 8 passed, zero failed."
@@ -26,4 +29,5 @@ tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
 docs[2]{path,scope}:
   ARCHITECTURE.md,project
   README.md,project
+close_reason: "Reverified main 97727010814d (unchanged since audit): [PR #1](https://github.com/unbraind/pm-memory/pull/1) (8bf8396), src/ and test/ deliver typed memory, bounded recall/index, claim verification, audited consolidation, privacy refusals and lossless harness import/export. Source delivery is distinct from the unpublished npm release. Retained evidence: index.ts, src/commands.ts, src/consolidate.ts."
 body: ""
