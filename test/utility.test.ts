@@ -10,6 +10,7 @@ import type { MemoryExposure, MemoryObservation, ObserveOptions } from '../index
 import '../src/utility-types.ts';
 import { parseUtility, utilityCounts } from '../src/utility.ts';
 import { tracker, snapshot } from './helpers.ts';
+import type { EmbeddingProvider } from '../src/embeddings.ts';
 
 /** One explicit observation input with a public comparison baseline. */
 function input(recalled: string, task: string): Omit<ObserveOptions, 'workspace'> {
@@ -59,6 +60,21 @@ test('utility keeps honest exposure, task and current-revision denominators with
   // SDK paths are exercised with a ceiling and no git executable in a separate process.
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', `import { utility } from ${JSON.stringify(new URL('../index.ts', import.meta.url).href)}; console.log(JSON.stringify(await utility('release', {workspace:process.argv[1]})));`, workspace], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: root, GIT_CEILING_DIRECTORIES: dirname(root) } });
   assert.equal(child.status, 0, child.stderr); assert.equal(JSON.parse(child.stdout).lifetime.scored, 1);
+});
+
+test('semantic recall does not rerank after a concurrent utility exposure only', async t => {
+  const { options } = await tracker(t);
+  await remember('Stable release guidance', { ...options, kind: 'reference', slug: 'release' });
+  let queries = 0;
+  const provider: EmbeddingProvider = { identity: async () => 'utility-exposure-snapshot', embed: async (inputs, purpose) => {
+    if (purpose === 'query' && ++queries === 1) await recall('release', { ...options, semantic: 'off' });
+    return inputs.map(() => [1, 0]);
+  } };
+  const packet = await recall('release', { ...options, provider, semantic: 'on' });
+  assert.equal(queries, 1, 'operational exposure receipts must not invalidate ranking snapshots');
+  assert.ok(packet.recall); assert.equal(packet.memories![0].source, 'native:item');
+  const report = await utility('release', options);
+  assert.equal(report.recalls, 2); assert.equal(report.lifetime.exposures, 2);
 });
 
 test('confounded and unknown outcomes stay unscored and native lifecycle guards later outcomes', async t => {
