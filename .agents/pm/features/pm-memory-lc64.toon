@@ -7,14 +7,12 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:44.557Z"
-updated_at: "2026-10-22T11:45:15.868Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-22T11:53:08.258Z"
 author: codex-agent
 estimated_minutes: 90
 acceptance_criteria: "Rank lexical relevance, recency and standing guidance; entire packets stay within budget; process-concurrent recall counters; random-set property tests and packer revert proof."
 parent: pm-memory-0kwy
-comments[52]{created_at,author,text}:
+comments[53]{created_at,author,text}:
   "2026-10-19T13:32:34.261Z",codex-agent,"Behavioral revert proof: revert only the packer acceptance predicate so oversized rows are accepted. npm run build passes; node --test --test-name-pattern=\"budget packer\" test/memory.test.ts fails with AssertionError and exit 1. Restoring the predicate passes. Two independent processes start behind a shared barrier and produce exactly six recall increments."
   "2026-10-19T13:41:19.814Z",codex-agent,"Accepted aggregate recall packets stay under 800 estimated tokens. Four preselected references appeared at ranks 1, 1, 1 and 3; the release-workflow reference was omitted from its three returned rows. This budget tradeoff is documented rather than hidden. Index: 1498 of 1500 tokens. Random-set property and synchronized process-counter tests passed."
   "2026-10-19T14:00:52.642Z",codex-agent,"Recall now packs compact scored rows first, preserves top rank at small budgets, spends spare space on marked excerpts, and exposes full content via memory get. Ranking includes descriptions and slugs. Regression covers huge top bodies at budgets 200 and 800."
@@ -67,6 +65,7 @@ comments[52]{created_at,author,text}:
   "2026-10-22T11:42:00.042Z",codex-agent,"Exact-head Node 22 CI exposed a compatibility mistake in the first pin fix: 202/203 tests passed, but the existing imported-memory regression requires pin changes to reset verification and mark the record edited. The review finding requires preserving content age only. Narrowed remember so content equality controls changed_at, while content OR pin changes retain the existing verification reset and edited marker. Updated the new pin regression and architecture text accordingly; this supersedes earlier comments claiming verification preservation on pin changes. Rejection-cache regressions passed in CI. No deadlines, thresholds, dependency pins or existing tests were weakened. Recheck both the new pin-order regression and the existing imported-memory regression, then rerun exact-head CI."
   "2026-10-22T11:44:21.680Z",codex-agent,"After narrowing the pin fix, restoring the entire original remember function from the pre-fix merge head makes node --test --test-name-pattern=\"^review pin-only\" test/semantic.test.ts fail 0 passed/1 failed on the changed content timestamp. Restored the final implementation immediately. npm run typecheck, npm run lint and npm run duplication pass, with 0% duplication across 52 measured sources. Both Node 22 and Node 26 CI passed all three unchanged privacy timing tests, confirming the local timeout boundary; their only failure was the now-corrected pin verification compatibility expectation. The rejection-marker implementation measured full coverage in those runs; overall gate success still awaits the corrected candidate."
   "2026-10-22T11:45:15.766Z",codex-agent,"Restored final pin handling passes both the new age-order regression and the unchanged imported-memory compatibility regression: 2/2 via pm test pm-memory-lc64 --run --only-last --progress --timeout 600. Both independent original-function revert proofs remain 0/1 failures. Stage the correction with append-only tracker evidence and require new exact-head CI before moving to PR #6."
+  "2026-10-22T11:52:57.456Z",codex-agent,"Corrected source head d206fec8c5a1788c49fc128c0626a61d928594d7 passed exact-head CI run 39773057142: Node 22 and Node 26 each passed all npm release-check components with 203/203 suite tests and 2/2 packed npm/Bun consumers; Node 26 also passed bun run release:check with 203/203 tests and 2/2 consumers. All 22 intended source files measured 100% statements/branches/functions/lines; duplication is 0% across 52 measured sources; all 98 declarations are documented; production audit reports zero vulnerabilities. Strict health, identity/privacy, changelog and publish-attestation checks pass. Existing local privacy deadline failures passed in CI at unchanged limits. Final self-review and complete review-thread fetch found only the two addressed threads and no outside-diff findings. Both independent revert proofs fail 0/1 and restored linked regressions pass 4/4 plus pin compatibility 2/2. Leave the item in progress for orchestrator verification; release the claim. No new pm CLI/SDK defect established; existing development advisories remain separately tracked."
 files[16]:
   - path: bench/recall.json
     scope: project
