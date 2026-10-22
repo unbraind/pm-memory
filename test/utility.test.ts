@@ -9,7 +9,7 @@ import { get, MemoryError, observe, packetTokens, recall, remember, utility } fr
 import type { MemoryExposure, MemoryObservation, ObserveOptions } from '../index.ts';
 import '../src/utility-types.ts';
 import { parseUtility, utilityCounts } from '../src/utility.ts';
-import { tracker, snapshot } from './helpers.ts';
+import { tracker, snapshot, gitlessCli } from './helpers.ts';
 import type { EmbeddingProvider } from '../src/embeddings.ts';
 
 /** One explicit observation input with a public comparison baseline. */
@@ -156,7 +156,7 @@ test('actual native observe and utility commands work without git in compact TOO
   await writeFile(join(directory, 'manifest.json'), JSON.stringify({ name: 'pm-memory', version: '2026.10.19', entry: 'entry.js', capabilities: ['commands', 'schema'] }));
   await writeFile(join(directory, 'entry.js'), `export { default } from ${JSON.stringify(new URL('../index.ts', import.meta.url).href)};\n`);
   /** Invoke the installed pm host with git absent from PATH and ancestor discovery fenced. */
-  const cli = (args: string[]) => spawnSync(process.execPath, [join(import.meta.dirname, '../node_modules/.bin/pm'), 'memory', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, PM_PATH: workspace, PM_AUTHOR: 'memory-test', PATH: root, GIT_CEILING_DIRECTORIES: dirname(root) } });
+  const cli = gitlessCli(root, workspace);
   await remember('Run native acceptance', { ...options, kind: 'project', slug: 'native' });
   const recallResult = cli(['recall', 'native', '--json']); assert.equal(recallResult.status, 0, recallResult.stderr);
   const packet = JSON.parse(recallResult.stdout) as { recall: string };

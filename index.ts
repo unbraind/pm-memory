@@ -23,3 +23,6 @@ export type { EmbeddingProvider, EmbeddingPurpose, SemanticMode, SemanticOptions
 export { observe, utility } from './src/utility.ts';
 /** Public outcome, attribution, observation and utility evidence contracts. */
 export type { TaskOutcome, Attribution, ObserveOptions, MemoryExposure, MemoryObservation, UtilityLedger, UtilityCounts, UtilityReport } from './src/utility-types.ts';
+/** Renew standing guidance with explicit validity bounds and attributable evidence. */
+export { renew, guidanceState } from './src/guidance.ts';
+export type { GuidanceWindow, GuidanceState, GuidanceOptions, RenewOptions } from './src/types.ts';

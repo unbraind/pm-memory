@@ -104,6 +104,39 @@ Never store credentials. Review `pm memory verify --root .` and
 
 For a local Markdown artifact, extract the SDK packet's `text` field. CLI output remains a structured host receipt rather than writing an untracked MEMORY.md into the repository automatically.
 
+## Time-bounded standing guidance
+
+A pin gives standing guidance ranking priority. An explicit validity window additionally records when the **current content** is supported. Existing memories without windows keep their previous behavior. This is truth validity, independent of task deadlines, content recency and the `verified`/`stale`/`unknown` claim verdict.
+
+```sh
+pm memory remember "Run both release gates" --kind project --slug release-policy --pin
+pm memory renew release-policy --valid-from 2026-10-21T00:00:00.000Z --valid-until 2026-11-21T00:00:00.000Z --evidence "Public release checklist reviewed and approved"
+pm memory recall "release workflow" --budget 800
+pm memory recall "release workflow" --validity label --budget 800 --json
+pm memory index --validity label
+```
+
+Use canonical UTC timestamps with milliseconds. Start is inclusive; end is exclusive. Recall and index default to `--validity exclude`: scheduled, expired and content-changed guidance is excluded even when pinned. `--validity label` explicitly includes it for auditing, carrying `current`, `scheduled`, `expired` or `needs-renewal` plus both bounds. Labels and bounds are included in JSON/TOON token accounting. Label mode returns advice that may no longer apply; agents must honor its status. Semantic recall checks eligibility again after embedding before emitting rows. `get` returns the complete latest window and evidence; SDK callers can evaluate it with `guidanceState(memory, Date.now())`.
+
+Renewals require an existing active pinned memory, explicit bounds and nonblank evidence; privacy checks reject credential-shaped evidence. Each successful renewal increments a revision under the shared process lock and writes the whole window in one native mutation. Earlier evidence remains in append-only native item history, including competing renewals. The last serialized renewal is current; it may deliberately shorten a window. A window describes the latest authored policy, not a historical reconstruction query. A failed native mutation retains its normal SDK refusal and retry contract.
+
+The evidence digest covers title, description, body, kind, rationale, application instructions and tags. Changed content or removal of the pin yields `needs-renewal` until reviewed again. Recall counters and claim verification never renew validity, reset its bounds or refresh content recency. Evidence records an author's assertion; the package does not automatically establish that it is true. Direct tracker writers do not participate in the package lock.
+
+```ts
+import { renew, recall, get, guidanceState } from 'pm-memory';
+
+await renew('release-policy', {
+  workspace: '.agents/pm', author: 'release-agent',
+  from: '2026-10-21T00:00:00.000Z', until: '2026-11-21T00:00:00.000Z',
+  evidence: 'Public release checklist reviewed and approved',
+});
+const current = await recall('release workflow', { workspace: '.agents/pm', budget: 800 });
+const audit = await recall('release workflow', { workspace: '.agents/pm', validity: 'label' });
+const state = guidanceState(await get('release-policy', { workspace: '.agents/pm' }), Date.now());
+```
+
+Invalid bounds or policy, nonstanding targets and exhausted revisions produce `MemoryError` with `code: 'validity'` and a remedy (CLI exit 2); invalid persisted windows refuse with `schema`. Portable harness formats currently cannot preserve the validity contract, so export refuses active bounded guidance before writing files; use recall/get to retain labels and evidence. Portable round-trip support is tracked separately. Consolidation previews remain available, but applying a merge involving bounded guidance refuses before writes: revise the intended policy and renew its evidence explicitly.
+
 ## SDK
 
 ```ts
@@ -192,4 +225,4 @@ These measurements cover the shipped ranker on the synthetic fixture; they are n
 
 ## Without git
 
-Remember, recall (including local semantic recall), get, index, import, export, verify, consolidation, observe and utility work in an initialized plain-directory tracker. They do not require a Git executable. Verification searches source trees independently of repository metadata; optional network checks still require explicit `--network`. Git-based release/changelog tooling needs repository history. Regression tests exercise semantic recall in a real non-git tracker with ancestor Git discovery blocked and a PATH containing no Git executable.
+Remember, renew, recall (including local semantic recall), get, index, import, export, verify, consolidation, observe and utility work in an initialized plain-directory tracker. They do not require a Git executable. Verification searches source trees independently of repository metadata; optional network checks still require explicit `--network`. Git-based release/changelog tooling needs repository history. Regression tests exercise semantic recall in a real non-git tracker with ancestor Git discovery blocked and a PATH containing no Git executable.
