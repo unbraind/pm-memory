@@ -85,8 +85,8 @@ export async function hybridScored(memories: readonly Memory[], query: string, o
     const maximum = Math.max(...rows.map(row => row.lexical));
     const positions = new Map(memories.map((item, index) => [item.slug, index]));
     return { ...(available.length < vectors.length ? { incompleteVectors: true as const, note: INCOMPLETE_EMBEDDINGS } : {}), rows: rows.map(({ item, lexical, prior }) => {
-      const cosine = Math.max(0, unitCosine(unit[positions.get(item.slug)!] ?? [], queryUnit));
-      return { item, cosine, score: HYBRID_WEIGHTS.lexical * (maximum === 0 ? 0 : lexical / maximum) + HYBRID_WEIGHTS.cosine * cosine + HYBRID_WEIGHTS.prior * prior };
+      const cosine = unitCosine(unit[positions.get(item.slug)!] ?? [], queryUnit);
+      return { item, cosine, score: HYBRID_WEIGHTS.lexical * (maximum === 0 ? 0 : lexical / maximum) + HYBRID_WEIGHTS.cosine * Math.max(0, cosine) + HYBRID_WEIGHTS.prior * prior };
     }).sort((a, b) => b.score - a.score || a.item.slug.localeCompare(b.item.slug)) };
   } catch (error) { return { rows, note: semanticFailure(mode, error) }; }
 }

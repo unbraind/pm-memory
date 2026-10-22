@@ -954,6 +954,14 @@ test('orchestrator benchmark exposes cosine-only metrics from production vectors
   const result = await benchmark(fixture, workspace, provider);
   assert.deepEqual(result.cosine, { recallAt1: 1, recallAt5: 1, mrr: 1 }); assert.equal(result.ranks[0].cosine, 1);
   const fallback = await benchmark(fixture, workspace, new LexicalProvider(), true); assert.deepEqual(fallback.cosine, fallback.lexical);
+  const negative: EmbeddingProvider = { identity: async () => 'signed-cosine-arm', embed: async (inputs, purpose) => inputs.map(input => {
+    if (purpose === 'query') return [1, 0];
+    const cosine = input.startsWith('oidc\n') ? -0.9 : -0.2;
+    return [cosine, Math.sqrt(1 - cosine ** 2)];
+  }) };
+  const signed = await benchmark(fixture, workspace, negative);
+  assert.equal(signed.ranks[0].cosine, 2, 'signed cosine must distinguish negative evidence instead of creating slug ties');
+  assert.equal(signed.cosine.mrr, 0.5);
 });
 
 test('review semantic recall stops after five content conflicts without incrementing counters', async t => {
