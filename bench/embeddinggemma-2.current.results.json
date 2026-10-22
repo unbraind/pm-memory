@@ -1,6 +1,6 @@
 {
-  "implementationCommit": "c6863aed6ae0ed898ecdc7d8c6e52e7e58394971",
-  "measuredAt": "2026-10-22T20:35:53.409698+00:00",
+  "implementationCommit": "f006a0f8a25f6d095137d9ba364492f90327c82b",
+  "measuredAt": "2026-10-22T20:42:36.899469+00:00",
   "fixtureSha256": "b4b8e3a4711a38ef14d90ccc261578c13e535344cd75413bb23a8cc326a7def7",
   "memories": 64,
   "queries": 64,
