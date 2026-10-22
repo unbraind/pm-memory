@@ -7,6 +7,8 @@ import type { Memory } from './types.ts';
 
 /** Direct connections never inherit environment proxies from the global agent. */
 const LOOPBACK_AGENT = new Agent({ keepAlive: false });
+/** Distinguish confirmed input rejections from legacy status-only cache markers. */
+const REJECTION_MARKER = 'document-input:v1';
 
 /** Explicit semantic opt-in; off preserves the original ranking exactly. */
 export type SemanticMode = 'auto' | 'on' | 'off';
@@ -54,13 +56,18 @@ export class OllamaProvider implements EmbeddingProvider {
   private async request(path: string, input?: readonly string[]): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const request = httpRequest(this.endpoint + path, { agent: LOOPBACK_AGENT, method: input === undefined ? 'GET' : 'POST', signal: AbortSignal.timeout(input === undefined ? Math.min(1500, this.timeoutMs) : this.timeoutMs), ...(input === undefined ? {} : { headers: { 'Content-Type': 'application/json' } }) }, response => {
-        if (response.statusCode !== 200) { response.resume(); reject(new (input !== undefined && [400, 413].includes(response.statusCode!) ? EmbeddingInputError : Error)('Local embedding request failed')); return; }
+        if (response.statusCode !== 200 && !(input !== undefined && response.statusCode === 400)) { response.resume(); reject(new (input !== undefined && response.statusCode === 413 ? EmbeddingInputError : Error)('Local embedding request failed')); return; }
         const chunks: Buffer[] = [];
         response.on('data', (chunk: Buffer) => { chunks.push(chunk); });
         response.on('error', reject);
         response.on('end', () => {
-          try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown); }
-          catch (error) { reject(error); }
+          try {
+            const result = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { error?: unknown } | null;
+            if (response.statusCode === 400) {
+              const inputRejected = typeof result?.error === 'string' && /^(?:the )?input length exceeds (?:the )?context (?:length|window)$/i.test(result.error);
+              reject(new (inputRejected ? EmbeddingInputError : Error)('Local embedding request failed'));
+            } else resolve(result);
+          } catch (error) { reject(response.statusCode === 400 ? new Error('Local embedding request failed') : error); }
         });
       });
       request.on('error', reject);
@@ -118,7 +125,7 @@ async function cached(path: string): Promise<number[] | undefined> {
   catch { return undefined; }
 }
 /** Atomically publish private runtime vectors or rejection markers, cleaning failed publications. */
-async function publish(path: string, vector: number[] | null): Promise<void> {
+async function publish(path: string, vector: number[] | typeof REJECTION_MARKER): Promise<void> {
   const temporary = `${path}.${randomUUID()}`;
   try { await writeFile(temporary, JSON.stringify(vector), { mode: 0o600 }); await rename(temporary, path); }
   finally { await rm(temporary, { force: true }); }
@@ -144,7 +151,8 @@ export async function memoryVectors(memories: readonly Memory[], workspace: stri
   const inputs = memories.map(embeddingText);
   const paths = inputs.map(input => join(directory, `${digest(input)}.json`));
   const vectors = await Promise.all(paths.map(cached));
-  const rejected = await Promise.all(paths.map(path => readFile(`${path}.rejected`, 'utf8').then(value => value === 'null', () => false)));
+  const marker = JSON.stringify(REJECTION_MARKER);
+  const rejected = await Promise.all(paths.map(path => readFile(`${path}.rejected`, 'utf8').then(value => value === marker, () => false)));
   const missing = vectors.flatMap((vector, index) => vector === undefined && !rejected[index] ? [index] : []);
   for (let start = 0; start < missing.length; start += 16) {
     const batch = missing.slice(start, start + 16);
@@ -152,7 +160,7 @@ export async function memoryVectors(memories: readonly Memory[], workspace: stri
     for (let offset = 0; offset < batch.length; offset++) {
       const index = batch[offset]; const vector = embedded[offset];
       vectors[index] = vector;
-      await publish(vector === undefined ? `${paths[index]}.rejected` : paths[index], vector ?? null);
+      await publish(vector === undefined ? `${paths[index]}.rejected` : paths[index], vector ?? REJECTION_MARKER);
     }
   }
   const available = vectors.filter(vector => vector !== undefined);

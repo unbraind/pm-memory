@@ -36,6 +36,10 @@ function opposite(left: Signals, right: Signals): boolean {
 }
 /** Detect explicit opposite guidance only when headings or slug tokens overlap strongly. */
 export function contradicts(left: Memory, right: Memory): boolean { return opposite(signals(left), signals(right)); }
+/** Preserve recorded supersession pairs even when content edits reverse their age order. */
+function supersessionPair(left: Memory, right: Memory): boolean {
+  return left.supersedes?.includes(right.id) === true || right.supersedes?.includes(left.id) === true;
+}
 /** Produce deterministic, non-destructive proposals from a certified in-memory snapshot. */
 export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposal[] {
   if (!Number.isFinite(minAgeDays) || minAgeDays < 0) throw new MemoryError('invalid', 'Invalid archive age', 'Use --min-age-days with a nonnegative number');
@@ -46,7 +50,7 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
     if (older.verdict === 'stale' && older.recalls === 0 && !older.pinned && /^(?:missing path \S+ under roots|Path \S+ not found under the given roots \(add --root if it lives elsewhere\)|symbol absent in \d+ files searched|Exact package version absent in registry|HTTP endpoint returned 404 or 410)(?:; |$)/.test(older.reason ?? '') && Date.now() - Date.parse(older.updated) >= minAgeDays * 86400000) result.push({ action: 'archive', slug: older.slug, reason: `Stale: ${older.reason}; never recalled, not pinned, at least ${minAgeDays} days old` });
     for (const candidate of rows.slice(i + 1)) {
       const newer = candidate.item;
-      if (newer.supersedes?.includes(older.id)) continue;
+      if (supersessionPair(older, newer)) continue;
       if (opposite(rows[i], candidate)) result.push({ action: 'supersedes', slug: older.slug, target: newer.slug, reason: 'Overlapping identity with explicit opposite guidance; review evidence before applying' });
       else if (jaccardSimilarity(rows[i].content, candidate.content) >= DUPLICATE_THRESHOLD) result.push({ action: 'merge', slug: older.slug, target: newer.slug, reason: 'Normalized title and body similarity meets duplicate threshold' });
     }
@@ -87,6 +91,7 @@ export async function semanticProposals(memories: readonly Memory[], options: Me
     const result: Proposal[] = [];
     const unit = vectors.map(vector => vector === undefined ? undefined : unitVector(vector));
     for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+      if (supersessionPair(rows[i], rows[j])) continue;
       const left = unit[i]; const right = unit[j];
       if (left === undefined || right === undefined) continue;
       const score = unitCosine(left, right);
