@@ -17,3 +17,7 @@
 ### Fixed
 
 - Refuse stale merge receipts after intervening memory edits ([pm-memory-c3gv](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-c3gv.toon))
+
+### Other
+
+- Recover process-reused writers and fence expired memory leases ([pm-memory-sdk-lock-protocol](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-sdk-lock-protocol.toon))

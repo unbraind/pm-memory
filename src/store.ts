@@ -1,5 +1,6 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { certifyCompleteListResult, getHistoryPath, PmClient, readHistoryEntries, readSettings, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
-import type { PmActionName, PmClientRunArgs } from '@unbrained/pm-cli/sdk';
+import type { LockLease, PmActionName, PmClientRunArgs } from '@unbrained/pm-cli/sdk';
 import type { SchemaFieldDefinition } from '@unbrained/pm-cli/sdk/authoring';
 import type { Memory, MemoryOptions } from './types.ts';
 import { kind, MemoryError, slug } from './core.ts';
@@ -25,8 +26,24 @@ class HostClient extends PmClient {
     return this.host.run(action, { ...args, author: args.author ?? this.author });
   }
 }
+/** Fence each SDK dispatch at publication, retaining independent concurrent write contexts. */
+class FencedClient extends PmClient {
+  /** Underlying SDK or injected host client. */
+  readonly delegate: PmClient;
+  /** Current asynchronous writer generation, absent outside a write. */
+  readonly leases: AsyncLocalStorage<LockLease>;
+  /** Wrap native dispatch without replacing its schema or attribution behavior. */
+  constructor(delegate: PmClient, leases: AsyncLocalStorage<LockLease>) { super(); this.delegate = delegate; this.leases = leases; }
+  /** Refuse stale writers before native item or schema publication begins. */
+  override run(action: PmActionName, args: PmClientRunArgs = {}): Promise<unknown> {
+    const lease = this.leases.getStore();
+    return lease === undefined ? this.delegate.run(action, args) : lease.fence(() => this.delegate.run(action, args));
+  }
+}
 /** Tracker-bound native SDK client and serializable memory mutation boundary. */
 export class Store {
+  /** Per-operation ownership context also isolates simultaneous writes on one Store. */
+  readonly leases = new AsyncLocalStorage<LockLease>();
   /** Native client with extension recursion disabled. */
   readonly client: PmClient;
   /** Explicit initialized tracker storage directory. */
@@ -36,12 +53,18 @@ export class Store {
   /** Bind only the explicit tracker; never discover a parent. */
   constructor(options: MemoryOptions) {
     this.workspace = options.workspace; this.author = options.author ?? 'pm-memory';
-    this.client = options.client === undefined ? new PmClient({ pmRoot: this.workspace, ...(options.author === undefined ? {} : { author: options.author }), noExtensions: true }) : new HostClient(options.client, options.author);
+    const client = options.client === undefined ? new PmClient({ pmRoot: this.workspace, ...(options.author === undefined ? {} : { author: options.author }), noExtensions: true }) : new HostClient(options.client, options.author);
+    this.client = new FencedClient(client, this.leases);
   }
   /** Serialize read-modify-write operations across independent processes and clients. */
   async write<T>(run: () => Promise<T>): Promise<T> {
-    const unlock = await writerLock(this.workspace, this.author);
-    try { return await run(); } finally { await unlock(); }
+    const lease = await writerLock(this.workspace, this.author);
+    try { return await this.leases.run(lease, run); } finally { await lease.release(); }
+  }
+  /** Fence external file publication against the current writer generation. */
+  async fence<T>(publish: () => Promise<T>): Promise<T> {
+    const lease = this.leases.getStore();
+    return lease === undefined ? publish() : lease.fence(publish);
   }
   /** Register the custom Knowledge type and compatible metadata through native schema writes. */
   async register(): Promise<void> {

@@ -48,13 +48,13 @@
     "bench": "node scripts/bench.ts"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.10.19"
+    "@unbrained/pm-cli": ">=2026.10.23"
   },
   "devDependencies": {
     "@babel/eslint-parser": "8.0.7",
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@types/node": "26.6.5",
-    "@unbrained/pm-cli": "2026.10.20",
+    "@unbrained/pm-cli": "2026.10.23",
     "c8": "^12.0.0",
     "eslint": "10.13.0",
     "fast-glob": "3.3.3",
