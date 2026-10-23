@@ -1,0 +1,37 @@
+id: pm-memory-sdk-lock-protocol
+title: Recover process-reused writers and fence expired memory leases
+description: Adopt SDK lock ownership and bounded recovery for audit F06.
+type: Task
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-23T21:19:36.369Z"
+updated_at: "2026-10-23T22:18:31.250Z"
+author: codex-agent
+acceptance_criteria: "F06: SDK-owned bounded recovery protects live and unverifiable owners, recovers dead or mismatched process identities, and refuses expired writer publication; subprocess regressions fail on function reverts; npm and Bun release gates preserve all thresholds."
+comments[8]{created_at,author,text}:
+  "2026-10-23T21:19:41.167Z",codex-agent,"Verified F06 against origin/main 1dc5b66: src/writer-lock.ts reads owner payloads, creates stale-cleanup gates, unlinks native locks and retries acquisition. SDK 2026.10.20 lacks acquireLockLease. Task explicitly authorizes the required SDK upgrade; use 2026.10.23 with matching peer and manifest minimum. Add non-git subprocess identity and lost-lease regression proofs."
+  "2026-10-23T21:22:51.913Z",codex-agent,"F06 revert proof: reverted only FencedClient.run and Store.fence publication functions to direct callbacks, preserving the SDK bump and new subprocess tests. Command node --test --test-name-pattern='expired writer' test/sdk-lock-protocol.test.ts failed 2/2: both child writers returned published:true instead of lock_lost after an expired lease was replaced. Restored the fences; focused suite passes 4/4. Native SDK recovery now owns SIGKILL recovery, process-start mismatch and bounded waits; no package cleanup gate manipulation remains. Multi-item operations remain sequential audited writes, not transactions."
+  "2026-10-23T21:25:01.526Z",codex-agent,"Added real export integration coverage: pause after native history verification, expire the writer and acquire a successor, then resume export. Reverting only the src/transfer.ts publication fence in an isolated source copy fails 1/1: export reports published:true instead of lock_lost. The fixed real-export regression passes. Subprocesses run in temporary non-git trackers with Git unavailable on PATH."
+  "2026-10-23T21:31:12.626Z",codex-agent,"Initial full gate encountered the existing adversarial base64-email 500ms timing assertion; an isolated rerun also exceeded it under shared-host load. src/core.ts is byte-identical to origin/main (SHA-256 cab2a389a00d294f76df057f5a0a9a9adadba71b0fcf1fbdb83099a123d39857). No privacy implementation or deadline is changed. Continue the full suite to collect all failures, then rerun final gates with unchanged thresholds. Existing lock recovery, refusal and simultaneous-writer tests have passed so far."
+  "2026-10-23T21:40:56.715Z",codex-agent,"Initial Node 24 full suite completed 245/246 with only the unchanged 500ms privacy timing assertion failing; statements, branches, functions and lines all measured 100%, including writer-lock.ts, store.ts and transfer.ts. All six new SDK lock regressions passed. The privacy timing regression passes on installed Node 26 without altering its limit. Final full gates will use Node 26, matching CI; npm runs with a fresh home and global/system Git configuration disabled."
+  "2026-10-23T21:59:15.371Z",codex-agent,"Full npm release:check passes on Node 26.12.0 with a fresh home and global/system Git configuration disabled: 246/246 suite tests, 2/2 packed npm/Bun consumer tests, zero skips/cancellations; 26 source files measured at 100% statements/branches/functions/lines. Duplication remains 0% across 66 sources, docstrings cover 126 declarations, production audit has zero vulnerabilities, changelog and publish-attestation checks pass. All original thresholds and timing assertions are unchanged. Final linked pm test passes 6/6 SDK lock regressions. Full Bun gate is running next."
+  "2026-10-23T22:12:40.747Z",codex-agent,"Final full Bun release:check passes: 246/246 suite tests and 2/2 packed npm/Bun consumers, with no skips/cancellations. Both full npm and Bun gates used Node 26.12.0 with fresh homes and global/system Git configuration disabled; both report all 26 measured sources at 100% statements/branches/functions/lines, 0% duplication, 126 documented declarations and zero production vulnerabilities. Published SDK 2026.10.20 tarball independently confirms acquireLockLease is absent from lock declarations and SDK barrel; 2026.10.23 supplies the required export. All F06 evidence and function-revert failures are recorded above. Implementation and local verification are complete; release the claim for orchestrator review, retain in_progress, and submit the branch for CI. No PM CLI/SDK bug was established. Multi-item writes remain sequential audited operations without rollback of prior completed writes."
+  "2026-10-23T22:18:31.250Z",codex-agent,"PR https://github.com/unbraind/pm-memory/pull/13 is open and unmerged. Code commit 4c7e957e275cf9d3434d92074107f4c48173212f passed both CI matrix jobs (Node 22 and Node 26, including the Bun release gates) at https://github.com/unbraind/pm-memory/actions/runs/40032173619 and CodeQL at https://github.com/unbraind/pm-memory/actions/runs/40032173625. Automated reviewer checks were skipped or neutral; CodeRabbit reports review skipped rather than substantive approval. The authored PR body and head were verified; an automatic Sourcery summary was checked for private paths and mentions. Claim remains released and Task remains in_progress for orchestrator verification. No merge or release was performed."
+files[9]{path,scope}:
+  manifest.json,project
+  package-lock.json,project
+  package.json,project
+  src/store.ts,project
+  src/transfer.ts,project
+  src/writer-lock.ts,project
+  test/lease-writer.ts,project
+  test/review-r11.test.ts,project
+  test/sdk-lock-protocol.test.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/sdk-lock-protocol.test.ts,project,120,codex-agent,"2026-10-23T21:22:32.489Z",local_mutation,refactor/sdk-lock-protocol
+docs[3]{path,scope}:
+  ARCHITECTURE.md,project
+  CHANGELOG.md,project
+  README.md,project
+body: ""

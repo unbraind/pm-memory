@@ -38,7 +38,7 @@ async function blocked(store: Store): Promise<void> {
   });
 }
 
-test('SIGKILLed writer recovers promptly and completes a real SDK write with a warning', { timeout: 60000 }, async t => {
+test('SIGKILLed writer recovers promptly and completes a real SDK write with native recovery', { timeout: 60000 }, async t => {
   const { store, workspace } = await tracker(t);
   failFast(t);
   const child = await holder(t, workspace);
@@ -49,7 +49,6 @@ test('SIGKILLed writer recovers promptly and completes a real SDK write with a w
   child.kill('SIGKILL'); const [, signal] = await once(child, 'exit');
   assert.equal(signal, 'SIGKILL');
   const before = await snapshot(workspace);
-  const warning = t.mock.method(process, 'emitWarning', () => {});
   const started = performance.now();
   let elapsed = 0;
   const created = parseMutationReceipt(await store.write(async () => {
@@ -58,11 +57,8 @@ test('SIGKILLed writer recovers promptly and completes a real SDK write with a w
     return store.client.run('create', { options: { title: 'Recovered writer transaction', type: 'Task' } });
   }));
   assert.ok(elapsed < 5000, `dead-owner recovery took ${elapsed}ms`);
-  assert.equal(warning.mock.callCount(), 1);
-  assert.match(String(warning.mock.calls[0].arguments[0]), /Recovered memory-writer lock from dead local PID/);
-  warning.mock.restore();
   assert.equal((await store.client.get(created.id)).item.title, 'Recovered writer transaction');
-  assert.match(payload.owner, / \[pm-memory-host:[a-f0-9]{64}\]$/);
+  assert.equal(payload.owner, 'writer-test');
   t.diagnostic(`SIGKILL recovery: ${elapsed.toFixed(2)}ms`);
 });
 
@@ -84,7 +80,7 @@ test('foreign, legacy and reused live PIDs are never reclaimed, even beyond TTL'
   child.kill('SIGKILL'); await once(child, 'exit');
   for (const owner of ['writer [pm-memory-host:foreign]', 'legacy-writer', payload.owner]) {
     // The test runner is an unrelated live process: simulate reuse of the recorded PID.
-    const current = { ...payload, owner, pid: owner === payload.owner ? process.pid : payload.pid, created_at: new Date(0).toISOString() };
+    const current = { ...payload, host_identity: owner === payload.owner ? payload.host_identity : owner === 'legacy-writer' ? undefined : 'foreign-host-identity', process_start_identity: undefined, owner, pid: owner === payload.owner ? process.pid : payload.pid, created_at: new Date(0).toISOString() };
     const bytes = JSON.stringify(current); await writeFile(path, bytes);
     await blocked(store);
     assert.equal(await readFile(path, 'utf8'), bytes);
@@ -105,14 +101,15 @@ test('simultaneous dead-owner recoverers retain mutual exclusion', async t => {
   assert.equal(count, 8);
 });
 
-test('SDK-only dead-owner gap persists until caller TTL without package recovery', async t => {
+test('SDK-only dead owners now recover without package recovery', async t => {
   const { workspace } = await tracker(t);
   failFast(t);
   const child = fork(new URL('./sdk-lock-holder.ts', import.meta.url), [workspace], { silent: true });
   t.after(() => { child.kill('SIGKILL'); });
   await once(child, 'message'); child.kill('SIGKILL'); const [, signal] = await once(child, 'exit');
   assert.equal(signal, 'SIGKILL');
-  await assert.rejects(acquireLock(workspace, 'sdk-repro', 3600, 'next-writer', false, true, 0), { code: 'lock_conflict' });
+  const release = await acquireLock(workspace, 'sdk-repro', 3600, 'next-writer', false, true, 0);
+  await release();
 });
 
 test('measure actual package critical sections across supported mutations in a non-git tracker', async t => {
@@ -186,14 +183,13 @@ test('recovery rechecks replacement ownership under the shared SDK gate', async 
         injected = true;
         if (outcome === 'denied') throw Object.assign(new Error('gate denied'), { code: 'EACCES' });
         if (outcome === 'missing') await promises.unlink(path);
-        else await writeFile(path, JSON.stringify({ ...JSON.parse(dead) as Record<string, unknown>, pid: process.pid }));
+        else await writeFile(path, JSON.stringify({ ...JSON.parse(dead) as Record<string, unknown>, pid: process.pid, host_identity: undefined, process_start_identity: undefined }));
       }
       return original(...args);
     }) as typeof original);
     syncBuiltinESMExports();
     try {
       if (outcome === 'live') await blocked(store);
-      else if (outcome === 'denied') await assert.rejects(store.write(async () => 1), { code: 'EACCES' });
       else assert.equal(await store.write(async () => 1), 1);
     } finally { hook.mock.restore(); syncBuiltinESMExports(); }
   }

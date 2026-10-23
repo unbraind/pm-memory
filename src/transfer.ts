@@ -281,7 +281,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       const resolved = exportedReferences(bytes, memories, targets);
       if (!resolved.equals(bytes)) { outputs.set(name, resolved); preserved.delete(name); }
     }
-    await publish(resolve(path), outputs);
+    await store.fence(() => publish(resolve(path), outputs));
     return { exported: outputs.size, byte_preserved: preserved.size };
   });
 }
