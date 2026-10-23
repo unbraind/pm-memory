@@ -2,15 +2,17 @@ id: pm-memory-wvy5
 title: Time-bounded standing guidance with renewal evidence
 description: "Model truth validity independently of task deadlines, reusing standing pins, recency ranking and verification."
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-21T21:59:39.556Z"
-updated_at: "2026-10-22T22:26:44.308Z"
+updated_at: "2026-10-23T15:31:27.456Z"
+closed_at: "2026-10-23T15:31:26.221Z"
+completed_at: "2026-10-23T15:31:26.221Z"
 author: codex-agent
 acceptance_criteria: Expired guidance is labeled or excluded according to explicit recall policy; concurrent renewals preserve every evidence record and native history; frozen-clock fixture is deterministic; typed SDK and CLI work without git; compact JSON and TOON; targeted tests and CI npm plus Bun release gates; read-only public tracker validation with measured counts.
 parent: pm-memory-0kwy
-comments[16]{created_at,author,text}:
+comments[17]{created_at,author,text}:
   "2026-10-21T21:59:46.676Z",codex-agent,"Design: attach evidence-backed validity windows to existing pinned Knowledge items using registered metadata and the process writer lock. Append each renewal; preserve native history. Default recall/index exclude expired, scheduled or content-changed guidance; explicit label policy returns state and bounds. Existing unbounded guidance stays compatible. Verify remains independent: file evidence cannot silently renew policy. CLI and SDK require no git."
   "2026-10-21T22:03:13.694Z",codex-agent,"Targeted six-test run passed, including independent-process renewals and no-git CLI JSON/TOON output. New guidance module measured 100% statements, branches, functions and lines. Added export refusal to avoid silently stripping validity in portable harness formats; separate portable-round-trip follow-up created. Full release evidence will run in CI only because the host is saturated."
   "2026-10-21T22:06:09.868Z",codex-agent,"Read-only public tracker validation: semantic-recall commit 72636194fc18e4c79a0a253e47a3d6c60cf27f69; 10 complete items, 2 nonempty bodies, 133150 input JSON bytes, 26 source hashes unchanged. Real text projected in memory with synthetic windows: current 3, expired 3, scheduled 2, needs-renewal 2. Exclude emitted 3 at 209 tokens; label emitted all 10 at 800 tokens; zero budget omissions. Non-git read-only source with no git executable. Full methodology and limits in docs/time-bounded-guidance-validation.md."
@@ -27,6 +29,7 @@ comments[16]{created_at,author,text}:
   "2026-10-22T22:16:15.808Z",codex-agent,"Resume after semantic recall was squash-merged. Integrate current main using a merge while preserving only the guidance feature in the diff, all main tracker history prefixes, and existing behavioral regression proofs. Recheck expiry/provenance integration, regenerate the changelog, rerun npm and Bun full release gates, release the claim, then push and verify clean mergeability. Outcome utility is a separate sibling feature and is excluded."
   "2026-10-22T22:17:33.674Z",codex-agent,"Main b3a3c3f is byte-identical to the previously reviewed semantic tree. Resolve duplicate squash conflicts by preserving the existing combined guidance implementation; no behavioral source changes are needed. All three recall commit paths retain validity policy, expiry rechecks and provenance. Diff contains guidance only, with no utility code. All 11 main history files remain unchanged byte prefixes, with guidance and the existing portable-export follow-up adding records. npm ci and strict full tracker health pass (10 checks), no pending merge receipts. The linked real non-git auto-fallback/expiry/provenance integration test passes 1/1 through pm test. Prior four isolated function-revert failures and restored pass remain applicable because the implementation is unchanged."
   "2026-10-22T22:26:43.381Z",codex-agent,"Squash-main integration validated. npm run release:check and bun run release:check both pass locally at unchanged thresholds: each 223/223 suite tests plus 2/2 packed npm/Bun consumers, 23 intended source files at 100% statements/branches/functions/lines, 0% duplication across 56 sources, 107 documented declarations and zero production vulnerabilities. No timeout or retry was needed this round. The linked frozen-clock auto-fallback/expiry/provenance regression rerun through pm test passes 1/1. Prior four isolated parent-function revert failures and restored pass remain valid because the guidance implementation is byte-identical to the previous reviewed branch head. All 11 main history files remain append-only prefixes. Changelog regeneration/check and strict full tracker health pass. Portable validity remains the existing open follow-up; no utility changes are included. Leave this item in progress for orchestrator verification and release the claim."
+  "2026-10-23T15:31:10.616Z",codex-agent,"DELIVERED: merged PR #8 (e4ad0290a925192ff48512618e9d2bb677edd8e5) is an ancestor of audited main 6843a0f3f76d8970d0c08de295aba3759445c029. Inspected on main: test/guidance.test.ts, docs/time-bounded-guidance-validation.md. Frozen-clock expiry policy excludes or labels guidance, independent processes preserve renewal evidence/history, and bounded native gitless SDK/CLI/public-copy and full npm/Bun gates are delivered. This tracker audit inspected existing tests/files; it does not claim a new full product test run."
 files[15]:
   - path: index.ts
     scope: project
@@ -65,4 +68,5 @@ tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
 docs[2]{path,scope}:
   docs/time-bounded-guidance-validation.md,project
   README.md,project
+close_reason: "DELIVERED: merged PR #8 (e4ad0290a925192ff48512618e9d2bb677edd8e5) is an ancestor of audited main 6843a0f3f76d8970d0c08de295aba3759445c029. Inspected on main: test/guidance.test.ts, docs/time-bounded-guidance-validation.md. Frozen-clock expiry policy excludes or labels guidance, independent processes preserve renewal evidence/history, and bounded native gitless SDK/CLI/public-copy and full npm/Bun gates are delivered. This tracker audit inspected existing tests/files; it does not claim a new full product test run."
 body: "Overlap audit: inspected core SDK deadline and context relevance contracts, pm-context deadline rendering, pm-ops lifecycle policy, pm-review and existing pm-memory recall/verification. Deadlines schedule work; no matching truth-validity or renewal feature found. Reuse pm-memory pins, ranking, process writer lock, native fields and append-only item history. Builds on semantic recall PR #5 and must merge after it."
