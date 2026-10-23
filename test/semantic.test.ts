@@ -4,8 +4,8 @@ import type { TestContext } from 'node:test';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import fs, { mkdir, readdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import fs, { mkdir, readdir, readFile, writeFile, rm, stat, symlink } from 'node:fs/promises';
+import { join, dirname, delimiter, resolve } from 'node:path';
 import { Store } from '../src/store.ts';
 import { digest, packetTokens } from '../src/core.ts';
 import { cosine, unitCosine, embeddingInput, embeddingText, EmbeddingInputError, LexicalProvider, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors, INCOMPLETE_EMBEDDINGS } from '../src/embeddings.ts';
@@ -44,8 +44,8 @@ async function daemon(t: TestContext) {
 }
 /** Launch a real process asynchronously so the local fixture can answer requests. */
 async function child(args: string[], env: NodeJS.ProcessEnv, cwd: string, lowDescriptorLimit = false) {
-  const command = lowDescriptorLimit ? 'bash' : globalThis.process.execPath;
-  const operands = lowDescriptorLimit ? ['-c', 'ulimit -n 64; exec "$@"', 'bounded-cache', globalThis.process.execPath, ...args] : args;
+  const command = lowDescriptorLimit ? 'prlimit' : globalThis.process.execPath;
+  const operands = lowDescriptorLimit ? ['--nofile=64:64', '--', globalThis.process.execPath, ...args] : args;
   const process = spawn(command, operands, { env, cwd });
   let stdout = ''; let stderr = '';
   process.stdout.on('data', chunk => { stdout += String(chunk); }); process.stderr.on('data', chunk => { stderr += String(chunk); });
@@ -63,6 +63,24 @@ async function whileEmbedding<T>(pending: Promise<T>): Promise<T> {
 }
 /** Small independent relevance example used by metrics and deterministic rank tests. */
 const fixture: RecallFixture = { memories: [{ slug: 'oidc', title: 'npm trusted publishing OIDC', body: 'Use the registry identity workflow' }, { slug: 'other', title: 'other ship a release', body: 'banana unrelated discussion' }], queries: [{ query: 'how do we ship a release', gold: ['oidc'] }] };
+
+test('child launcher preserves shell metacharacters as literal arguments with and without descriptor limits', async t => {
+  const { root } = await tracker(t);
+  let limitTool = '';
+  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
+    const candidate = resolve(directory, 'prlimit');
+    try { await stat(candidate); limitTool = candidate; break; } catch { /* Try the next executable directory. */ }
+  }
+  assert.ok(limitTool, 'prlimit must be installed for descriptor-limit acceptance');
+  await symlink(limitTool, join(root, 'prlimit'));
+  const env = { ...process.env, PATH: root };
+  const literal = 'spaces; echo injected $(echo unsafe) `echo unsafe` "quotes"';
+  for (const limited of [false, true]) {
+    const result = await child(['-e', 'console.log(JSON.stringify(process.argv.slice(1)))', literal], env, root, limited);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), [literal]);
+  }
+});
 
 test('embedding assertion tolerates the writer wait and still bounds a blocked writer', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });

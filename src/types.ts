@@ -44,6 +44,8 @@ export interface RememberOptions extends MemoryOptions {
 export interface Memory {
   /** Native pm item identity. */
   id: string;
+  /** Encoded source consent and text-free output lineage; absence is legacy unscoped data. */
+  consent?: string;
   /** Latest evidence-backed policy window, if explicitly bounded. */
   validity?: GuidanceWindow;
   /** Stable memory key. */

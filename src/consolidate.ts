@@ -141,6 +141,8 @@ export async function consolidate(options: MemoryOptions & SemanticOptions & { a
     const planned = [...pending, ...proposals(memories, options.minAgeDays).filter(proposal => !reserved.has(proposal.slug) && !reserved.has(proposal.target))];
     const bounded = new Set(memories.filter(item => item.validity !== undefined).map(item => item.slug));
     if (options.apply && planned.some(proposal => proposal.action === 'merge' && (bounded.has(proposal.slug) || bounded.has(proposal.target!)))) throw new MemoryError('validity', 'Consolidation cannot merge bounded guidance', 'Review the proposal without --apply; revise and renew the intended policy explicitly');
+    const scoped = new Set(memories.filter(item => item.consent !== undefined).map(item => item.slug));
+    if (options.apply && planned.some(proposal => proposal.action === 'merge' && (scoped.has(proposal.slug) || scoped.has(proposal.target!)))) throw new MemoryError('consent', 'Consolidation cannot merge consent-managed sources', 'Review without --apply; preserve source identities and authorize each source explicitly');
     if (options.apply === true && planned.length > 0) await store.register();
     if (options.apply === true) for (const proposal of planned) {
       const older = memories.find(item => item.slug === proposal.slug)!;

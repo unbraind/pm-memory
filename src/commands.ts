@@ -10,6 +10,7 @@ import { semanticMode } from './embeddings.ts';
 import { observe, utility } from './utility.ts';
 import type { ObserveOptions } from './utility-types.ts';
 import { guidancePolicy, renew } from './guidance.ts';
+import { createView, grantConsent, withdrawConsent, inspectView, viewFields } from './consent.ts';
 import { MEMORY_FIELDS } from './store.ts';
 
 /** Dispatch native command operands to the documented in-process API. */
@@ -18,6 +19,10 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     const base = { workspace: ctx.pm_root, ...(ctx.global.author === undefined ? {} : { author: ctx.global.author }), client: ctx.sdk?.client };
     const options = ctx.options;
     if (command === 'remember') return await remember(text(ctx.args[0]), { ...base, kind: kind(options.kind), slug: options.slug === undefined ? undefined : text(options.slug), update: options.update === undefined ? undefined : text(options.update), why: options.why === undefined ? undefined : text(options.why), how: options.how === undefined ? undefined : text(options.how), pin: options.pin === true ? true : undefined, forceNew: options.forceNew === true, allowEmail: options.allowEmail === true, links: options.link === undefined ? [] : (Array.isArray(options.link) ? options.link : [options.link]).map(text) });
+    if (command === 'grant') return await grantConsent(text(ctx.args[0]), { ...base, purpose: text(options.purpose), fields: viewFields(text(options.fields).split(',')) });
+    if (command === 'withdraw') return await withdrawConsent(text(ctx.args[0]), { ...base, purpose: text(options.purpose) });
+    if (command === 'manifest') return await inspectView(text(ctx.args[0]), base);
+    if (command === 'view') return await createView(text(ctx.args[0]), { ...base, purpose: text(options.purpose), fields: viewFields(text(options.fields).split(',')), budget: options.budget === undefined ? undefined : Number(options.budget) });
     if (command === 'renew') return await renew(text(ctx.args[0]), { ...base, from: text(options.validFrom), until: text(options.validUntil), evidence: text(options.evidence) });
     if (command === 'recall') return await recall(text(ctx.args[0]), { ...base, validity: guidancePolicy(options.validity), budget: options.budget === undefined ? undefined : Number(options.budget), semantic: semanticMode(options.semantic), kind: options.kind === undefined ? undefined : kind(options.kind) });
     if (command === 'observe') return await observe(text(ctx.args[0]), { ...base, recall: text(options.recall), task: text(options.task), feedback: text(options.feedback) as ObserveOptions['feedback'], outcome: text(options.outcome) as ObserveOptions['outcome'], attribution: text(options.attribution) as ObserveOptions['attribution'], evidence: text(options.evidence) });
@@ -36,6 +41,8 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
 }
 /** Native flag descriptions include concrete examples in every option's help entry. */
 const OPTIONS: Record<string, string> = {
+  purpose: 'Explicit recall purpose identifier (example: --purpose release-review)',
+  fields: 'Comma-separated authorized content fields (example: --fields title,body)',
   recall: 'Link the receipt returned by recall (example: --recall <receipt>)',
   task: 'Link an existing native task outcome (example: --task task-id)',
   feedback: 'Explicit helpfulness: helpful or unhelpful (example: --feedback helpful)',
@@ -69,6 +76,10 @@ function flags(strings: string[], booleans: string[]): FlagDefinition[] {
 }
 /** Descriptive commands and realistic invocations are carried through the native host help. */
 const HELP: Record<string, [string, string, string]> = {
+  grant: ['Authorize selected fields of a source for a recall purpose', 'Memory source slug', 'pm memory grant release-policy --purpose release-review --fields title,body'],
+  withdraw: ['Withdraw source consent and identify affected output packets', 'Memory source slug', 'pm memory withdraw release-policy --purpose release-review'],
+  view: ['Build a minimized purpose-limited recall packet with a text-free manifest', 'Words describing the context needed', 'pm memory view release --purpose release-review --fields title --budget 800'],
+  manifest: ['Identify affected sources of a prior packet without recalling source text', 'Packet identifier', 'pm memory manifest <packet>'],
   remember: ['Create or revise durable agent knowledge with privacy and duplicate checks', 'A durable fact or guidance to retain', 'pm memory remember "Run both release gates" --kind project --slug release-policy --pin'],
   renew: ['Renew pinned guidance with explicit validity bounds and evidence', 'Pinned memory slug', 'pm memory renew release-policy --valid-from 2026-10-21T00:00:00.000Z --valid-until 2026-11-21T00:00:00.000Z --evidence "Release checklist reviewed"'],
   recall: ['Rank memories and return compact rows then excerpts within a token budget', 'Words describing the context needed', 'pm memory recall "release workflow" --budget 800'],
@@ -86,6 +97,10 @@ export function register(api: ExtensionApi): void {
   api.registerItemFields(MEMORY_FIELDS);
   api.registerItemTypes([{ name: 'Knowledge', folder: 'knowledge', description: 'Durable agent knowledge', default_status: 'open' }]);
   for (const [name, strings, booleans, argument] of [
+    ['grant', ['purpose', 'fields'], [], 'slug'],
+    ['withdraw', ['purpose'], [], 'slug'],
+    ['view', ['purpose', 'fields', 'budget'], [], 'query'],
+    ['manifest', [], [], 'packet'],
     ['remember', ['kind', 'slug', 'update', 'why', 'how', 'link'], ['pin', 'force-new', 'allow-email'], 'fact'],
     ['renew', ['valid-from', 'valid-until', 'evidence'], [], 'slug'],
     ['recall', ['budget', 'kind', 'semantic', 'validity'], [], 'query'],

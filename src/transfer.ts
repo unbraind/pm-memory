@@ -226,6 +226,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
   return store.write(async () => {
     const memories = await store.read();
     if (memories.some(item => item.validity !== undefined && item.status !== 'canceled' && !item.artifact)) throw new MemoryError('validity', 'Portable harness formats cannot preserve guidance validity', 'Use memory recall or memory get to retain window labels and evidence');
+    if (memories.some(item => item.consent !== undefined && item.status !== 'canceled' && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
     const indexName = options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md';
     const names = new Set([indexName.toLowerCase()]);
     const outputs = new Map<string, Buffer>(); const emitted: { item: Memory; name: string }[] = []; const preserved = new Set<string>();
