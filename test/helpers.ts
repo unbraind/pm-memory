@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import type { SpawnSyncReturns } from 'node:child_process';
-import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { mkdtemp, rm, readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import type { TestContext } from 'node:test';
 import { PmClient } from '@unbrained/pm-cli/sdk';
 import { Store } from '../src/store.ts';
@@ -36,4 +36,16 @@ export function assertTestsPassed(result: SpawnSyncReturns<string>, expectedName
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /\bpass [1-9]\d*\b/, result.stdout + result.stderr);
   assert.ok(result.stdout.includes(expectedName), result.stdout + result.stderr);
+}
+
+/** Install the source extension in a genuine temporary CLI host. */
+export async function installExtension(workspace: string): Promise<void> {
+  const dir = join(workspace, 'extensions', 'pm-memory'); await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'manifest.json'), JSON.stringify({ name: 'pm-memory', version: '2026.10.19', entry: 'entry.js', capabilities: ['commands', 'schema'] }));
+  await writeFile(join(dir, 'entry.js'), `export { default } from ${JSON.stringify(new URL('../index.ts', import.meta.url).href)};\n`);
+}
+
+/** Build a runner for the installed pm host with git absent from PATH and ancestor discovery fenced. */
+export function gitlessCli(root: string, workspace: string): (args: string[]) => SpawnSyncReturns<string> {
+  return args => spawnSync(process.execPath, [join(import.meta.dirname, '../node_modules/.bin/pm'), 'memory', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, PM_PATH: workspace, PM_AUTHOR: 'memory-test', GIT_CEILING_DIRECTORIES: dirname(root), PATH: root } });
 }

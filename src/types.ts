@@ -44,6 +44,8 @@ export interface RememberOptions extends MemoryOptions {
 export interface Memory {
   /** Native pm item identity. */
   id: string;
+  /** Latest evidence-backed policy window, if explicitly bounded. */
+  validity?: GuidanceWindow;
   /** Stable memory key. */
   slug: string;
   /** Imported description or native retrieval hook. */
@@ -91,6 +93,14 @@ export interface Memory {
 }
 /** A ranked, bounded recall row. */
 export interface RecallRow {
+  /** Latest-window status; absent on legacy unbounded memories. */
+  validity?: GuidanceState;
+  /** Inclusive validity start, present with a status label. */
+  valid_from?: string;
+  /** Exclusive validity end, present with a status label. */
+  valid_until?: string;
+  /** Origin label distinguishing native guidance from imported content. */
+  source?: string;
   /** Stable key usable with --update. */
   slug: string;
   /** Heading. */
@@ -108,6 +118,10 @@ export interface RecallRow {
 }
 /** A whole response measured in both native host encodings. */
 export interface Packet {
+  /** Durable receipt for feedback on emitted memories, included in token accounting. */
+  recall?: string;
+  /** One-line semantic fallback diagnostic, included in token accounting. */
+  note?: string;
   /** Estimated tokens including envelope and receipt. */
   estimated_tokens: number;
   /** Memories removed by the declared budget. */
@@ -141,6 +155,8 @@ export interface ClaimResult extends Claim {
 }
 /** One auditable consolidation operation. */
 export interface Proposal {
+  /** Semantic candidates are advisory and cannot be applied automatically. */
+  previewOnly?: true;
   /** Duplicate merge, contradictory supersession, or unused stale archive. */
   action: 'merge' | 'supersedes' | 'archive';
   /** Older or archived memory key. */
@@ -149,4 +165,36 @@ export interface Proposal {
   target?: string;
   /** Deterministic reason for the proposal. */
   reason: string;
+}
+
+/** The latest evidence-backed policy window; earlier revisions remain in native history. */
+export interface GuidanceWindow {
+  /** Inclusive UTC instant. */
+  from: string;
+  /** Exclusive UTC instant. */
+  until: string;
+  /** Human-supplied renewal evidence, not an automatic truth attestation. */
+  evidence: string;
+  /** Actual renewal time; distinct from content recency and verification. */
+  recordedAt: string;
+  /** Digest binding the evidence to semantic content. */
+  contentHash: string;
+  /** Monotonic revision serialized across concurrent writers. */
+  revision: number;
+}
+/** Status of the latest authored window at retrieval time. */
+export type GuidanceState = 'current' | 'scheduled' | 'expired' | 'needs-renewal';
+/** Explicit retrieval policy; label includes historical advice for auditing. */
+export interface GuidanceOptions {
+  /** Exclude noncurrent guidance by default; label includes it with its status. */
+  validity?: 'exclude' | 'label';
+}
+/** Required evidence and explicit bounds for creating or renewing a policy window. */
+export interface RenewOptions extends MemoryOptions {
+  /** Inclusive UTC timestamp, in YYYY-MM-DDTHH:mm:ss.sssZ format. */
+  from: string;
+  /** Exclusive UTC timestamp, later than from. */
+  until: string;
+  /** Evidence explaining why this version of the guidance is valid. */
+  evidence: string;
 }

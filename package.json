@@ -44,7 +44,8 @@
     "merge:install": "pm merge install",
     "coverage": "npm run build && npm run build:test && node scripts/coverage-gate.ts",
     "verify:release-publish-attestation": "node scripts/verify-release-publish-attestation.ts",
-    "identity:check": "node scripts/identity-gate.ts"
+    "identity:check": "node scripts/identity-gate.ts",
+    "bench": "node scripts/bench.ts"
   },
   "peerDependencies": {
     "@unbrained/pm-cli": ">=2026.10.19"
@@ -55,11 +56,11 @@
     "@types/node": "26.6.5",
     "@unbrained/pm-cli": "2026.10.19",
     "c8": "^12.0.0",
-    "eslint": "10.12.0",
+    "eslint": "10.13.0",
     "fast-glob": "3.3.3",
     "jscpd": "5.4.1",
-    "pm-changelog": "2026.10.13",
-    "pm-ops": "2026.10.14",
+    "pm-changelog": "2026.10.19",
+    "pm-ops": "2026.10.19",
     "typescript": "7.0.2"
   },
   "keywords": [

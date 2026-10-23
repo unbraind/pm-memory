@@ -1,0 +1,78 @@
+id: pm-memory-kkxg
+title: Outcome-linked memory utility with source denominators
+description: ""
+type: Feature
+pm_format_version: 2
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-21T21:01:07.974Z"
+updated_at: "2026-10-22T22:12:10.429Z"
+author: codex-agent
+acceptance_criteria: "Duplicate feedback is idempotent; confounded outcomes stay unscored; all aggregates retain source denominators. Typed SDK and CLI, compact TOON/JSON, typed refusals with remedies, docs and public-tracker non-git validation. Builds on semantic recall PR #5; no automatic deletion or policy training."
+parent: pm-memory-0kwy
+comments[15]{created_at,author,text}:
+  "2026-10-21T21:02:49.703Z",codex-agent,"Design: recall emits a budget-accounted receipt and saves content-revision exposure evidence atomically with each counter. Explicit helpful/unhelpful feedback links a native task, outcome, attribution and evidence; retries are idempotent per memory/task and conflicting retries refuse. Confounded, unknown, unfinished or pre-recall outcomes stay unscored. Reports retain lifetime/legacy exposure, missing-feedback, outcome and attribution denominators plus a separate current-content cohort. No deletion, ranking changes or policy training."
+  "2026-10-21T21:07:42.753Z",codex-agent,Targeted compatibility tests passed 13/13 (memory and commands); utility tests passed 5/5. Focused utility coverage measured 100% statements/branches/functions/lines; no full local release gate run on the saturated host. Native command tests run in a non-git tracker with git absent from PATH. Production audit has zero vulnerabilities; development-only advisory is already tracked by pm-memory-eafx.
+  "2026-10-21T21:09:12.524Z",codex-agent,"Public tracker replay: certified 80 committed source items, 56 completed; 167 source files unchanged by independent before/after fingerprint. Six explicitly scripted retrospective annotations on real tasks (3 helpful, 3 unhelpful), six idempotent retries, zero scored outcomes: 3 confounded and 3 pre-recall completions. Recall 107 tokens; report 412. These labels exercise exclusions and do not claim measured causal benefit. Evidence: docs/outcome-utility-validation.md; example: examples/outcome-utility.ts. Current CLI 2026.10.21 SDK overlap rechecked."
+  "2026-10-21T21:11:20.275Z",codex-agent,"The first linked utility run hit the default 120-second timeout after four scenarios passed and before native CLI acceptance finished; direct utility execution had passed 5/5. Increasing only the linked command timeout to 300 seconds for the saturated host. No assertion failure or SDK context mismatch was reported. Added concurrent retry and native task-alias dedup checks, plus all-ledger preflight before any recall counter update."
+  "2026-10-21T21:12:56.220Z",codex-agent,"Behavioral revert proofs: changing only observe to report duplicate feedback as newly recorded made the concurrent/idempotent regression fail (1 failing test); removing only the confounded exclusion made its denominator regression fail (1); moving ledger reads back inside counter writes made the read-only preflight regression fail (1). Restored all implementations. Commands: node --test --test-name-pattern \"utility keeps honest\" test/utility.test.ts; node --test --test-name-pattern \"confounded and unknown\" test/utility.test.ts; node --test --test-name-pattern \"recall preflights\" test/utility.test.ts. Final linked tests rerun with a 300-second timeout."
+  "2026-10-21T21:15:01.334Z",codex-agent,"Final linked utility run passed 6/6 in 111 seconds with no context mismatch; targeted memory/command compatibility passed 13/13. Typecheck, lint, 111 documented declarations across 25 files, zero duplication (56 sources), changelog and identity checks pass. Local strict health reports only pm-github extension host-version skew (pinned 2026.10.19 versus global 2026.10.21); fresh CI health is still required. No dependency pin was changed."
+  "2026-10-21T21:18:16.002Z",codex-agent,"First full CI run 39677325463: Node 26 executed 206 tests, 205 passed; all four coverage dimensions measured 100%. The sole failure was an existing documentation regression slicing README from the literal phrase All eight functions, now obsolete after adding two SDK functions. Updated the test to locate the SDK section while retaining its exact verify-return-contract assertion; targeted documentation regression passed 1/1. Fresh CI tracker health and CodeQL passed. Re-running CI after this test-only compatibility repair."
+  "2026-10-21T21:19:49.046Z",codex-agent,"Final SDK refusal audit: an unavailable linked native task now produces MemoryError code task with a safe remedy rather than leaking a raw SDK exception. The real-tracker refusal regression asserts that typed boundary and passed; native CLI already maps expected refusals to bounded diagnostics. No tracker mutation occurs for the unavailable task."
+  "2026-10-21T21:24:06.585Z",codex-agent,"Code head 6a1ab037d3b23c29cc7315bd09fdb3385a7fccf0 passed CI https://github.com/unbraind/pm-memory/actions/runs/39677923888 : npm release components on Node 22 and 26 each passed 206/206 full-suite tests plus 2/2 packed npm/Bun consumers; bun run release:check on Node 26 passed 206/206 plus 2/2. Each full report covered all 24 configured sources at 100/100/100/100; docstrings 111/111 across 25 files; duplication 0% across 56 sources. Fresh tracker health and CodeQL passed. PR https://github.com/unbraind/pm-memory/pull/7 is ready for review against main, builds on #5 and must merge afterward. Review skips are not approval. No pm CLI/SDK defect was found; local host-version skew and linked-run timeout are recorded with their scope. Releasing the claim without closing the item; the evidence-only commit will receive a final fresh CI run."
+  "2026-10-22T20:58:28.769Z",codex-agent,"Orchestrator requested updating stacked PR 7 onto newly validated semantic PR 5 head 7c44dc746415d7ac2720fecb6aab9efa80e827ab. Pulled the remote utility head first; worktree was clean. Merge origin/main first, then semantic recall, preserving outcome exposure receipts and utility ledger writes alongside accounted degradation notes, automatic lexical fallback, cache diagnostics, provenance and signed-cosine benchmarking. Regenerate changelog, check merged tracker health and append-only histories, then validate the combined feature and full gates without merging any PR."
+  "2026-10-22T21:05:29.625Z",codex-agent,"Merged origin/main first, then validated semantic head 7c44dc746415d7ac2720fecb6aab9efa80e827ab. Resolved the generated changelog and the commitRecall projection by preserving source provenance together with utility recall receipts, ledger preflight and exposure writes. All semantic degradation, auto fallback, filesystem diagnostics, bounded cache reads and signed-cosine changes remain. Added a real non-git integration test: a concurrent lexical utility exposure does not invalidate semantic ranking, while both exposures and latest counters are retained and the packet includes its receipt and source. Independent parent-side revert proofs: restoring only commitRecall from semantic head 7c44dc7 makes node --test --test-name-pattern=\"semantic recall does not rerank\" test/utility.test.ts fail 0/1 (missing recall receipt); restoring only that function from utility head 550a379 independently fails 0/1 (missing source). Restoring the combined function passes 1/1. Combined integration plus rejected-length, auto-conflict and imported-provenance regressions pass 4/4; typecheck and zero-duplication gate pass. npm ci and strict merged tracker health passed with no pending receipts; histories remain append-only. Full npm and Bun gates will be verified in CI, avoiding the already-established shared-host JWT wall-clock issue without changing any threshold."
+  "2026-10-22T21:11:57.601Z",codex-agent,"Stack update validated at fb8dd7b980bd94da4ed10209473e81b964e0a4da. CI run 39854536412 passed Node 22 and Node 26 npm gates, each 222/222 suite tests plus 2/2 packed consumers; Node 26 independently passed the complete Bun release gate with 222/222 and 2/2. All 24 intended source files meet unchanged 100 percent statements, branches, functions and lines. Duplication is zero across 56 measured sources; 112 declarations documented; production audit zero vulnerabilities. npm ci, typecheck, duplication, four direct integration regressions and the linked merge regression (1/1) passed locally. Strict tracker health passed with required merge drivers and no pending receipts; original histories remain prefixes. The new branch contains semantic head 7c44dc746415d7ac2720fecb6aab9efa80e827ab and GitHub reports it conflict-free against main. Source provenance and utility exposure receipts are both retained, with both parent-side behavioral revert proofs recorded above. Releasing the claim, leaving the feature in progress; no PR merge, thread reply or release."
+  "2026-10-22T21:45:38.942Z",codex-agent,"Resume after semantic recall was squash-merged. Preserve the reviewed utility implementation and its regression proofs, integrate current main, verify that the diff contains utility changes only and every main tracker history remains an unchanged byte prefix, regenerate the changelog, and rerun both full release gates before pushing. Use a merge to retain append-only tracker ancestry."
+  "2026-10-22T21:47:14.234Z",codex-agent,"Main b3a3c3f has exactly the same tree as reviewed semantic head 7c44dc7. Resolved duplicated squash changes by retaining the already-integrated utility tree; no behavioral implementation changes were needed. Diff against main is limited to utility, its documentation/tests and item. All 11 main history files are unchanged byte prefixes, with utility records appended separately. Strict full tracker health passes (10 checks), with no pending merge receipts. Existing function-revert proofs remain applicable because the implementation is unchanged. npm ci passes; the 3 development-only advisories remain tracked separately."
+  "2026-10-22T22:12:08.150Z",codex-agent,"Squash-main integration validated. npm run release:check and bun run release:check both pass locally at unchanged thresholds: each 222/222 suite tests plus 2/2 packed npm/Bun consumers, 24 intended source files at 100% statements/branches/functions/lines, 0% duplication across 56 sources, 112 documented declarations and zero production vulnerabilities. No timeout or retry was needed this round. The linked semantic/utility exposure regression rerun through pm test passes 1/1; prior isolated function-revert proofs remain valid because all implementation files are byte-identical to the previous reviewed branch head. Main histories remain append-only prefixes. Changelog regeneration/check and strict full tracker health pass. Leave the feature in progress for orchestrator verification and release the claim."
+files[12]:
+  - path: examples/outcome-utility.ts
+    scope: project
+  - path: index.ts
+    scope: project
+  - path: src/commands.ts
+    scope: project
+  - path: src/memory.ts
+    scope: project
+  - path: src/store.ts
+    scope: project
+  - path: src/types.ts
+    scope: project
+  - path: src/utility-types.ts
+    scope: project
+  - path: src/utility.ts
+    scope: project
+  - path: test/install.acceptance.ts
+    scope: project
+  - path: test/review-r10.test.ts
+    scope: project
+  - path: test/utility.test.ts
+    scope: project
+    note: Combined semantic provenance and utility receipt exposure regression
+  - path: tsconfig.test.json
+    scope: project
+tests[2]:
+  - command: node --test test/utility.test.ts
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-21T21:07:59.801Z"
+      source_kind: local_mutation
+      source_ref: feat/outcome-linked-utility
+    updated_by: codex-agent
+    updated_at: "2026-10-21T21:12:28.994Z"
+  - command: "node --test --test-name-pattern=\"semantic recall does not rerank\" test/utility.test.ts"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-22T21:05:22.721Z"
+      source_kind: local_mutation
+      source_ref: feat/outcome-linked-utility
+docs[2]{path,scope}:
+  docs/outcome-utility-validation.md,project
+  README.md,project
+body: "Overlap recheck: pinned CLI SDK workspace-memory rolls up completed tracker context, not per-memory utility; pm-context context-usage records exposure/affinity; pm-memory recall counters measure exposure and PR #5 owns semantic retrieval; pm-rl owns training, evaluation and policy/merge outcomes. This feature supplies explicit auditable memory-specific feedback linked to recalled content and native task outcomes, with complete source denominators."

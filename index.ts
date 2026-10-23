@@ -14,3 +14,15 @@ export { MemoryError, packetTokens } from './src/core.ts';
 export type { MemoryOptions, RememberOptions, MemoryKind, Harness, Memory, Packet, RecallRow, Verdict, Claim, ClaimResult, Proposal } from './src/types.ts';
 /** Activate memory commands and registered Knowledge fields in any pm host. */
 export default defineExtension({ name: 'pm-memory', version: '2026.10.19', description: 'Shared long-term agent memory as typed pm context', activate: register });
+
+/** Local embedding adapters and opt-in provider contracts. */
+export { OllamaProvider, LexicalProvider, EmbeddingInputError } from './src/embeddings.ts';
+export type { EmbeddingProvider, EmbeddingPurpose, SemanticMode, SemanticOptions } from './src/embeddings.ts';
+
+/** Record explicit memory feedback and inspect auditable outcome denominators. */
+export { observe, utility } from './src/utility.ts';
+/** Public outcome, attribution, observation and utility evidence contracts. */
+export type { TaskOutcome, Attribution, ObserveOptions, MemoryExposure, MemoryObservation, UtilityLedger, UtilityCounts, UtilityReport } from './src/utility-types.ts';
+/** Renew standing guidance with explicit validity bounds and attributable evidence. */
+export { renew, guidanceState } from './src/guidance.ts';
+export type { GuidanceWindow, GuidanceState, GuidanceOptions, RenewOptions } from './src/types.ts';

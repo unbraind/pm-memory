@@ -2,15 +2,18 @@ id: pm-memory-4tbo
 title: Verify checkable claims
 description: ""
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-19T12:58:09.669Z"
-updated_at: "2026-10-19T15:20:49.257Z"
+updated_at: "2026-10-21T18:44:27.074Z"
+closed_at: "2026-10-21T18:44:22.925Z"
+completed_at: "2026-10-21T18:44:22.925Z"
 author: codex-agent
 estimated_minutes: 60
 acceptance_criteria: "Root-confined file, symbol and flag checks; optional npm and URL network checks; verified, stale and unknown receipts persisted."
 parent: pm-memory-0kwy
+resolution: "Reverified main 97727010814d (unchanged since audit): [PR #1](https://github.com/unbraind/pm-memory/pull/1) (8bf8396), src/ and test/ deliver typed memory, bounded recall/index, claim verification, audited consolidation, privacy refusals and lossless harness import/export. Source delivery is distinct from the unpublished npm release. Retained evidence: index.ts, src/commands.ts, src/consolidate.ts."
 comments[15]{created_at,author,text}:
   "2026-10-19T14:00:35.952Z",codex-agent,"Classifier now resolves nested basename/path evidence across repeated roots, consults SDK command flags, skips standard runtime calls, treats absolute/home paths and ambiguous flags as unknown, and persists explicit stale reasons. Synthetic classifier regression added; private precision proof pending."
   "2026-10-19T14:07:24.740Z",codex-agent,"Behavioral revert proof: reverting only extractClaims to the review baseline makes the classifier regression fail (1 failed, 0 passed): runtime globals become claims again. Restored code passes the focused suite (6 passed, 0 failed)."
@@ -40,4 +43,5 @@ tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
 docs[2]{path,scope}:
   ARCHITECTURE.md,project
   README.md,project
+close_reason: "Reverified main 97727010814d (unchanged since audit): [PR #1](https://github.com/unbraind/pm-memory/pull/1) (8bf8396), src/ and test/ deliver typed memory, bounded recall/index, claim verification, audited consolidation, privacy refusals and lossless harness import/export. Source delivery is distinct from the unpublished npm release. Retained evidence: index.ts, src/commands.ts, src/consolidate.ts."
 body: ""

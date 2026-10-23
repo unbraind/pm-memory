@@ -2,15 +2,18 @@ id: pm-memory-rt3s
 title: Import and export
 description: ""
 type: Feature
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-19T12:57:55.557Z"
-updated_at: "2026-10-19T14:38:46.559Z"
+updated_at: "2026-10-21T18:47:08.467Z"
+closed_at: "2026-10-21T18:47:02.335Z"
+completed_at: "2026-10-21T18:47:02.335Z"
 author: codex-agent
 estimated_minutes: 120
 acceptance_criteria: "Claude Code, AGENTS.md and Cursor imports are idempotent; native links; byte-identical export for synthetic and private copied corpus; export revert proof."
 parent: pm-memory-0kwy
+resolution: "Reverified main 97727010814d (unchanged since audit): [PR #1](https://github.com/unbraind/pm-memory/pull/1) (8bf8396), src/ and test/ deliver typed memory, bounded recall/index, claim verification, audited consolidation, privacy refusals and lossless harness import/export. Source delivery is distinct from the unpublished npm release. Retained evidence: index.ts, src/commands.ts, src/consolidate.ts."
 comments[6]{created_at,author,text}:
   "2026-10-19T13:24:57.287Z",codex-agent,"Synthetic CRLF, BOM, nested YAML, wiki links and empty files round-trip byte-identically. Direct native pm semantic edits invalidate original-byte reuse and refuse conflicting re-import; operational recall and verification fields preserve original bytes. Import and export evidence is entirely synthetic or aggregate-only."
   "2026-10-19T13:32:36.788Z",codex-agent,"Behavioral revert proof: replace only original-byte decoding in export with regenerated content. npm run build passes; node --test --test-name-pattern=\"Claude Code import is idempotent\" test/transfer.test.ts fails with AssertionError and exit 1. Restoring byte decoding passes. Combined restored proof run: 3 tests passed, zero failed."
@@ -27,4 +30,5 @@ tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
 docs[2]{path,scope}:
   ARCHITECTURE.md,project
   README.md,project
+close_reason: "Reverified main 97727010814d (unchanged since audit): [PR #1](https://github.com/unbraind/pm-memory/pull/1) (8bf8396), src/ and test/ deliver typed memory, bounded recall/index, claim verification, audited consolidation, privacy refusals and lossless harness import/export. Source delivery is distinct from the unpublished npm release. Retained evidence: index.ts, src/commands.ts, src/consolidate.ts."
 body: ""

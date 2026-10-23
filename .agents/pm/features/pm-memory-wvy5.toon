@@ -1,0 +1,68 @@
+id: pm-memory-wvy5
+title: Time-bounded standing guidance with renewal evidence
+description: "Model truth validity independently of task deadlines, reusing standing pins, recency ranking and verification."
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-21T21:59:39.556Z"
+updated_at: "2026-10-22T22:26:44.308Z"
+author: codex-agent
+acceptance_criteria: Expired guidance is labeled or excluded according to explicit recall policy; concurrent renewals preserve every evidence record and native history; frozen-clock fixture is deterministic; typed SDK and CLI work without git; compact JSON and TOON; targeted tests and CI npm plus Bun release gates; read-only public tracker validation with measured counts.
+parent: pm-memory-0kwy
+comments[16]{created_at,author,text}:
+  "2026-10-21T21:59:46.676Z",codex-agent,"Design: attach evidence-backed validity windows to existing pinned Knowledge items using registered metadata and the process writer lock. Append each renewal; preserve native history. Default recall/index exclude expired, scheduled or content-changed guidance; explicit label policy returns state and bounds. Existing unbounded guidance stays compatible. Verify remains independent: file evidence cannot silently renew policy. CLI and SDK require no git."
+  "2026-10-21T22:03:13.694Z",codex-agent,"Targeted six-test run passed, including independent-process renewals and no-git CLI JSON/TOON output. New guidance module measured 100% statements, branches, functions and lines. Added export refusal to avoid silently stripping validity in portable harness formats; separate portable-round-trip follow-up created. Full release evidence will run in CI only because the host is saturated."
+  "2026-10-21T22:06:09.868Z",codex-agent,"Read-only public tracker validation: semantic-recall commit 72636194fc18e4c79a0a253e47a3d6c60cf27f69; 10 complete items, 2 nonempty bodies, 133150 input JSON bytes, 26 source hashes unchanged. Real text projected in memory with synthetic windows: current 3, expired 3, scheduled 2, needs-renewal 2. Exclude emitted 3 at 209 tokens; label emitted all 10 at 800 tokens; zero budget omissions. Non-git read-only source with no git executable. Full methodology and limits in docs/time-bounded-guidance-validation.md."
+  "2026-10-21T22:06:54.947Z",codex-agent,"Behavioral revert proof: replacing only eligibleGuidance with the pre-feature pass-through behavior made the frozen-clock regression fail (1 failed, expired/scheduled advice leaked). Separately removing only the renewal persistence mutation made the independent-process regression fail (1 failed, revisions [1,1] instead of [1,2]). Restored both functions. Previous restored combined run: 10 passed; guidance module 100/100/100/100. Current CLI 2026.10.21 overlap rechecked: deadline scheduling and context deadline pressure do not model guidance validity."
+  "2026-10-21T22:09:14.201Z",codex-agent,"Tracker-linked regression command passed 6/6 after both behavioral reverts were restored. Final review added a consolidation preflight refusal: merging bounded guidance into another memory could otherwise widen expired policy into unbounded advice. The new regression checks both bounded source and bounded target and verifies no writes on refusal. Local default health sees a global pm-github host-version skew (pinned CLI 2026.10.19 versus extension built for 2026.10.21); isolated CI identity is checked separately without changing package pins or host extensions."
+  "2026-10-21T22:09:35.535Z",codex-agent,"Consolidation guard regression passed 1/1; removing only its new preflight refusal made that regression fail 1/1 (missing expected rejection), then restored. Isolated health passed strict exit with all 10 checks acceptable; the inherited pending telemetry queue is advisory. Final local typecheck, lint, docstrings and zero-duplication gate passed at unchanged thresholds. Tracker-linked tests passed 6/6, and combined validity/CLI tests passed 10/10 before the additional consolidation regression."
+  "2026-10-21T22:14:26.404Z",codex-agent,"PR https://github.com/unbraind/pm-memory/pull/8 is ready for review, based on main and explicitly dependent on #5 merging first. Implementation commit a410421a48bce2116027bf663ab9447f745a0a60 passed CI https://github.com/unbraind/pm-memory/actions/runs/39684481942: npm release steps on Node 22 and 26 each passed 207 tests; bun run release:check on Node 26 passed another 207. Every coverage run measured all 23 source files at 100% statements, branches, functions and lines, with zero failures/skips. Packed npm/Bun acceptance passed 2 tests in each of the three gate contexts. No merge or release. Automated reviewer skips, quotas and neutral statuses are missing review evidence, not approval. Portable windows remain follow-up pm-memory-1363; direct external writers and hosted deployment remain documented boundaries. Releasing the implementation claim for orchestrator verification; item remains in progress."
+  "2026-10-21T22:15:12.731Z",codex-agent,Final SDK review found that the compact retrieval description also carries semantic advice and must be included in the evidence digest. Extending the digest and content-edit regression to cover native description edits before final handoff; full final-head CI will be required again.
+  "2026-10-21T22:16:11.892Z",codex-agent,"Description evidence binding: targeted content-edit regression passed 1/1 with the updated digest. Reverting only guidanceHash to omit description made that regression fail 1/1 (changed retrieval advice was still eligible), then restored. Typecheck, lint and zero duplication passed again. Existing full CI receipt remains recorded for the prior implementation; the final exact-head CI run and counts will be linked in PR #8 after this correction. No additional local full gate was run. Releasing the claim for final CI and orchestrator verification; retain in-progress status."
+  "2026-10-22T21:15:58.548Z",codex-agent,"Orchestrator requested updating stacked PR 8 onto validated semantic head 7c44dc746415d7ac2720fecb6aab9efa80e827ab. Pulled the clean remote head first. Ancestry confirms this branch depends directly on semantic recall and is independent of outcome utility. Merge origin/main first, then semantic recall, retaining expiry rechecks, validity policy/labels and renewal evidence alongside automatic lexical fallback, partial-evidence notes, provenance and cache diagnostics. Validate both parent behaviors and full npm/Bun gates; preserve histories and keep this feature in progress."
+  "2026-10-22T21:24:54.619Z",codex-agent,"Merged origin/main first, then semantic head 7c44dc746415d7ac2720fecb6aab9efa80e827ab directly; this feature remains independent of outcome utility. Regenerated changelog and resolved recall/type conflicts by retaining commit-time expiry filtering, validity bounds/status, source provenance and the validity policy argument on every recall path, including the new locked auto fallback. Added a real non-git frozen-clock regression that forces five content conflicts as standing guidance expires, then requires labelled lexical fallback to retain both rows, the expired label/bounds, source and emitted-only counters. Combined expiry-recheck, labelled-fallback, rejected-length, auto-conflict and provenance checks pass 5/5; typecheck, zero duplication, npm ci and strict tracker health pass, with no pending receipts."
+  "2026-10-22T21:25:02.809Z",codex-agent,"Four independent parent-side behavioral revert proofs retain the new test: restoring only commitRecall from semantic parent 7c44dc7 makes node --test --test-name-pattern=\"^stacked auto fallback\" test/guidance.test.ts fail 0/1 (missing validity metadata); restoring only commitRecall from validity parent 738880b fails 0/1 (missing source); restoring only recall from semantic parent fails 0/1 (lost labelled inclusion after expiry because the validity policy is absent); restoring only recall from validity parent fails 0/1 (conflict instead of automatic lexical fallback). Each exit is 1 for the intended regression; every artifact was restored immediately. The combined functions then pass the same regression 1/1. Source imports need no dist rebuild. Full npm and Bun gates will run in CI at unchanged thresholds; the local shared-host timing exception is documented on semantic PR 5."
+  "2026-10-22T21:31:32.245Z",codex-agent,"Stack update validated at 71fa49c6a774694f40f94f905146ffb3e07c3f3c. CI run 39857286232 passed both Node 22 and Node 26 npm gates, each 223/223 suite tests plus 2/2 packed consumers; Node 26 independently passed the full Bun release gate with 223/223 and 2/2. All 23 intended sources meet unchanged 100 percent statements, branches, functions and lines; zero duplication across 56 measured sources; 107 declarations documented; production audit zero vulnerabilities. Local npm ci, typecheck, duplication, five combined regressions and the linked expiry/fallback regression (1/1) passed. Four independent parent-side function reverts each failed 0/1 and restoration passed, as recorded above. Strict merged tracker health passed with required merge drivers and no pending receipts; histories remain append-only. This branch includes semantic head 7c44dc746415d7ac2720fecb6aab9efa80e827ab directly and is conflict-free against main; outcome utility remains a separate sibling feature. Releasing the claim and leaving this feature in progress for orchestrator verification. Portable validity round trips remain the existing follow-up pm-memory-1363; no PR merge, review-thread action or package release."
+  "2026-10-22T22:16:15.808Z",codex-agent,"Resume after semantic recall was squash-merged. Integrate current main using a merge while preserving only the guidance feature in the diff, all main tracker history prefixes, and existing behavioral regression proofs. Recheck expiry/provenance integration, regenerate the changelog, rerun npm and Bun full release gates, release the claim, then push and verify clean mergeability. Outcome utility is a separate sibling feature and is excluded."
+  "2026-10-22T22:17:33.674Z",codex-agent,"Main b3a3c3f is byte-identical to the previously reviewed semantic tree. Resolve duplicate squash conflicts by preserving the existing combined guidance implementation; no behavioral source changes are needed. All three recall commit paths retain validity policy, expiry rechecks and provenance. Diff contains guidance only, with no utility code. All 11 main history files remain unchanged byte prefixes, with guidance and the existing portable-export follow-up adding records. npm ci and strict full tracker health pass (10 checks), no pending merge receipts. The linked real non-git auto-fallback/expiry/provenance integration test passes 1/1 through pm test. Prior four isolated function-revert failures and restored pass remain applicable because the implementation is unchanged."
+  "2026-10-22T22:26:43.381Z",codex-agent,"Squash-main integration validated. npm run release:check and bun run release:check both pass locally at unchanged thresholds: each 223/223 suite tests plus 2/2 packed npm/Bun consumers, 23 intended source files at 100% statements/branches/functions/lines, 0% duplication across 56 sources, 107 documented declarations and zero production vulnerabilities. No timeout or retry was needed this round. The linked frozen-clock auto-fallback/expiry/provenance regression rerun through pm test passes 1/1. Prior four isolated parent-function revert failures and restored pass remain valid because the guidance implementation is byte-identical to the previous reviewed branch head. All 11 main history files remain append-only prefixes. Changelog regeneration/check and strict full tracker health pass. Portable validity remains the existing open follow-up; no utility changes are included. Leave this item in progress for orchestrator verification and release the claim."
+files[15]:
+  - path: index.ts
+    scope: project
+  - path: src/commands.ts
+    scope: project
+  - path: src/consolidate.ts
+    scope: project
+  - path: src/core.ts
+    scope: project
+  - path: src/embeddings.ts
+    scope: project
+  - path: src/guidance.ts
+    scope: project
+  - path: src/memory.ts
+    scope: project
+  - path: src/store.ts
+    scope: project
+  - path: src/transfer.ts
+    scope: project
+  - path: src/types.ts
+    scope: project
+  - path: src/verify.ts
+    scope: project
+  - path: src/writer-lock.ts
+    scope: project
+  - path: test/guidance-writer.ts
+    scope: project
+  - path: test/guidance.test.ts
+    scope: project
+    note: Combined expiry labels provenance and auto-conflict fallback regression
+  - path: test/validate-guidance.ts
+    scope: project
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/guidance.test.ts,project,240,codex-agent,"2026-10-21T22:06:57.567Z",local_mutation,feat/time-bounded-guidance
+  "node --test --test-name-pattern=\"^stacked auto fallback\" test/guidance.test.ts",project,600,codex-agent,"2026-10-22T21:24:46.985Z",local_mutation,feat/time-bounded-guidance
+docs[2]{path,scope}:
+  docs/time-bounded-guidance-validation.md,project
+  README.md,project
+body: "Overlap audit: inspected core SDK deadline and context relevance contracts, pm-context deadline rendering, pm-ops lifecycle policy, pm-review and existing pm-memory recall/verification. Deadlines schedule work; no matching truth-validity or renewal feature found. Reuse pm-memory pins, ranking, process writer lock, native fields and append-only item history. Builds on semantic recall PR #5 and must merge after it."

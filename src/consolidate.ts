@@ -1,6 +1,8 @@
 import { jaccardSimilarity } from '@unbrained/pm-cli/sdk';
 import { active, DUPLICATE_THRESHOLD } from './memory.ts';
 import { digest, words, MemoryError } from './core.ts';
+import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, INCOMPLETE_EMBEDDINGS } from './embeddings.ts';
+import type { SemanticOptions } from './embeddings.ts';
 import { metadata, Store } from './store.ts';
 import type { Memory, MemoryOptions, Proposal } from './types.ts';
 
@@ -34,6 +36,10 @@ function opposite(left: Signals, right: Signals): boolean {
 }
 /** Detect explicit opposite guidance only when headings or slug tokens overlap strongly. */
 export function contradicts(left: Memory, right: Memory): boolean { return opposite(signals(left), signals(right)); }
+/** Preserve recorded supersession pairs even when content edits reverse their age order. */
+function supersessionPair(left: Memory, right: Memory): boolean {
+  return left.supersedes?.includes(right.id) === true || right.supersedes?.includes(left.id) === true;
+}
 /** Produce deterministic, non-destructive proposals from a certified in-memory snapshot. */
 export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposal[] {
   if (!Number.isFinite(minAgeDays) || minAgeDays < 0) throw new MemoryError('invalid', 'Invalid archive age', 'Use --min-age-days with a nonnegative number');
@@ -44,7 +50,7 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
     if (older.verdict === 'stale' && older.recalls === 0 && !older.pinned && /^(?:missing path \S+ under roots|Path \S+ not found under the given roots \(add --root if it lives elsewhere\)|symbol absent in \d+ files searched|Exact package version absent in registry|HTTP endpoint returned 404 or 410)(?:; |$)/.test(older.reason ?? '') && Date.now() - Date.parse(older.updated) >= minAgeDays * 86400000) result.push({ action: 'archive', slug: older.slug, reason: `Stale: ${older.reason}; never recalled, not pinned, at least ${minAgeDays} days old` });
     for (const candidate of rows.slice(i + 1)) {
       const newer = candidate.item;
-      if (newer.supersedes?.includes(older.id)) continue;
+      if (supersessionPair(older, newer)) continue;
       if (opposite(rows[i], candidate)) result.push({ action: 'supersedes', slug: older.slug, target: newer.slug, reason: 'Overlapping identity with explicit opposite guidance; review evidence before applying' });
       else if (jaccardSimilarity(rows[i].content, candidate.content) >= DUPLICATE_THRESHOLD) result.push({ action: 'merge', slug: older.slug, target: newer.slug, reason: 'Normalized title and body similarity meets duplicate threshold' });
     }
@@ -72,6 +78,27 @@ export function proposals(memories: readonly Memory[], minAgeDays = 30): Proposa
     accepted.add(proposal);
   }
   return result.filter(proposal => accepted.has(proposal));
+}
+/** Suggest high-cosine paraphrases for human review without scheduling a mutation. */
+export async function semanticProposals(memories: readonly Memory[], options: MemoryOptions & SemanticOptions): Promise<{ proposals: Proposal[]; note?: string }> {
+  const mode = semanticMode(options.semantic);
+  if (mode === 'off') return { proposals: [] };
+  try {
+    const rows = active(memories).sort((a, b) => a.updated.localeCompare(b.updated) || a.slug.localeCompare(b.slug));
+    if (rows.length < 2) return { proposals: [] };
+    const vectors = await memoryVectors(rows, options.workspace, options.provider ?? new OllamaProvider());
+    if (vectors === undefined) return { proposals: [], note: semanticFailure(mode) };
+    const result: Proposal[] = [];
+    const unit = vectors.map(vector => vector === undefined ? undefined : unitVector(vector));
+    for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+      if (supersessionPair(rows[i], rows[j])) continue;
+      const left = unit[i]; const right = unit[j];
+      if (left === undefined || right === undefined) continue;
+      const score = unitCosine(left, right);
+      if (score >= 0.9) result.push({ action: 'merge', slug: rows[i].slug, target: rows[j].slug, previewOnly: true, reason: `Possible paraphrase (cosine ${score.toFixed(3)}); review meaning and contradictions; dry-run only` });
+    }
+    return { proposals: result, ...(vectors.some(vector => vector === undefined) ? { note: INCOMPLETE_EMBEDDINGS } : {}) };
+  } catch (error) { return { proposals: [], note: semanticFailure(mode, error) }; }
 }
 /** Durable merge evidence binds replay to the original source and both target states. */
 interface MergeReceipt {
@@ -102,14 +129,18 @@ function mergeReceipt(source: Memory, memories: readonly Memory[]): MergeReceipt
   return receipt;
 }
 /** Preview consolidation without writes; explicitly applied actions preserve all content and audited history. */
-export async function consolidate(options: MemoryOptions & { apply?: boolean; minAgeDays?: number }): Promise<{ applied: boolean; proposals: Proposal[] }> {
+export async function consolidate(options: MemoryOptions & SemanticOptions & { apply?: boolean; minAgeDays?: number }): Promise<{ applied: boolean; proposals: Proposal[]; note?: string }> {
+  const mode = semanticMode(options.semantic);
+  if (options.apply && mode !== 'off') throw new MemoryError('invalid', 'Semantic consolidation is dry-run only', 'Review with --semantic on; use --semantic off for existing lexical actions');
   const store = new Store(options);
-  return store.write(async () => {
+  const { memories, planned } = await store.write(async () => {
     const memories = await store.read();
     const pending = memories.filter(item => item.merge !== '').map(item => ({ action: 'merge' as const, slug: item.slug, target: mergeReceipt(item, memories).target, reason: 'Resume recorded memory merge' }));
     const reserved = new Set<string | undefined>(pending.flatMap(proposal => [proposal.slug, proposal.target]));
     if (reserved.size !== pending.length * 2) throw new MemoryError('conflict', 'Pending memory merges reuse an action endpoint', 'Reconcile or clear overlapping memory_merge receipts through audited pm updates before retrying');
     const planned = [...pending, ...proposals(memories, options.minAgeDays).filter(proposal => !reserved.has(proposal.slug) && !reserved.has(proposal.target))];
+    const bounded = new Set(memories.filter(item => item.validity !== undefined).map(item => item.slug));
+    if (options.apply && planned.some(proposal => proposal.action === 'merge' && (bounded.has(proposal.slug) || bounded.has(proposal.target!)))) throw new MemoryError('validity', 'Consolidation cannot merge bounded guidance', 'Review the proposal without --apply; revise and renew the intended policy explicitly');
     if (options.apply === true && planned.length > 0) await store.register();
     if (options.apply === true) for (const proposal of planned) {
       const older = memories.find(item => item.slug === proposal.slug)!;
@@ -138,6 +169,12 @@ export async function consolidate(options: MemoryOptions & { apply?: boolean; mi
         }
       }
     }
-    return { applied: options.apply === true, proposals: planned };
+    return { memories, planned };
   });
+  if (mode !== 'off') {
+    const semantic = await semanticProposals(memories, options);
+    const pairs = new Set(planned.map(proposal => [proposal.slug, proposal.target].sort().join(':')));
+    return { applied: false, proposals: [...planned, ...semantic.proposals.filter(proposal => !pairs.has([proposal.slug, proposal.target].sort().join(':')))], ...(semantic.note === undefined ? {} : { note: semantic.note }) };
+  }
+  return { applied: options.apply === true, proposals: planned };
 }

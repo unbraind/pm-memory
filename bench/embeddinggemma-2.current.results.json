@@ -1,0 +1,607 @@
+{
+  "implementationCommit": "f006a0f8a25f6d095137d9ba364492f90327c82b",
+  "measuredAt": "2026-10-22T20:42:36.899469+00:00",
+  "fixtureSha256": "b4b8e3a4711a38ef14d90ccc261578c13e535344cd75413bb23a8cc326a7def7",
+  "memories": 64,
+  "queries": 64,
+  "model": "ollama:v2:embeddinggemma-2:latest:f4981a15b99858ad1f2e0729416e526be7b4f428291b40082b9e4f7b27b5f62f",
+  "mode": "hybrid",
+  "weights": {
+    "lexical": 0.3,
+    "cosine": 0.7,
+    "prior": 0.01
+  },
+  "lexical": {
+    "recallAt1": 0.203125,
+    "recallAt5": 0.5,
+    "mrr": 0.33250847122121163
+  },
+  "hybrid": {
+    "recallAt1": 0.28125,
+    "recallAt5": 0.671875,
+    "mrr": 0.4427260231705858
+  },
+  "cosine": {
+    "recallAt1": 0.734375,
+    "recallAt5": 0.90625,
+    "mrr": 0.8201967150496563
+  },
+  "ranks": [
+    {
+      "query": "how do we ship a release",
+      "gold": [
+        "npm-oidc"
+      ],
+      "lexical": 3,
+      "hybrid": 3,
+      "cosine": 2
+    },
+    {
+      "query": "what checks must pass before publishing",
+      "gold": [
+        "release-gates"
+      ],
+      "lexical": 2,
+      "hybrid": 2,
+      "cosine": 1
+    },
+    {
+      "query": "the new deployment broke production how can we undo it",
+      "gold": [
+        "rollback"
+      ],
+      "lexical": 2,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "which version component changes for a breaking interface",
+      "gold": [
+        "semver"
+      ],
+      "lexical": 2,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "where do the notes describing each shipment come from",
+      "gold": [
+        "changelog"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 2
+    },
+    {
+      "query": "can we try an update on a few visitors first",
+      "gold": [
+        "canary"
+      ],
+      "lexical": 19,
+      "hybrid": 20,
+      "cosine": 8
+    },
+    {
+      "query": "how can we alter tables without interrupting older servers",
+      "gold": [
+        "db-migrations"
+      ],
+      "lexical": 19,
+      "hybrid": 6,
+      "cosine": 1
+    },
+    {
+      "query": "how do we know our saved database copies can recover data",
+      "gold": [
+        "db-backups"
+      ],
+      "lexical": 11,
+      "hybrid": 4,
+      "cosine": 1
+    },
+    {
+      "query": "why do more replicas exhaust all database sessions",
+      "gold": [
+        "db-pooling"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "a table lookup is slow how do we speed it up",
+      "gold": [
+        "db-indexes"
+      ],
+      "lexical": 37,
+      "hybrid": 9,
+      "cosine": 1
+    },
+    {
+      "query": "two records must either both change or neither change",
+      "gold": [
+        "db-transactions"
+      ],
+      "lexical": 28,
+      "hybrid": 15,
+      "cosine": 1
+    },
+    {
+      "query": "what should we do when concurrent writes block each other",
+      "gold": [
+        "db-deadlock"
+      ],
+      "lexical": 24,
+      "hybrid": 15,
+      "cosine": 6
+    },
+    {
+      "query": "can a failed web request be sent again without duplicating an order",
+      "gold": [
+        "http-retry"
+      ],
+      "lexical": 29,
+      "hybrid": 11,
+      "cosine": 1
+    },
+    {
+      "query": "how do we stop a dependency from hanging a request forever",
+      "gold": [
+        "http-timeout"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 2
+    },
+    {
+      "query": "how should the service tell callers they are sending too fast",
+      "gold": [
+        "http-rate-limit"
+      ],
+      "lexical": 48,
+      "hybrid": 22,
+      "cosine": 8
+    },
+    {
+      "query": "how can I fetch all results when the list is split into batches",
+      "gold": [
+        "http-pagination"
+      ],
+      "lexical": 5,
+      "hybrid": 2,
+      "cosine": 1
+    },
+    {
+      "query": "how can clients avoid downloading a resource that has not changed",
+      "gold": [
+        "http-cache"
+      ],
+      "lexical": 56,
+      "hybrid": 21,
+      "cosine": 2
+    },
+    {
+      "query": "how do we prove an incoming event callback is authentic",
+      "gold": [
+        "http-webhook"
+      ],
+      "lexical": 3,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "where should we keep confidential application passwords",
+      "gold": [
+        "security-secrets"
+      ],
+      "lexical": 54,
+      "hybrid": 10,
+      "cosine": 1
+    },
+    {
+      "query": "how do we replace a key without breaking callers",
+      "gold": [
+        "security-rotation"
+      ],
+      "lexical": 61,
+      "hybrid": 20,
+      "cosine": 1
+    },
+    {
+      "query": "how do we stop another website from submitting actions as a signed-in visitor",
+      "gold": [
+        "security-csrf"
+      ],
+      "lexical": 33,
+      "hybrid": 13,
+      "cosine": 2
+    },
+    {
+      "query": "how can we prevent a comment from executing javascript in a browser",
+      "gold": [
+        "security-xss"
+      ],
+      "lexical": 36,
+      "hybrid": 5,
+      "cosine": 1
+    },
+    {
+      "query": "someone supplied dot dot slash to read outside the upload folder",
+      "gold": [
+        "security-paths"
+      ],
+      "lexical": 4,
+      "hybrid": 3,
+      "cosine": 2
+    },
+    {
+      "query": "how should user text be inserted into a database query safely",
+      "gold": [
+        "security-sql"
+      ],
+      "lexical": 5,
+      "hybrid": 5,
+      "cosine": 1
+    },
+    {
+      "query": "what must be removed before diagnostic output is shared publicly",
+      "gold": [
+        "security-logs"
+      ],
+      "lexical": 55,
+      "hybrid": 5,
+      "cosine": 1
+    },
+    {
+      "query": "should the application run with unrestricted administrator access",
+      "gold": [
+        "security-permissions"
+      ],
+      "lexical": 24,
+      "hybrid": 8,
+      "cosine": 1
+    },
+    {
+      "query": "what must be checked when accepting a federated sign-in token",
+      "gold": [
+        "auth-oidc"
+      ],
+      "lexical": 45,
+      "hybrid": 10,
+      "cosine": 1
+    },
+    {
+      "query": "how should we store the browser login session securely",
+      "gold": [
+        "auth-sessions"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "how should user passwords be represented in the account database",
+      "gold": [
+        "auth-passwords"
+      ],
+      "lexical": 5,
+      "hybrid": 5,
+      "cosine": 1
+    },
+    {
+      "query": "a visitor forgot their login secret what is the recovery flow",
+      "gold": [
+        "auth-recovery"
+      ],
+      "lexical": 3,
+      "hybrid": 2,
+      "cosine": 1
+    },
+    {
+      "query": "how do we require another proof beyond knowing a password",
+      "gold": [
+        "auth-mfa"
+      ],
+      "lexical": 8,
+      "hybrid": 3,
+      "cosine": 1
+    },
+    {
+      "query": "why does a copied cookie still work after signing out",
+      "gold": [
+        "auth-logout"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "when should a newly started instance begin receiving traffic",
+      "gold": [
+        "ops-readiness"
+      ],
+      "lexical": 3,
+      "hybrid": 2,
+      "cosine": 1
+    },
+    {
+      "query": "how do we recover an application process that is alive but frozen",
+      "gold": [
+        "ops-liveness"
+      ],
+      "lexical": 9,
+      "hybrid": 3,
+      "cosine": 1
+    },
+    {
+      "query": "how can a server stop without dropping in-flight work",
+      "gold": [
+        "ops-shutdown"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "the volume is almost full should the background importer keep running",
+      "gold": [
+        "ops-disk"
+      ],
+      "lexical": 23,
+      "hybrid": 10,
+      "cosine": 1
+    },
+    {
+      "query": "how can we reduce noisy pages that require no action",
+      "gold": [
+        "ops-alerts"
+      ],
+      "lexical": 44,
+      "hybrid": 26,
+      "cosine": 17
+    },
+    {
+      "query": "how do we follow one slow request through several services",
+      "gold": [
+        "ops-tracing"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "why does average speed look good while some users wait a long time",
+      "gold": [
+        "ops-metrics"
+      ],
+      "lexical": 37,
+      "hybrid": 4,
+      "cosine": 2
+    },
+    {
+      "query": "how many simultaneous clients can the system actually support",
+      "gold": [
+        "ops-capacity"
+      ],
+      "lexical": 51,
+      "hybrid": 34,
+      "cosine": 5
+    },
+    {
+      "query": "how do we avoid reusing calculated results after the input changes",
+      "gold": [
+        "cache-invalidation"
+      ],
+      "lexical": 46,
+      "hybrid": 38,
+      "cosine": 3
+    },
+    {
+      "query": "many workers recalculate the same expired value at once",
+      "gold": [
+        "cache-stampede"
+      ],
+      "lexical": 3,
+      "hybrid": 2,
+      "cosine": 1
+    },
+    {
+      "query": "can the same queued task run twice and what must handlers do",
+      "gold": [
+        "queue-delivery"
+      ],
+      "lexical": 2,
+      "hybrid": 2,
+      "cosine": 1
+    },
+    {
+      "query": "one malformed job is retried forever how do we isolate it",
+      "gold": [
+        "queue-poison"
+      ],
+      "lexical": 48,
+      "hybrid": 5,
+      "cosine": 2
+    },
+    {
+      "query": "how do we keep readers from seeing half-written documents",
+      "gold": [
+        "files-atomic"
+      ],
+      "lexical": 2,
+      "hybrid": 2,
+      "cosine": 11
+    },
+    {
+      "query": "two agents edit the same record how do we avoid overwriting one another",
+      "gold": [
+        "files-locking"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "is it okay to overwrite the only original while converting a video",
+      "gold": [
+        "files-backup"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "can importing a linked file escape the selected directory",
+      "gold": [
+        "files-symlinks"
+      ],
+      "lexical": 37,
+      "hybrid": 3,
+      "cosine": 1
+    },
+    {
+      "query": "can a production user export be checked into tests",
+      "gold": [
+        "tests-fixtures"
+      ],
+      "lexical": 11,
+      "hybrid": 8,
+      "cosine": 4
+    },
+    {
+      "query": "how can we demonstrate that the new test catches the original bug",
+      "gold": [
+        "tests-revert"
+      ],
+      "lexical": 10,
+      "hybrid": 5,
+      "cosine": 1
+    },
+    {
+      "query": "why does a test pass locally but fail on a fresh build machine",
+      "gold": [
+        "tests-isolation"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 7
+    },
+    {
+      "query": "does full line coverage prove every conditional outcome was tested",
+      "gold": [
+        "tests-coverage"
+      ],
+      "lexical": 2,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "how do we check that the package customers install actually works",
+      "gold": [
+        "tests-contract"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "why do equally relevant search hits swap position between runs",
+      "gold": [
+        "tests-determinism"
+      ],
+      "lexical": 60,
+      "hybrid": 5,
+      "cosine": 1
+    },
+    {
+      "query": "can someone operate the interface without a mouse",
+      "gold": [
+        "frontend-keyboard"
+      ],
+      "lexical": 4,
+      "hybrid": 2,
+      "cosine": 1
+    },
+    {
+      "query": "how should animations behave for visitors sensitive to movement",
+      "gold": [
+        "frontend-motion"
+      ],
+      "lexical": 35,
+      "hybrid": 11,
+      "cosine": 1
+    },
+    {
+      "query": "how does a screen reader know what a form field means",
+      "gold": [
+        "frontend-labels"
+      ],
+      "lexical": 2,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "how can the same page fit a phone and a desktop",
+      "gold": [
+        "frontend-layout"
+      ],
+      "lexical": 60,
+      "hybrid": 18,
+      "cosine": 1
+    },
+    {
+      "query": "how do we stop pictures from pushing the page around while loading",
+      "gold": [
+        "frontend-images"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 1
+    },
+    {
+      "query": "should a failed submission erase everything the visitor typed",
+      "gold": [
+        "frontend-errors"
+      ],
+      "lexical": 15,
+      "hybrid": 3,
+      "cosine": 1
+    },
+    {
+      "query": "can an existing published version marker be moved to another commit",
+      "gold": [
+        "git-tags"
+      ],
+      "lexical": 2,
+      "hybrid": 2,
+      "cosine": 1
+    },
+    {
+      "query": "what belongs in the description when asking someone to inspect a change",
+      "gold": [
+        "git-review"
+      ],
+      "lexical": 37,
+      "hybrid": 26,
+      "cosine": 1
+    },
+    {
+      "query": "how can we avoid accidentally committing temporary generated files",
+      "gold": [
+        "git-commits"
+      ],
+      "lexical": 5,
+      "hybrid": 3,
+      "cosine": 1
+    },
+    {
+      "query": "can project memory work in a folder with no repository",
+      "gold": [
+        "tracker-no-git"
+      ],
+      "lexical": 1,
+      "hybrid": 1,
+      "cosine": 1
+    }
+  ]
+}

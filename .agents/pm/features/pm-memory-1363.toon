@@ -1,0 +1,13 @@
+id: pm-memory-1363
+title: Preserve guidance validity in portable harness round trips
+description: Define interoperable policy-window metadata and renewal history for portable harness files.
+type: Feature
+status: open
+priority: 2
+tags: []
+created_at: "2026-10-21T22:03:10.834Z"
+updated_at: "2026-10-21T22:03:10.834Z"
+author: codex-agent
+acceptance_criteria: Bounded guidance can round trip without becoming unbounded or silently losing evidence; imported windows are validated before writes.
+parent: pm-memory-0kwy
+body: Follow-up to time-bounded guidance. Existing harness formats do not represent the new native validity contract; export deliberately refuses bounded active guidance with a recall/get remedy until a safe portable representation exists.
