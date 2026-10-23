@@ -3,15 +3,17 @@ title: Outcome-linked memory utility with source denominators
 description: ""
 type: Feature
 pm_format_version: 2
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-21T21:01:07.974Z"
-updated_at: "2026-10-22T22:12:10.429Z"
+updated_at: "2026-10-23T15:31:50.878Z"
+closed_at: "2026-10-23T15:31:49.941Z"
+completed_at: "2026-10-23T15:31:49.941Z"
 author: codex-agent
 acceptance_criteria: "Duplicate feedback is idempotent; confounded outcomes stay unscored; all aggregates retain source denominators. Typed SDK and CLI, compact TOON/JSON, typed refusals with remedies, docs and public-tracker non-git validation. Builds on semantic recall PR #5; no automatic deletion or policy training."
 parent: pm-memory-0kwy
-comments[15]{created_at,author,text}:
+comments[16]{created_at,author,text}:
   "2026-10-21T21:02:49.703Z",codex-agent,"Design: recall emits a budget-accounted receipt and saves content-revision exposure evidence atomically with each counter. Explicit helpful/unhelpful feedback links a native task, outcome, attribution and evidence; retries are idempotent per memory/task and conflicting retries refuse. Confounded, unknown, unfinished or pre-recall outcomes stay unscored. Reports retain lifetime/legacy exposure, missing-feedback, outcome and attribution denominators plus a separate current-content cohort. No deletion, ranking changes or policy training."
   "2026-10-21T21:07:42.753Z",codex-agent,Targeted compatibility tests passed 13/13 (memory and commands); utility tests passed 5/5. Focused utility coverage measured 100% statements/branches/functions/lines; no full local release gate run on the saturated host. Native command tests run in a non-git tracker with git absent from PATH. Production audit has zero vulnerabilities; development-only advisory is already tracked by pm-memory-eafx.
   "2026-10-21T21:09:12.524Z",codex-agent,"Public tracker replay: certified 80 committed source items, 56 completed; 167 source files unchanged by independent before/after fingerprint. Six explicitly scripted retrospective annotations on real tasks (3 helpful, 3 unhelpful), six idempotent retries, zero scored outcomes: 3 confounded and 3 pre-recall completions. Recall 107 tokens; report 412. These labels exercise exclusions and do not claim measured causal benefit. Evidence: docs/outcome-utility-validation.md; example: examples/outcome-utility.ts. Current CLI 2026.10.21 SDK overlap rechecked."
@@ -27,6 +29,7 @@ comments[15]{created_at,author,text}:
   "2026-10-22T21:45:38.942Z",codex-agent,"Resume after semantic recall was squash-merged. Preserve the reviewed utility implementation and its regression proofs, integrate current main, verify that the diff contains utility changes only and every main tracker history remains an unchanged byte prefix, regenerate the changelog, and rerun both full release gates before pushing. Use a merge to retain append-only tracker ancestry."
   "2026-10-22T21:47:14.234Z",codex-agent,"Main b3a3c3f has exactly the same tree as reviewed semantic head 7c44dc7. Resolved duplicated squash changes by retaining the already-integrated utility tree; no behavioral implementation changes were needed. Diff against main is limited to utility, its documentation/tests and item. All 11 main history files are unchanged byte prefixes, with utility records appended separately. Strict full tracker health passes (10 checks), with no pending merge receipts. Existing function-revert proofs remain applicable because the implementation is unchanged. npm ci passes; the 3 development-only advisories remain tracked separately."
   "2026-10-22T22:12:08.150Z",codex-agent,"Squash-main integration validated. npm run release:check and bun run release:check both pass locally at unchanged thresholds: each 222/222 suite tests plus 2/2 packed npm/Bun consumers, 24 intended source files at 100% statements/branches/functions/lines, 0% duplication across 56 sources, 112 documented declarations and zero production vulnerabilities. No timeout or retry was needed this round. The linked semantic/utility exposure regression rerun through pm test passes 1/1; prior isolated function-revert proofs remain valid because all implementation files are byte-identical to the previous reviewed branch head. Main histories remain append-only prefixes. Changelog regeneration/check and strict full tracker health pass. Leave the feature in progress for orchestrator verification and release the claim."
+  "2026-10-23T15:31:39.193Z",codex-agent,"DELIVERED: merged PR #7 (cbfaef87d655dd873f4ca56e600adef441c6b6b5) is an ancestor of audited main 6843a0f3f76d8970d0c08de295aba3759445c029. Inspected on main: test/utility.test.ts, docs/outcome-utility-validation.md. Repeated feedback deduplicates, confounded/unknown outcomes remain unscored and exposure/task/revision denominators stay explicit; typed native gitless SDK/CLI, public-copy and full npm/Bun acceptance are retained. This tracker audit inspected existing tests/files; it does not claim a new full product test run."
 files[12]:
   - path: examples/outcome-utility.ts
     scope: project
@@ -75,4 +78,5 @@ tests[2]:
 docs[2]{path,scope}:
   docs/outcome-utility-validation.md,project
   README.md,project
+close_reason: "DELIVERED: merged PR #7 (cbfaef87d655dd873f4ca56e600adef441c6b6b5) is an ancestor of audited main 6843a0f3f76d8970d0c08de295aba3759445c029. Inspected on main: test/utility.test.ts, docs/outcome-utility-validation.md. Repeated feedback deduplicates, confounded/unknown outcomes remain unscored and exposure/task/revision denominators stay explicit; typed native gitless SDK/CLI, public-copy and full npm/Bun acceptance are retained. This tracker audit inspected existing tests/files; it does not claim a new full product test run."
 body: "Overlap recheck: pinned CLI SDK workspace-memory rolls up completed tracker context, not per-memory utility; pm-context context-usage records exposure/affinity; pm-memory recall counters measure exposure and PR #5 owns semantic retrieval; pm-rl owns training, evaluation and policy/merge outcomes. This feature supplies explicit auditable memory-specific feedback linked to recalled content and native task outcomes, with complete source denominators."

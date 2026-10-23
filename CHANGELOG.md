@@ -4,10 +4,10 @@
 
 ### Added
 
-- Consent-scoped memory views ([pm-memory-x5nv](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-x5nv.toon))
-- Time-bounded standing guidance with renewal evidence ([pm-memory-wvy5](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-wvy5.toon))
-- Outcome-linked memory utility with source denominators ([pm-memory-kkxg](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-kkxg.toon))
 - Recall and index ([pm-memory-lc64](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-lc64.toon))
+- Outcome-linked memory utility with source denominators ([pm-memory-kkxg](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-kkxg.toon))
+- Time-bounded standing guidance with renewal evidence ([pm-memory-wvy5](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-wvy5.toon))
+- Consent-scoped memory views ([pm-memory-x5nv](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-x5nv.toon))
 - Remember and deduplicate ([pm-memory-ne0p](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-ne0p.toon))
 - Import and export ([pm-memory-rt3s](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-rt3s.toon))
 - Refuse private credentials ([pm-memory-6tl1](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-6tl1.toon))
@@ -17,7 +17,3 @@
 ### Fixed
 
 - Refuse stale merge receipts after intervening memory edits ([pm-memory-c3gv](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-c3gv.toon))
-
-### Other
-
-- Agent memory as shared typed context ([pm-memory-0kwy](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/epics/pm-memory-0kwy.toon))
