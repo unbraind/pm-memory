@@ -130,7 +130,7 @@ export async function recall(query: string, options: MemoryOptions & SemanticOpt
   if (options.kind !== undefined) kind(options.kind);
   const store = new Store(options);
   /** Keep kind and active filtering identical in both recall modes. */
-  const eligible = (memories: readonly Memory[]) => eligibleGuidance(active(memories), policy, Date.now()).filter(item => options.kind === undefined || item.kind === options.kind);
+  const eligible = (memories: readonly Memory[]) => eligibleGuidance(active(memories).filter(item => item.consent === undefined), policy, Date.now()).filter(item => options.kind === undefined || item.kind === options.kind);
   const mode = semanticMode(options.semantic);
   if (mode === 'off') return store.write(async () => {
     const current = await store.read();
@@ -198,7 +198,7 @@ export async function get(key: string, options: MemoryOptions): Promise<Memory> 
 export async function index(options: MemoryOptions & GuidanceOptions & { budget?: number }): Promise<Packet> {
   const limit = budget(options.budget ?? 1500);
   const now = Date.now(); const policy = guidancePolicy(options.validity);
-  const memories = eligibleGuidance(active(await new Store(options).read()), policy, now).sort(indexOrder);
+  const memories = eligibleGuidance(active(await new Store(options).read()).filter(item => item.consent === undefined), policy, now).sort(indexOrder);
   const rows = memories.map(item => `- ${item.validity === undefined ? '' : `[${guidanceState(item, now)}; ${item.validity.from}..${item.validity.until})] `}[${item.title.replace(/[[\]\r\n]/g, ' ')}](${item.slug}) — ${(item.why || item.body).replace(/\s+/g, ' ').slice(0, 100).toWellFormed()}`);
   return pack(rows, limit, (selected, omitted) => ({ text: [...selected, `<!-- omitted: ${omitted} memories -->`].join('\n'), omitted, complete: true }));
 }

@@ -26,3 +26,7 @@ export type { TaskOutcome, Attribution, ObserveOptions, MemoryExposure, MemoryOb
 /** Renew standing guidance with explicit validity bounds and attributable evidence. */
 export { renew, guidanceState } from './src/guidance.ts';
 export type { GuidanceWindow, GuidanceState, GuidanceOptions, RenewOptions } from './src/types.ts';
+
+/** Authorize purpose-limited recall, withdraw consent and inspect text-free output lineage. */
+export { grantConsent, withdrawConsent, createView, inspectView, VIEW_FIELDS } from './src/consent.ts';
+export type { ViewField, ConsentPolicy, ConsentLedger, ViewSource, ViewManifest, ViewPacket, ViewOptions } from './src/consent.ts';

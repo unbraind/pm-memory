@@ -1,0 +1,36 @@
+id: pm-memory-x5nv
+title: Consent-scoped memory views
+description: "Purpose-limited recall with explicit source consent, field minimization and withdrawal propagation."
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-10-23T07:47:03.594Z"
+updated_at: "2026-10-23T08:02:43.301Z"
+author: codex-agent
+acceptance_criteria: Withdrawn memory cannot enter a fresh packet; Previous packet manifests identify affected outputs without retaining forbidden text
+parent: pm-memory-0kwy
+comments[4]{created_at,author,text}:
+  "2026-10-23T07:48:59.843Z",codex-agent,"Design: explicit per-source, per-purpose grants bind selected fields to the current semantic content and provenance digest. Shared writer serialization prevents withdrawal/view races. Unscoped recall and index omit consent-managed sources. Views rank only projected fields and emit text-free source manifests; withdrawal reports prior packet identifiers, and manifest inspection detects policy or source revision changes. Native get/export remain administrative source access, not purpose-limited recall. CodeQL alert 2 is in the test launcher: replace the fixed Bash wrapper with prlimit plus a direct executable argument array. Dependabot PR 4 is already merged upstream and is untouched."
+  "2026-10-23T07:56:10.208Z",codex-agent,"Public-copy validation: public main 9638bd74a2b21e05782c3dec1a505ab0a7c0a4fb supplied a certified complete read of 13 items from a byte-verified read-only non-git copy. A separate non-git scratch tracker held 13 derived memories and 13 explicit title-only grants. Before withdrawal: 13 emitted, 0 omitted, 908 tokens against a 1500-token budget. After all 13 withdrawals: 0 emitted, 53 tokens; 13 prior output references and 13 affected source IDs; 0 unapproved fields and 0 manifest text fields. The original source copy remained byte-identical. See docs/consent-validation.md for method and limits."
+  "2026-10-23T08:01:09.368Z",codex-agent,"Local evidence: all 9 consent scenarios passed; targeted c8 measured src/consent.ts at 100% statements, branches, functions and lines. The shell-free launcher and existing low-descriptor cache acceptance passed 2/2; typecheck, lint, docstrings (29 files, 125 declarations) and duplication (0%) passed. Four selective behavioral reverts each failed the corresponding regression: withdrawal field authorization, portable-export refusal, consent-preserving consolidation refusal, and shell-free launcher acceptance with no shell on PATH. All changes were restored. The linked withdrawal regression also passed through pm test --run --progress (1/1); automatic result persistence is disabled by tracker policy, so this comment retains the result. Full npm/Bun release gate evidence will come from CI, as requested for the saturated host."
+  "2026-10-23T08:02:36.222Z",codex-agent,"Supplemental guard cases passed 2/2: archived and artifact sources can export an empty index without leaking source text, and consolidation refuses a managed source at either merge endpoint. All local implementation checks are complete. Releasing the claim with status in_progress for orchestrator verification; CI and PR will provide the full npm/Bun gate and CodeQL alert-instance evidence. No source SDK/dev pin bump, merges, releases or hosted changes are included."
+files[10]{path,scope}:
+  index.ts,project
+  src/commands.ts,project
+  src/consent.ts,project
+  src/consolidate.ts,project
+  src/memory.ts,project
+  src/store.ts,project
+  src/transfer.ts,project
+  src/types.ts,project
+  test/consent.test.ts,project
+  test/semantic.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=1 --test-name-pattern='^consent withdrawal prevents' test/consent.test.ts,project,codex-agent,"2026-10-23T07:57:27.210Z",local_mutation,feat/consent-scoped-views
+docs[4]{path,scope}:
+  docs/consent-validation.md,project
+  examples/consent-scoped-views.ts,project
+  examples/validate-consent.ts,project
+  README.md,project
+body: "Overlap rechecked against the pinned pm SDK, CLI contracts, pm-memory, pm-context and pm-brief source. Credential refusal is an input guard; telemetry consent governs telemetry only. pm-brief owns disclosure rendering and compaction. This feature owns long-term-memory recall authorization. Reuse certified complete list reads, schema registration, native mutations and append-only history, shared SDK locks, host command registration, and host token estimates. No new core SDK capability is required; retain the existing dev pin. Deliver SDK and CLI grant/view/withdraw/manifest operations, minimized packets and text-free lineage, non-git regressions and public-copy validation. Also remove the CodeQL alert 2 shell boundary from the semantic test launcher."

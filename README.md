@@ -23,6 +23,71 @@ bunx --bun --package @unbrained/pm-cli pm package install pm-memory
 
 Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The peer host minimum and pinned development host are 2026.10.19. Node 22.18 or later is required.
 
+
+## Consent-scoped recall views
+
+Use `memory grant`, `view`, `withdraw` and `manifest` when recall requires explicit
+source consent for a declared purpose. The caller must be authorized to grant
+consent for that source. Purpose identifiers are opaque lowercase identifiers,
+1–64 letters, digits or hyphens; avoid personal names or source text in them.
+Every source starts unauthorized for views, including existing memories.
+
+```bash
+pm memory remember "Run both release gates" --kind project --slug release-policy
+pm memory grant release-policy --purpose release-review --fields title,body
+pm memory view release --purpose release-review --fields title --budget 800
+pm memory withdraw release-policy --purpose release-review
+pm memory manifest <packet>
+```
+
+`grant` authorizes the current semantic revision and source provenance for one
+purpose. `view` requires an explicit subset of `title,description,body,why,how`;
+missing consent, withdrawn consent, changed source content, insufficient fields
+and noncurrent standing guidance exclude the source. It ranks using only the
+requested content fields, and emits complete selected fields within the entire
+JSON/TOON token budget. A large highest-ranked row can leave the packet empty;
+request fewer fields or increase the budget. `excluded` counts ineligible active
+sources; `omitted` counts eligible sources that did not fit. No embeddings or
+external providers are invoked on this path.
+
+The SDK exports `grantConsent`, `createView`, `withdrawConsent`, `inspectView`,
+`ViewOptions`, `ViewPacket`, `ViewManifest`, `ViewField` and `ConsentLedger`.
+See [the typed lifecycle example](examples/consent-scoped-views.ts) and
+[public-copy validation helper](examples/validate-consent.ts). All operations
+reuse the complete native SDK read, schema, mutation/history and shared writer
+lock boundaries. Refusals are `MemoryError` instances with `code` and `remedy`;
+the CLI emits the same safe remedy and exits 2 for invalid consent or manifests.
+The normal host selects compact TOON or `--json`; `estimated_tokens` includes
+both the minimized rows and the full manifest in either format.
+
+Each nonempty packet records text-free lineage on its source items: random
+packet ID, purpose ID, consent revision and disclosed field names. The returned
+manifest also names native source IDs. It retains no source title, slug, query,
+excerpt or original bytes. Withdrawal returns affected packet IDs; `manifest`
+reports affected source IDs after withdrawal, regrant, source edits or archive.
+Old outputs remain affected after a regrant. Empty packets have a portable empty
+manifest but no retained source record, so `manifest` refuses them. Keep portable
+manifests for reconciliation if sources are later deleted; hard deletion also
+removes their local lineage. Previously delivered content cannot be recalled
+from a consumer: consumers must discard affected outputs when consent changes.
+
+Once a source has consent metadata, ordinary `recall` (lexical or semantic) and
+`index` exclude it, even after withdrawal or malformed metadata. Native `get`
+and tracker reads remain administrative access to the retained source; consent
+withdrawal does not erase the source or its append-only history. Portable export
+refuses active consent-managed sources because harness formats cannot preserve
+the policy. Consolidation refuses merges involving them, preserving identities
+and preventing text from moving into an unscoped source. Existing input privacy
+checks still apply independently. This feature authorizes long-term-memory
+recall; pm-brief continues to own disclosure rendering.
+
+### Without git
+
+Consent grants, minimized views, withdrawals and manifest inspection work in a
+plain initialized tracker without Git or a Git executable on `PATH`. These
+operations need no repository. Repository-related workflows in the pm host,
+such as GitHub synchronization, still need their own Git prerequisites.
+
 ## Commands
 
 Every command returns native host TOON by default and accepts `--json`. Expected refusals include a typed category and a remedy. Source export writes files and returns a small receipt.
