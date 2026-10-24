@@ -2,13 +2,18 @@ id: pm-memory-sdk-lock-protocol
 title: Recover process-reused writers and fence expired memory leases
 description: Adopt SDK lock ownership and bounded recovery for audit F06.
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags: []
 created_at: "2026-10-23T21:19:36.369Z"
-updated_at: "2026-10-23T22:18:31.250Z"
+updated_at: "2026-10-24T21:47:05.397Z"
+closed_at: "2026-10-24T21:47:05.371Z"
+completed_at: "2026-10-24T21:47:05.371Z"
 author: codex-agent
 acceptance_criteria: "F06: SDK-owned bounded recovery protects live and unverifiable owners, recovers dead or mismatched process identities, and refuses expired writer publication; subprocess regressions fail on function reverts; npm and Bun release gates preserve all thresholds."
+resolution: Native SDK ownership recovery handles dead/reused identities while protecting live or unverifiable owners and fencing expired publication; real subprocess reverts and release gates prove the boundary.
+expected_result: "F06: SDK-owned bounded recovery protects live and unverifiable owners, recovers dead or mismatched process identities, and refuses expired writer publication; subprocess regressions fail on function reverts; npm and Bun release gates preserve all thresholds."
+actual_result: "https://github.com/unbraind/pm-memory/pull/13, merged 2026-10-23T22:28:39Z, merge 5bd356e1d276061837030267bf6273b2aaacc5e3: Native SDK ownership recovery handles dead/reused identities while protecting live or unverifiable owners and fencing expired publication; real subprocess reverts and release gates prove the boundary."
 comments[8]{created_at,author,text}:
   "2026-10-23T21:19:41.167Z",codex-agent,"Verified F06 against origin/main 1dc5b66: src/writer-lock.ts reads owner payloads, creates stale-cleanup gates, unlinks native locks and retries acquisition. SDK 2026.10.20 lacks acquireLockLease. Task explicitly authorizes the required SDK upgrade; use 2026.10.23 with matching peer and manifest minimum. Add non-git subprocess identity and lost-lease regression proofs."
   "2026-10-23T21:22:51.913Z",codex-agent,"F06 revert proof: reverted only FencedClient.run and Store.fence publication functions to direct callbacks, preserving the SDK bump and new subprocess tests. Command node --test --test-name-pattern='expired writer' test/sdk-lock-protocol.test.ts failed 2/2: both child writers returned published:true instead of lock_lost after an expired lease was replaced. Restored the fences; focused suite passes 4/4. Native SDK recovery now owns SIGKILL recovery, process-start mismatch and bounded waits; no package cleanup gate manipulation remains. Multi-item operations remain sequential audited writes, not transactions."
@@ -34,4 +39,5 @@ docs[3]{path,scope}:
   ARCHITECTURE.md,project
   CHANGELOG.md,project
   README.md,project
+close_reason: "https://github.com/unbraind/pm-memory/pull/13, merged 2026-10-23T22:28:39Z, merge 5bd356e1d276061837030267bf6273b2aaacc5e3: Native SDK ownership recovery handles dead/reused identities while protecting live or unverifiable owners and fencing expired publication; real subprocess reverts and release gates prove the boundary."
 body: ""
