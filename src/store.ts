@@ -7,6 +7,9 @@ import { kind, MemoryError, slug } from './core.ts';
 import { readWindow } from './guidance.ts';
 import { writerLock } from './writer-lock.ts';
 
+/** Complete native SDK rows can be decoded from the same snapshot used for ownership. */
+type MemoryCorpus = Awaited<ReturnType<PmClient['listAllComplete']>>['items'];
+
 /** All memory metadata uses registered SDK fields, including lossless source artifacts. */
 export const MEMORY_FIELDS: SchemaFieldDefinition[] = [
   ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility', 'consent', 'renewals', 'import_snapshot'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
@@ -80,11 +83,11 @@ export class Store {
     }
   }
   /** Read a certified full corpus and refuse duplicated or invalid memory identities. */
-  async read(only?: ReadonlySet<string>): Promise<Memory[]> {
-    const corpus = certifyCompleteListResult(await this.client.listAllComplete({ includeBody: true }));
+  async read(only?: ReadonlySet<string>, observed?: Readonly<MemoryCorpus>): Promise<Memory[]> {
+    const items = observed ?? certifyCompleteListResult(await this.client.listAllComplete({ includeBody: true })).items;
     const result: Memory[] = [];
     const seen = new Set<string>();
-    for (const item of corpus.items) {
+    for (const item of items) {
       if (only !== undefined && !only.has(item.id)) continue;
       if (item.type !== 'Knowledge' || item.memory_slug === undefined) continue;
       const key = slug(String(item.memory_slug));

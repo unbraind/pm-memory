@@ -4,9 +4,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { importDir, exportDir, remember, renew, get, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
-import { WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
+import { WorkspaceTransactionInterruptedError, canonicalDocument } from '@unbrained/pm-cli/sdk';
 import { policyBody } from '../src/portable.ts';
-import { tracker, snapshot, assertClosedGraph } from './helpers.ts';
+import { tracker, snapshot, assertClosedGraph, memoryDocuments, crashAfterCompensation, crashAtStep as crashStep } from './helpers.ts';
 
 /** Export an actual mixed tracker and expose its harness-editable body. */
 async function scenario(t: Parameters<typeof tracker>[0]) {
@@ -25,9 +25,19 @@ async function editable(t: Parameters<typeof tracker>[0]) {
   const source = await scenario(t); const target = await tracker(t);
   return { source, target, row: source.manifest.guidance.find(row => row.slug === 'alpha')! };
 }
-
-/** Stop at one named package boundary without repeating observer plumbing. */
-function crashStep(boundary: string) { return (step: string) => { if (step === boundary) throw new WorkspaceTransactionInterruptedError(); }; }
+/** Import A, then prepare a harness revision on a fresh real target. */
+async function revisionTarget(t: Parameters<typeof tracker>[0], source: Awaited<ReturnType<typeof scenario>>, row: PortablePolicyManifest['guidance'][number], body: string) {
+  const target = await tracker(t);
+  await writeFile(join(source.path, row.path), policyBody(row, 'Memory alpha'));
+  await importDir(source.path, { ...target.options, from: 'agents-md' });
+  await writeFile(join(source.path, row.path), policyBody(row, body));
+  return target;
+}
+/** A moved native target may produce a typed refusal or a truthful planner skip. */
+async function preservesNative(run: ReturnType<typeof importDir>, slug: string): Promise<void> {
+  try { const result = await run; assert.ok('skipped' in result); assert.ok(result.skipped.some(row => row.slug === slug)); }
+  catch (error) { assert.ok(error instanceof MemoryError && error.code === 'conflict' && error.remedy.length > 0); }
+}
 
 test('older manifests perform a real A B A update instead of replaying a completed transaction', async t => {
   const { source, target, row } = await editable(t);
@@ -77,11 +87,7 @@ test('recovery and fresh CAS refuse newer remember edits at every journal bounda
   const boundaries: string[] = ['intent'];
   /** Plan the same A-to-B change on an independently initialized tracker. */
   const baseline = async () => {
-    const target = await tracker(t);
-    await writeFile(join(source.path, row.path), policyBody(row, 'Memory alpha'));
-    await importDir(source.path, { ...target.options, from: 'agents-md' });
-    await writeFile(join(source.path, row.path), policyBody(row, 'Harness B'));
-    return target;
+    return revisionTarget(t, source, row, 'Harness B');
   };
   const probe = await baseline();
   await importDir(source.path, { ...probe.options, from: 'agents-md', onTransition: event => { boundaries.push(`${event.transactionId.endsWith('-snapshot') ? 'snapshot' : 'data'}:${event.transition}:${event.stepId ?? ''}`); } });
@@ -95,8 +101,7 @@ test('recovery and fresh CAS refuse newer remember edits at every journal bounda
     }), WorkspaceTransactionInterruptedError);
     await remember('Native peer C', { ...target.options, update: 'alpha', kind: 'project' });
     const before = await snapshot(target.workspace);
-    try { const result = await importDir(source.path, { ...target.options, from: 'agents-md' }); assert.ok('skipped' in result); assert.ok(result.skipped.some(row => row.slug === 'alpha')); }
-    catch (error) { assert.ok(error instanceof MemoryError && error.code === 'conflict' && error.remedy.length > 0); }
+    await preservesNative(importDir(source.path, { ...target.options, from: 'agents-md' }), 'alpha');
     assert.equal((await get('alpha', target.options)).body, 'Native peer C', boundary);
     assert.deepEqual(await snapshot(target.workspace), before, boundary);
   }
@@ -155,10 +160,10 @@ test('interrupted new graph nodes never dangle when a foreign owner or native ed
     }), WorkspaceTransactionInterruptedError);
     const alpha = await remember('Newer alpha', { ...target.options, slug: 'alpha', kind: 'project', forceNew: true });
     if (boundary === 'first-node') await target.store.fields(alpha.id, { source: 'foreign:tool' });
-    const before = await snapshot(target.workspace);
+    const before = await target.client.get(alpha.id, { full: true });
     for (let attempt = 0; attempt < 2; attempt++) {
-      await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'conflict');
-      assert.deepEqual(await snapshot(target.workspace), before);
+      await preservesNative(importDir(source.path, { ...target.options, from: 'agents-md' }), 'alpha');
+      assert.deepEqual((await target.client.get(alpha.id, { full: true })).item, before.item);
       const items = (await target.client.listAllComplete({ includeBody: true })).items;
       assertClosedGraph(items);
       assert.equal((await get('alpha', target.options)).body, 'Newer alpha');
@@ -185,7 +190,7 @@ test('compensated mixed graphs remap reserved node IDs and never delete a newer 
     } }));
     assert.ok(old);
     if (peer) {
-      await assert.rejects(importDir(path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'conflict');
+      const result = await importDir(path, { ...target.options, from: 'agents-md' }); assert.ok('skipped' in result); assert.ok(result.skipped.some(row => row.slug === 'beta'));
       assert.equal((await target.client.get(old, { full: true })).item.body, 'Peer beta wins');
     } else {
       await importDir(path, { ...target.options, from: 'agents-md' });
@@ -197,5 +202,90 @@ test('compensated mixed graphs remap reserved node IDs and never delete a newer 
     }
     const items = (await target.client.listAllComplete()).items;
     assertClosedGraph(items);
+  }
+});
+
+test('deleted imported memories can be recreated after A or A B without reusing a committed journal', async t => {
+  for (const between of [false, true]) {
+    const { source, target, row } = await editable(t);
+    await writeFile(join(source.path, row.path), policyBody(row, 'A'));
+    await importDir(source.path, { ...target.options, from: 'agents-md' });
+    if (between) {
+      await writeFile(join(source.path, row.path), policyBody(row, 'B'));
+      await importDir(source.path, { ...target.options, from: 'agents-md' });
+    }
+    for (const item of (await target.client.listAllComplete()).items) await target.client.run('delete', { id: item.id, options: { force: true } });
+    await writeFile(join(source.path, row.path), policyBody(row, 'A'));
+    assert.equal((await importDir(source.path, { ...target.options, from: 'agents-md' })).imported, 3);
+    assert.equal((await get('alpha', target.options)).body, 'A');
+    assert.equal((await importDir(source.path, { ...target.options, from: 'agents-md' })).unchanged, 3);
+    assertClosedGraph((await target.client.listAllComplete()).items);
+  }
+});
+
+test('shared read guard CAS preserves native edits at every fresh and recovery boundary', async t => {
+  const { source, row } = await editable(t);
+  /** Prepare each protocol path without mocking SDK revisions or compensation. */
+  const prepare = async (mode: string) => {
+    const target = await revisionTarget(t, source, row, 'Retry B');
+    if (mode === 'interrupted') await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onStep: crashStep('intent') }), WorkspaceTransactionInterruptedError);
+    if (mode === 'compensated') await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onTransition: crashAfterCompensation }), WorkspaceTransactionInterruptedError);
+    return target;
+  };
+  for (const mode of ['fresh', 'interrupted', 'compensated']) {
+    const probe = await prepare(mode); const boundaries: string[] = [];
+    await importDir(source.path, { ...probe.options, from: 'agents-md', onStep: step => { if (step.startsWith('cas-')) boundaries.push(step); } });
+    assert.ok(boundaries.length >= 4, mode);
+    for (let boundary = 0; boundary < boundaries.length; boundary++) {
+      const target = await prepare(mode); let index = 0; let injected = false;
+      const alpha = await get('alpha', target.options);
+      await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onStep: async step => {
+        if (step.startsWith('cas-') && index++ === boundary) { await target.client.update(alpha.id, { body: 'Peer C edit' }); injected = true; }
+      } }), error => error instanceof MemoryError && error.remedy.length > 0);
+      assert.equal(injected, true, `${mode}:${boundary}`);
+      assert.equal((await get('alpha', target.options)).body, 'Peer C edit', `${mode}:${boundary}`);
+      const retry = await importDir(source.path, { ...target.options, from: 'agents-md' });
+      assert.ok('skipped' in retry); assert.ok(retry.skipped.some(row => row.slug === 'alpha'));
+      assert.equal((await get('alpha', target.options)).body, 'Peer C edit');
+    }
+  }
+});
+
+test('mid-batch revision refusals compensate memory documents and retry without manual intent removal', async t => {
+  const source = await scenario(t); const target = await tracker(t);
+  await importDir(source.path, { ...target.options, from: 'agents-md' });
+  for (const row of source.manifest.guidance.filter(row => row.slug !== 'policy')) await writeFile(join(source.path, row.path), policyBody(row, `Retry ${row.slug}`));
+  const before = (await target.client.listAllComplete({ includeBody: true })).items;
+  const bytes = await memoryDocuments(target.workspace);
+  const policy = before.find(row => row.memory_slug === 'policy')!;
+  let injected = false;
+  await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onTransition: async event => {
+    if (!injected && event.transition === 'step_applied') { injected = true; await target.client.update(policy.id, { body: 'Native policy edit' }); }
+  } }), error => error instanceof MemoryError && error.code === 'conflict');
+  const after = (await target.client.listAllComplete({ includeBody: true })).items;
+  for (const item of before.filter(row => row.id !== policy.id)) assert.deepEqual(canonicalDocument({ metadata: after.find(row => row.id === item.id)!, body: String(after.find(row => row.id === item.id)!.body) }), canonicalDocument({ metadata: item, body: String(item.body) }), item.id);
+  const restored = await memoryDocuments(target.workspace);
+  for (const [path, body] of Object.entries(bytes)) if (!path.includes(policy.id)) assert.equal(restored[path], body, path);
+  assert.equal(after.find(row => row.id === policy.id)!.body, 'Native policy edit');
+  const retried = await importDir(source.path, { ...target.options, from: 'agents-md' });
+  assert.equal(retried.updated, 2); assert.equal((await get('alpha', target.options)).body, 'Retry alpha');
+  assert.equal((await get('beta', target.options)).body, 'Retry beta');
+  assert.equal((await get('policy', target.options)).body, 'Native policy edit');
+});
+
+test('bounded exports omit canceled missing and artifact references with typed receipts', async t => {
+  for (const reason of ['canceled', 'missing', 'artifact'] as const) {
+    const source = await scenario(t); const target = await tracker(t);
+    const targetId = reason === 'missing' ? 'memory-test-missing' : source.second.id;
+    await source.client.update(source.first.id, { dep: [`id=${targetId},kind=related`], replaceDeps: true, allowUnresolvedDeps: true });
+    if (reason === 'canceled') await source.client.update(targetId, { status: 'canceled' });
+    if (reason === 'artifact') await source.store.fields(targetId, { artifact: true });
+    const path = join(source.root, `external-${reason}`);
+    const result = await exportDir(path, { ...source.options, to: 'agents-md' });
+    assert.ok(result.omitted_links?.some(row => row.slug === 'alpha' && row.target === targetId && row.reason === reason));
+    const manifest = JSON.parse(await readFile(join(path, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+    assert.deepEqual(manifest.guidance.find(row => row.slug === 'alpha')!.relationships, []);
+    await importDir(path, { ...target.options, from: 'agents-md' });
+    assertClosedGraph((await target.client.listAllComplete()).items);
   }
 });

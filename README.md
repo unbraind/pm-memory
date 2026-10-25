@@ -241,15 +241,22 @@ party that rewrites both the manifest and its markers can author a different pol
 
 Imports validate the complete manifest, every body, privacy and existing policy ancestry
 before registering fields. The SDK previews the complete item batch, then commits it
-under the package writer lease using `commitItemMutations` with transaction ids bound to
-input plus target history positions and SDK history-prefix hashes. A checksummed, lease-owned pending plan freezes
-item ids and SDK batches for crash replay. A/B/A imports therefore apply A again after
-B. Interrupted batches resume on the same input only while their expected SDK revisions
+under the package writer lease using `commitItemMutations`. Each attempt binds the
+input digest to a fresh UUID recorded in its checksummed intent. Allocation skips any
+existing node/data/provenance/rollback journal; completed attempts start a new generation,
+including after every imported memory was deleted. The intent freezes item ids and
+SDK batches for crash replay. A/B/A imports therefore apply A again after B.
+Interrupted batches resume on the same input only while their expected SDK revisions
 and immutable history prefixes still match. Each update uses the SDK item-lock CAS
 (`match` on `updated_at`), including provenance writes; native edits or ownership
-changes refuse with a typed conflict before replay. Preserve the conflicting intent
-and reconcile it explicitly rather than replaying stale writes; ordinary SDK batch failures use
-history-preserving compensation. New graph members are first created without edges, then the full data batch
+changes refuse with a typed conflict. One shared helper reads expected revisions,
+guards the original read set, then applies SDK CAS in fresh, interrupted and compensated
+paths. A refusal compensates applied steps before returning, and a durable SDK rollback
+across all stages restores import-owned memory documents. Its item-lock mutation guard
+preserves newer peer revisions and the transitive reference graph peers have adopted.
+The owned intent is removed after rollback; retry needs no manual deletion. Compensation
+appends audit history while restoring serialized memory documents. SDK transaction
+errors are typed `MemoryError` values with remedies. New graph members are first created without edges, then the full data batch
 uses SDK-read CAS revisions; even interrupted creation cannot leave dangling edges. Node rollback deletes only
 transaction-owned creations. The SDK reserves deleted identities in history, so retry
 allocates fresh identities and remaps edges while retaining the old audit history.
@@ -257,8 +264,8 @@ After storing the data batch, the importer reads values
 back through the SDK and commits its normalized provenance baseline as a second
 recoverable batch. Native edits during an interrupted capture refuse rather than being
 stamped as imported. Raw input whitespace is never compared with stored values to
-classify native edits. This is logical atomicity with durable recovery, not isolated
-snapshot visibility for unrelated tracker readers. Schema registration is idempotent and
+classify native edits. Unrelated tracker readers can observe staged writes until
+commit or recovery completes. Schema registration is idempotent and
 precedes the item batch. The lease covers the state read, planning, preview and
 publication, and releases last. Direct writers outside this package must coordinate
 separately. Relationship target ids are remapped to portable slugs and back, including
@@ -268,20 +275,25 @@ transitively over every dependent row with the same reason before selecting muta
 Unchanged compares current SDK content with incoming values through the SDK canonical
 and mutation projections, including SDK-normalized dependency provenance. Saved input
 bytes never establish that current content is unchanged. A
-target absent from the inventory refuses before writes; non-memory native targets must
-remain in their native tracker. Exports stage their complete directory and publish with
+local target absent from an imported inventory refuses before writes. Exported links
+to canceled, artifact or missing/non-memory targets are omitted from the portable local
+graph and reported as `omitted_links: [{slug, target, kind, reason}]` in the typed export
+receipt. Export leaves these external relationships in its source tracker. Foreign
+records are excluded before decoding package metadata and reported as `skipped` entries.
+Ownership and content use one certified SDK snapshot. Exports stage their complete directory and publish with
 a rename; matching peer publication succeeds, differing publication refuses without
 overwriting it.
 
 The existing CLI commands return compact host TOON or `--json` counts; policy imports
 also return `skipped: [{slug, reason}]`. Bodies and renewal histories are kept in files
 rather than echoed in the receipt. SDK clients use `importDir`, `exportDir`,
-`PortableImportOptions`, `PortableImportResult`, `PortableGuidance`,
+`PortableImportOptions`, `PortableImportResult`, `PortableExportResult`, `PortableGuidance`,
 `PortablePolicyManifest` and the pure `parsePolicy` validator. See the [typed
 example](examples/portable-guidance.ts) and [public-tracker validation](docs/portable-guidance-validation.md). The state-machine property executes 500 independent seeded
-sequences (master seed `0x1363cafe`) with 16,933 SDK-read state checks over both
+sequences (master seed `0x1363cafe`) with 22,933 SDK-read state checks over both
 harnesses, older-manifest replays, native body/field/relationship edits,
-whitespace/CRLF, link additions/removals and mixed bounded/unbounded guidance. Every
+whitespace/CRLF, link additions/removals, repeated delete/re-import generations,
+peer edits at every shared-helper recovery boundary and mixed bounded/unbounded guidance. Every
 journal boundary is sampled across the model, including intent, each mutation and
 the node, data and provenance commits. One hundred fresh-tracker branches include
 foreign ownership arriving after a creation crash. Newer native edits after crashes, foreign ownership and restoring an

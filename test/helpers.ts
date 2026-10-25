@@ -4,7 +4,7 @@ import { mkdtemp, rm, readdir, readFile, mkdir, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import type { TestContext } from 'node:test';
-import { PmClient, type Dependency } from '@unbrained/pm-cli/sdk';
+import { PmClient, WorkspaceTransactionInterruptedError, type Dependency, type WorkspaceTransactionTransitionContext } from '@unbrained/pm-cli/sdk';
 import { Store } from '../src/store.ts';
 
 /** Initialize a real tracker and register cleanup before any mutations. */
@@ -29,6 +29,19 @@ export async function snapshot(root: string): Promise<Record<string, string>> {
     }
   }
   await walk(root); return result;
+}
+/** Serialized memory documents are distinct from their append-only SDK audit streams. */
+export async function memoryDocuments(root: string): Promise<Record<string, string>> {
+  return Object.fromEntries(Object.entries(await snapshot(root)).filter(([path]) => path.startsWith('knowledge/')));
+}
+/** Fail a real SDK write, then simulate process death after durable compensation. */
+export function crashAfterCompensation(event: WorkspaceTransactionTransitionContext): void {
+  if (event.transition === 'step_recorded') throw new Error('Begin SDK compensation');
+  if (event.transition === 'compensated') throw new WorkspaceTransactionInterruptedError();
+}
+/** Stop at a named package boundary without running normal failure compensation. */
+export function crashAtStep(boundary: string): (step: string) => void {
+  return step => { if (step === boundary) throw new WorkspaceTransactionInterruptedError(); };
 }
 
 /** Require a successful child test run, a positive pass count and the expected test name. */

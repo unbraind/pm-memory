@@ -2,10 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
-import { WorkspaceTransactionInterruptedError, getHistoryPath, readHistoryEntries, readSettings } from '@unbrained/pm-cli/sdk';
+import { WorkspaceTransactionInterruptedError, getHistoryPath, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import { remember, renew, get, guidanceState, exportDir, importDir, parsePolicy, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest, PortableGuidance } from '../index.ts';
-import { digest } from '../src/core.ts';
 import { policyRecord, policyBody, importPolicy } from '../src/portable.ts';
 import { tracker, snapshot, installExtension, gitlessCli } from './helpers.ts';
 
@@ -254,7 +253,7 @@ test('updates recover and compensate at every SDK write boundary with no duplica
   }
   const before = await get('policy', target.options); const history = await readHistoryEntries(getHistoryPath(target.workspace, before.id), before.id);
   for (const row of valid.guidance) await writeFile(join(source.path, row.path), policyBody(row, 'Compensated edit'));
-  await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onTransition: event => { if (event.transition === 'step_recorded') throw new Error('Ordinary publication failure'); } }), /Ordinary publication failure/);
+  await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onTransition: event => { if (event.transition === 'step_recorded') throw new Error('Ordinary publication failure'); } }), error => error instanceof MemoryError && error.code === 'transaction');
   assert.equal((await get('policy', target.options)).body, before.body);
   assert.deepEqual((await readHistoryEntries(getHistoryPath(target.workspace, before.id), before.id)).slice(0, history.length), history);
   await importDir(source.path, { ...target.options, from: 'agents-md' });
@@ -281,17 +280,19 @@ test('the last invalid row prevents every earlier row from being written', async
   assert.deepEqual(await snapshot(target.workspace), before);
 });
 
-test('foreign deterministic identities and malformed package provenance are skipped without adoption or deletion', async t => {
+test('foreign reserved identities and malformed package provenance are skipped without adoption or deletion', async t => {
   const source = await fixture(t); const target = await tracker(t);
-  const valid = parsePolicy(await manifest(source.path)); const row = valid.guidance[0];
-  const body = (await readFile(join(source.path, row.path), 'utf8')).slice(policyBody(row, '').length);
-  const inputHash = digest(JSON.stringify([valid, [body]]));
-  const transactionId = `memory-policy-${digest(JSON.stringify([inputHash, []])).slice(0, 40)}`;
-  const id = `${(await readSettings(target.workspace)).id_prefix}${digest(`${transactionId}:${row.slug}`).slice(0, 24)}`;
-  await target.client.run('create', { options: { title: 'Foreign deterministic identity', id } });
-  const result = await importDir(source.path, { ...target.options, from: 'agents-md' });
-  assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /deterministic import id/);
-  assert.equal((await target.client.get(id)).item.title, 'Foreign deterministic identity');
+  let id = '';
+  for (const portableMarker of [false, true]) {
+  const result = await importDir(source.path, { ...target.options, from: 'agents-md', onStep: async step => {
+    if (step !== 'intent') return;
+    const plan = JSON.parse(JSON.parse(await readFile(join(target.workspace, 'runtime/memory-policy-import.json'), 'utf8')).payload) as { mutations: { id: string }[] };
+    id = plan.mutations[0].id;
+    await target.client.run('create', { options: { title: 'Foreign reserved identity', id, ...(portableMarker ? { memorySource: 'portable:policy-v1', memoryOriginal: 'foreign' } : {}) } });
+  } });
+  assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /reserved import id/);
+  assert.equal((await target.client.get(id)).item.title, 'Foreign reserved identity');
+  }
   const imported = await tracker(t); await importDir(source.path, { ...imported.options, from: 'agents-md' });
   for (const original of ['{', 'null', '[]', '[{},3]', '[{},"body"]']) {
     await imported.store.fields((await get('policy', imported.options)).id, { original: Buffer.from(original).toString('base64') });
@@ -311,7 +312,7 @@ test('conflicting historical evidence refuses export and unrelated removed metad
 test('preparation boundaries serialize a competing import and retain its completed work', async t => {
   const source = await fixture(t); const probe = await tracker(t); const steps: string[] = [];
   await importDir(source.path, { ...probe.options, from: 'agents-md', onStep: step => { steps.push(step); } });
-  for (const boundary of steps) {
+  for (const boundary of new Set(steps)) {
     const target = await tracker(t); let peer: ReturnType<typeof importDir> | undefined;
     const first = await importDir(source.path, { ...target.options, from: 'agents-md', onStep: step => { if (step === boundary) peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' }); } });
     assert.ok(peer); const second = await peer;

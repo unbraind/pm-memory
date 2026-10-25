@@ -1,6 +1,6 @@
-import { getHistoryPath, readHistoryEntries, readSettings, hashHistoryStream, previewItemMutations, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, DEPENDENCY_KIND_VALUES, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
+import { getHistoryPath, readHistoryEntries, readSettings, previewItemMutations, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, DEPENDENCY_KIND_VALUES, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, CommitItemMutationsOptions, Dependency } from '@unbrained/pm-cli/sdk';
-import { pendingImport, applyImport, expectedTargets, validateImportPlan, planError, foreignIntentResult } from './portable-plan.ts';
+import { pendingImport, applyImport, expectedTargets, validateImportPlan, planError, foreignIntentResult, importIdentity } from './portable-plan.ts';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
@@ -8,6 +8,11 @@ import type { GuidanceWindow, Harness, Memory, MemoryKind, MemoryOptions } from 
 
 /** Reserved inventory file: keep it with the Markdown files through harness edits. */
 export const POLICY_MANIFEST = 'pm-memory-policy.json';
+const OWNED_SOURCES = ['native:item', 'portable:policy-v1', 'claude-code:relative-file', 'agents-md:relative-file', 'cursor:relative-file'];
+/** Filter foreign records before interpreting any package-specific metadata. */
+export function foreignMemories<T extends { type: string; memory_slug?: unknown; memory_source?: unknown }>(items: readonly T[]): T[] {
+  return items.filter(item => item.memory_slug !== undefined && (item.type !== 'Knowledge' || typeof item.memory_source !== 'string' || !OWNED_SOURCES.includes(item.memory_source)));
+}
 /** Typed native edge whose target is represented by a portable memory slug. */
 export type PortableRelationship = Omit<Dependency, 'id'> & { slug: string };
 /** Semantic memory projection that is independent of native ids and tracker bookkeeping. */
@@ -76,6 +81,17 @@ export interface PortableImportResult {
   /** Foreign records left untouched. */
   skipped: { slug: string; reason: string }[];
 }
+/** Export counts plus explicit receipts for references outside the active inventory. */
+export interface PortableExportResult {
+  /** Number of published harness files. */
+  exported: number;
+  /** Original source files retained without rewriting their bytes. */
+  byte_preserved: number;
+  /** Native edges deliberately excluded from the portable local graph. */
+  omitted_links?: { slug: string; target: string; kind: Dependency['kind']; reason: 'canceled' | 'artifact' | 'missing' }[];
+  /** Unrecognized records excluded before package metadata is decoded. */
+  skipped?: { slug: string; reason: string }[];
+}
 /** Refuse ambiguity without echoing source content. */
 function invalid(): never {
   throw new MemoryError('validity', 'Invalid or expanded portable policy window', 'Restore the exported manifest and all body files; use memory renew with evidence to change bounds or renewal history');
@@ -140,12 +156,11 @@ export async function policyRecord(store: Store, item: Memory, memories?: readon
   const row: PortableGuidance = { relationships, snapshotHash: snapshotDigest(item, item.body, relationships), slug: item.slug, title: item.title, description: item.description, kind: item.kind, why: item.why, how: item.how, pinned: item.pinned, tags: item.tags, path: `memories/${item.slug}.md`, updated: item.updated, validity: item.validity ?? null, renewals: [...revisions.values()].sort((a, b) => a.revision - b.revision) };
   return parsePolicy({ version: 1, format: 'pm-memory-policy', harness: 'agents-md', guidance: [row] }).guidance[0];
 }
-/** Retain every typed edge, refusing an unavailable target instead of silently dropping it. */
+/** Retain local typed edges; excluded targets are reported in the export receipt. */
 export function portableRelationships(item: Memory, memories: readonly Memory[]): PortableRelationship[] {
-  return item.relationships.map(({ id, ...edge }) => {
+  return item.relationships.flatMap(({ id, ...edge }) => {
     const target = memories.find(memory => memory.id === id);
-    if (target === undefined) throw new MemoryError('relationship', 'Portable relationship target is unavailable', 'Include every linked memory in the export; retain non-memory relationships in the native tracker');
-    return { slug: target.slug, ...edge };
+    return target === undefined || target.status === 'canceled' || target.artifact ? [] : [{ slug: target.slug, ...edge }];
   });
 }
 /** Normalize semantic provenance with the same SDK canonical document path used by storage. */
@@ -171,6 +186,10 @@ export function closeSkips(rows: readonly PortableGuidance[], skipped: Map<strin
     }
   }
 }
+/** Reserve planned identities without adopting an unrelated native record. */
+export function skipOccupiedIdentities(rows: readonly PortableGuidance[], existing: ReadonlySet<string>, occupied: ReadonlySet<string>, ids: ReadonlyMap<string, string>, skipped: Map<string, string>): void {
+  for (const row of rows) if (!existing.has(row.slug) && occupied.has(ids.get(row.slug)!)) skipped.set(row.slug, 'Foreign record occupies the reserved import id');
+}
 /** Bind a file to its inventory row without embedding unbounded advice in the index. */
 export function policyBody(row: PortableGuidance, body: string): Buffer { return Buffer.from(`<!-- pm-memory-policy:v1 ${row.slug}; policy ${digest(JSON.stringify([row.validity, row.renewals, row.pinned]))}; keep ${POLICY_MANIFEST} -->\n${body}`); }
 /** Parse only files owned by the manifest; foreign adjacent records are skipped with a reason. */
@@ -193,34 +212,32 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
   await options.onStep?.('validated');
   const store = new Store(options);
   return store.write(async () => {
-    const pending = await pendingImport(store, options.onStep);
+    const pending = await pendingImport(store, options.onStep, options.onTransition);
     if (pending === 'foreign') return foreignIntentResult();
     if (pending !== undefined) {
       if (pending.input !== inputHash) throw new MemoryError('conflict', 'Another portable import needs recovery', 'Rerun the interrupted input before importing a different manifest');
       return applyImport(store, pending, options);
     }
-    const corpus = certifyCompleteListResult(await store.client.listAllComplete()).items;
-    const sources = ['native:item', 'portable:policy-v1', 'claude-code:relative-file', 'agents-md:relative-file', 'cursor:relative-file'];
-    const foreign = corpus.filter(item => item.type === 'Knowledge' && item.memory_slug !== undefined && !sources.includes(String(item.memory_source)));
-    const current = await store.read(new Set(corpus.filter(item => !foreign.some(record => record.id === item.id)).map(item => item.id)));
+    const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
+    const foreign = foreignMemories(corpus);
+    const current = await store.read(new Set(corpus.filter(item => !foreign.some(record => record.id === item.id)).map(item => item.id)), corpus);
     await options.onStep?.('read');
     const settings = await readSettings(store.workspace);
     const occupied = new Set(corpus.map(item => item.id));
-    const revisions = await Promise.all(current.map(async item => [item.id, await store.history(item.id), hashHistoryStream(await readHistoryEntries(getHistoryPath(store.workspace, item.id), item.id))]));
-    const transactionId = `memory-policy-${digest(JSON.stringify([inputHash, revisions.sort()])).slice(0, 40)}`;
+    const identity = await importIdentity(store, inputHash); const { transactionId } = identity;
     const ids = new Map(manifest.guidance.map(row => [row.slug, current.find(item => item.slug === row.slug)?.id ?? `${settings.id_prefix}${digest(`${transactionId}:${row.slug}`).slice(0, 24)}`]));
     const mutations: BulkItemMutation[] = [];
-    const skipped = new Map(manifest.guidance.filter(row => foreign.some(item => item.memory_slug === row.slug)).map(row => [row.slug, 'Foreign Knowledge record has no package-owned source']));
+    const skipped = new Map(manifest.guidance.filter(row => foreign.some(item => item.memory_slug === row.slug)).map(row => [row.slug, 'Foreign record has no package-owned source']));
+    skipOccupiedIdentities(manifest.guidance, new Set(current.map(row => row.slug)), occupied, ids, skipped);
     closeSkips(manifest.guidance, skipped);
     const decisions = new Map<string, 'imported' | 'updated' | 'unchanged'>();
-    const result: PortableImportResult = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: foreign.filter(item => !manifest.guidance.some(row => row.slug === item.memory_slug)).map(item => ({ slug: item.id, reason: 'Foreign Knowledge record has no package-owned source' })) };
+    const result: PortableImportResult = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: foreign.filter(item => !manifest.guidance.some(row => row.slug === item.memory_slug)).map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };
     for (const file of input) if (file.path !== POLICY_MANIFEST && file.path !== 'AGENTS.md' && file.path !== 'MEMORY.md' && !manifest.guidance.some(row => row.path === file.path)) result.skipped.push({ slug: file.path, reason: 'Foreign file absent from the policy inventory' });
     for (const [index, row] of manifest.guidance.entries()) {
       if (skipped.has(row.slug)) continue;
       const previous = current.find(item => item.slug === row.slug);
       const id = ids.get(row.slug)!;
       const body = bodies[index];
-      if (previous === undefined && occupied.has(id)) { skipped.set(row.slug, 'Foreign record occupies the deterministic import id'); continue; }
       if (previous !== undefined) {
         if (previous.source !== 'portable:policy-v1') {
           if (snapshotDigest(previous, previous.body, portableRelationships(previous, current)) !== row.snapshotHash || previous.pinned !== row.pinned) { skipped.set(row.slug, 'Foreign native content differs from the exported guidance'); continue; }
@@ -253,9 +270,9 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     const planned = mutations.filter(mutation => admitted.some(row => ids.get(row.slug) === mutation.id));
     for (const row of admitted) result[decisions.get(row.slug)!]++;
     if (planned.length === 0) return result;
-    const expected = await expectedTargets(store, admitted.map(row => ({ id: ids.get(row.slug)!, slug: row.slug })));
-    const plan = { pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, transactionId, mutations: planned, input: inputHash, result, expected, members: admitted.map(row => ids.get(row.slug)!) };
-    await validateImportPlan(store, plan);
+    const expected = await expectedTargets(store, admitted.map(row => ({ id: ids.get(row.slug)!, slug: row.slug })), corpus);
+    const plan = { pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, ...identity, mutations: planned, input: inputHash, result, expected, initial: expected, members: admitted.map(row => ids.get(row.slug)!) };
+    await validateImportPlan(store, plan, options.onStep);
     await store.register(options.onStep);
     try { await previewItemMutations(plan); } catch (error) { return planError(error); }
     await options.onStep?.('previewed');

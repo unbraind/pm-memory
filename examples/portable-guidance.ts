@@ -7,9 +7,9 @@ export async function portableGuidance(source: string, destination: string, dire
     from: '2026-10-01T00:00:00.000Z', until: '2026-11-01T00:00:00.000Z',
     evidence: 'docs/release-checklist.md: public checklist reviewed',
   });
-  await exportDir(directory, { workspace: source, to: 'agents-md' });
+  const exportReceipt = await exportDir(directory, { workspace: source, to: 'agents-md' });
   // Keep pm-memory-policy.json and the policy marker; edit only the Markdown body.
   const receipt = await importDir(directory, { workspace: destination, from: 'agents-md' });
   const imported = await get('release-policy', { workspace: destination });
-  return { receipt, validity: imported.validity, state: guidanceState(imported, Date.now()) };
+  return { exportReceipt, receipt, validity: imported.validity, state: guidanceState(imported, Date.now()) };
 }

@@ -1,6 +1,7 @@
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm, access } from 'node:fs/promises';
 import { join } from 'node:path';
-import { writeFileAtomic, commitItemMutations, getHistoryPath, readHistoryEntries, hashHistoryStream, certifyCompleteListResult, WorkspaceTransactionInterruptedError, PmClient, hashDocument, canonicalDocument, isPmCliExpectedError, replayHistoryToTarget } from '@unbrained/pm-cli/sdk';
+import { randomUUID } from 'node:crypto';
+import { writeFileAtomic, commitItemMutations, deriveMutationTransactionId, getHistoryPath, readHistoryEntries, hashHistoryStream, certifyCompleteListResult, WorkspaceTransactionInterruptedError, PmClient, isPmCliExpectedError, replayHistoryToTarget } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { replanNodes } from './portable-replan.ts';
 import { digest, MemoryError } from './core.ts';
@@ -8,6 +9,23 @@ import type { PortableImportResult, PortableImportOptions } from './portable.ts'
 import { metadata } from './store.ts';
 import type { Store } from './store.ts';
 import { snapshotDigest, portableRelationships } from './portable.ts';
+import { guardedCompensation, rollbackImport } from './portable-rollback.ts';
+
+/** SDK-derived attempts and the earlier private content/history identity format. */
+const IMPORT_ID = /^memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})$/;
+
+/** A fresh attempt identity survives deletion and is durably recorded in its intent. */
+export async function importIdentity(store: Store, input: string, candidate: string = randomUUID()): Promise<{ attempt: string; transactionId: string }> {
+  for (;;) {
+    const transactionId = `memory-policy-${deriveMutationTransactionId(JSON.stringify([input, candidate]))}`;
+    const occupied = await Promise.all(['', '-nodes', '-snapshot', '-rollback'].map(async suffix => {
+      try { await access(join(store.workspace, 'transactions', 'sdk', `${transactionId}${suffix}.json`)); return true; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw new MemoryError('transaction', 'Portable transaction namespace is unavailable', 'Restore access to transactions/sdk and retry the import'); }
+    }));
+    if (!occupied.some(Boolean)) return { attempt: candidate, transactionId };
+    candidate = randomUUID();
+  }
+}
 
 /** SDK revision identity plus immutable history prefix read while planning. */
 export interface ExpectedTarget {
@@ -23,8 +41,8 @@ export interface ExpectedTarget {
   history: string;
 }
 /** Capture expected target state through the SDK before constructing a batch. */
-export async function expectedTargets(store: Store, targets: readonly Pick<ExpectedTarget, 'id' | 'slug'>[]): Promise<ExpectedTarget[]> {
-  const items = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
+export async function expectedTargets(store: Store, targets: readonly Pick<ExpectedTarget, 'id' | 'slug'>[], observed?: readonly { id: string; updated_at: string }[]): Promise<ExpectedTarget[]> {
+  const items = observed ?? certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
   return Promise.all(targets.map(async target => {
     const item = items.find(item => item.id === target.id);
     const entries = await readHistoryEntries(getHistoryPath(store.workspace, target.id), target.id);
@@ -32,22 +50,27 @@ export async function expectedTargets(store: Store, targets: readonly Pick<Expec
   }));
 }
 /** Halt SDK replay without compensation when a newer native revision must win. */
-class PlanMoved extends WorkspaceTransactionInterruptedError {}
+class PlanMoved extends Error {}
+/** A newly reserved identity occupied by a foreign record produces a skip receipt. */
+class PlanForeign extends PlanMoved {}
 /** A foreign file in the private intent slot must never be overwritten or removed. */
 class ForeignIntent extends WorkspaceTransactionInterruptedError {}
 /** Last observed or published token, separate from mutable next-stage plan values. */
 const intentTokens = new WeakMap<ImportPlan, string>();
+/** Preserve deliberate crash injection even when the SDK wraps compensation errors. */
+function interruption(error: unknown): WorkspaceTransactionInterruptedError | undefined {
+  if (error instanceof WorkspaceTransactionInterruptedError) return error;
+  if (error instanceof AggregateError) return error.errors.map(interruption).find(value => value !== undefined);
+  return undefined;
+}
 /** Refuse a moved plan before any further write, including recovery and SDK boundaries. */
-async function guardPlan(store: Store, plan: ImportPlan, checked = new Map<string, string>()): Promise<void> {
+async function guardPlan(store: Store, plan: ImportPlan): Promise<void> {
   // Read inside the existing fence without recursively acquiring that fence.
   const client = new PmClient({ pmRoot: store.workspace, noExtensions: true });
   const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: true })).items;
   for (const expected of plan.expected) {
     const item = items.find(item => item.id === expected.id);
     if (items.some(row => row.memory_slug === expected.slug && row.id !== expected.id)) throw new PlanMoved('Portable target ownership moved');
-    const document = item === undefined ? undefined : canonicalDocument({ metadata: item, body: String(item.body) });
-    const witness = document === undefined ? 'absent' : hashDocument(document);
-    if (checked.get(expected.id) === witness) continue;
     const entries = await readHistoryEntries(getHistoryPath(store.workspace, expected.id), expected.id);
     const tail = entries.slice(expected.length);
     const mutation = plan.mutations.find(row => row.id === expected.id);
@@ -60,8 +83,8 @@ async function guardPlan(store: Store, plan: ImportPlan, checked = new Map<strin
       }
       return entry.message?.startsWith(`bulk-item-transaction ${plan.transactionId} `) || entry.message?.startsWith(`bulk-item-transaction ${plan.transactionId}-snapshot `) || (entry.op === 'delete' && entry.author === plan.author && entry.message === `Compensate interrupted bulk transaction ${plan.transactionId}-nodes`);
     });
+    if (expected.version === null && item !== undefined && !owned) throw new PlanForeign('Foreign record occupies the reserved import id');
     if (hashHistoryStream(entries.slice(0, expected.length)) !== expected.history || !(unchanged || owned)) throw new PlanMoved('Portable import target revision moved');
-    checked.set(expected.id, witness);
   }
 }
 /** Frozen SDK batch bound to the target history positions that it replaces. */
@@ -72,6 +95,8 @@ export interface ImportPlan {
   author: string;
   /** Target-revision-and-content identity. */
   transactionId: string;
+  /** UUID component bound to the input digest and persisted before the first write. */
+  attempt?: string;
   /** Exact ordered batch retained across interruptions. */
   mutations: BulkItemMutation[];
   /** Frozen SDK read-back provenance batch, retained once captured. */
@@ -84,13 +109,30 @@ export interface ImportPlan {
   members: string[];
   /** Expected native revision/history of every admitted target and dependency. */
   expected: ExpectedTarget[];
+  /** Original pre-import revisions retained across all node/data/provenance stages. */
+  initial?: ExpectedTarget[];
+  /** Monotonic rollback state retained when a refusal itself is interrupted. */
+  refusing?: boolean;
+  /** Earlier attempt identities whose partial writes remain owned during recovery. */
+  ownedTransactions?: string[];
   /** Receipt for the operation being recovered. */
   result: PortableImportResult;
 }
 /** Turn moved-state refusals into the public package error without exposing input data. */
 export function planError(error: unknown): never {
-  if (error instanceof PlanMoved || (isPmCliExpectedError(error) && ['upsert_match_changed', 'upsert_key_conflict', 'item_already_exists'].includes(String(error.code)))) throw new MemoryError('conflict', 'Portable import target revision changed', 'Export current guidance for review. If runtime/memory-policy-import.json exists, preserve it and remove only the verified owned intent after reconciliation, then import the reviewed export');
-  throw error;
+  if (error instanceof MemoryError || error instanceof WorkspaceTransactionInterruptedError) throw error;
+  if (error instanceof PlanMoved || (isPmCliExpectedError(error) && ['upsert_match_changed', 'upsert_key_conflict', 'item_already_exists'].includes(String(error.code)))) throw new MemoryError('conflict', 'Portable import target revision changed', 'Retry the portable import; newer native edits are retained and owned partial changes are compensated');
+  throw new MemoryError('transaction', 'Portable import transaction failed', 'Retry the same input to complete recovery; preserve the owned intent and inspect pm health if recovery refuses');
+}
+/** Every path reads revisions, validates the old read set, then applies SDK CAS. */
+export async function readGuardApply<T>(store: Store, plan: ImportPlan, onStep: PortableImportOptions['onStep'], apply: (expected: ExpectedTarget[]) => Promise<T>): Promise<T> {
+  const expected = await expectedTargets(store, plan.expected);
+  await onStep?.('cas-read');
+  await guardPlan(store, plan);
+  await onStep?.('cas-guarded');
+  // This final check includes dependencies without their own mutation/CAS row.
+  await guardPlan(store, plan);
+  return apply(expected);
 }
 /** Validate each frozen SDK batch and require a target expectation for every mutation. */
 function validBatch(value: unknown, expected: ExpectedTarget[]): value is BulkItemMutation[] {
@@ -126,8 +168,8 @@ async function removeIntent(store: Store, plan: ImportPlan): Promise<boolean> {
 /** Compact refusal when another tool owns the intent slot. */
 export function foreignIntentResult(): PortableImportResult { return { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [{ slug: 'pending-import', reason: 'Foreign pending import record retained' }] }; }
 /** Recover only checksummed package-owned plans; completed plans never suppress a later import. */
-export async function pendingImport(store: Store, onStep?: PortableImportOptions['onStep']): Promise<ImportPlan | undefined | 'foreign'> {
-  if (store.leases.getStore() === undefined) return store.write(() => pendingImport(store, onStep));
+export async function pendingImport(store: Store, onStep?: PortableImportOptions['onStep'], onTransition?: PortableImportOptions['onTransition']): Promise<ImportPlan | undefined | 'foreign'> {
+  if (store.leases.getStore() === undefined) return store.write(() => pendingImport(store, onStep, onTransition));
   let value: unknown;
   try { value = await optionalJson(intentPath(store)); } catch { return 'foreign'; }
   if (value === undefined) return undefined;
@@ -136,21 +178,37 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
   let plan: ImportPlan;
   try {
     plan = JSON.parse(value.payload) as ImportPlan;
-    if (!/^memory-policy-[a-f0-9]{40}$/.test(plan.transactionId) || typeof plan.input !== 'string' || typeof plan.author !== 'string' || !Array.isArray(plan.members) || !plan.members.every(id => typeof id === 'string')) throw new Error();
+    if (!IMPORT_ID.test(plan.transactionId) || typeof plan.input !== 'string' || typeof plan.author !== 'string' || !Array.isArray(plan.members) || !plan.members.every(id => typeof id === 'string')) throw new Error();
     if (plan.nodesDone !== undefined && typeof plan.nodesDone !== 'boolean') throw new Error();
+    if (plan.attempt !== undefined && (typeof plan.attempt !== 'string' || !/^[a-f0-9-]{36}$/.test(plan.attempt))) throw new Error();
+    if (plan.refusing !== undefined && typeof plan.refusing !== 'boolean') throw new Error();
+    if (plan.ownedTransactions !== undefined && (!Array.isArray(plan.ownedTransactions) || !plan.ownedTransactions.every(id => typeof id === 'string' && IMPORT_ID.test(id)))) throw new Error();
     if (!Array.isArray(plan.expected) || !plan.expected.every(row => typeof row.id === 'string' && typeof row.slug === 'string' && (row.version === null || typeof row.version === 'string') && Number.isSafeInteger(row.length) && row.length >= 0 && typeof row.history === 'string')) throw new Error();
+    if (plan.initial !== undefined && (!Array.isArray(plan.initial) || !plan.initial.every(row => row !== null && typeof row === 'object' && typeof row.id === 'string' && plan.expected.some(target => target.id === row.id) && (row.version === null || typeof row.version === 'string')))) throw new Error();
     if (![plan.mutations, ...(plan.nodes === undefined ? [] : [plan.nodes]), ...(plan.snapshots === undefined ? [] : [plan.snapshots])].every(batch => validBatch(batch, plan.expected))) throw new Error();
   } catch { throw new MemoryError('history', 'Invalid portable import plan', 'Preserve and restore the pending import journal before retrying'); }
   intentTokens.set(plan, value.payload);
+  if (plan.refusing) {
+    try { await rollbackImport(store, plan, { workspace: store.workspace, from: 'agents-md', onStep, onTransition }); }
+    catch (error) { return planError(interruption(error) ?? error); }
+    return await removeIntent(store, plan) ? undefined : 'foreign';
+  }
   const journal = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.transactionId}-snapshot.json`));
   if (typeof journal === 'object' && journal !== null && 'status' in journal && journal.status === 'committed') { await onStep?.('recover-published'); return await removeIntent(store, plan) ? undefined : 'foreign'; }
   const data = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.transactionId}.json`));
   if ((typeof data === 'object' && data !== null && 'status' in data && data.status === 'compensated') || (typeof journal === 'object' && journal !== null && 'status' in journal && journal.status === 'compensated')) {
-    try { await guardPlan(store, plan); } catch (error) { return planError(error); }
-    const expected = await expectedTargets(store, plan.expected);
-    const { snapshots: _snapshots, ...prior } = plan;
-    const next = { ...prior, expected, transactionId: `memory-policy-${digest(JSON.stringify([plan.input, expected])).slice(0, 40)}`, mutations: plan.mutations.map(row => ({ ...row, match: { key: 'updated_at', value: expected.find(target => target.id === row.id)!.version } })) };
-    intentTokens.set(next, value.payload); return next;
+    const token = value.payload;
+    try {
+      return await readGuardApply(store, plan, onStep, async expected => {
+        const { snapshots: _snapshots, ...prior } = plan;
+        const next = { ...prior, expected, ownedTransactions: [...(plan.ownedTransactions ?? []), plan.transactionId], ...await importIdentity(store, plan.input), mutations: plan.mutations.map(row => ({ ...row, match: { key: 'updated_at', value: expected.find(target => target.id === row.id)!.version } })) };
+        intentTokens.set(next, token); return next;
+      });
+    } catch (error) {
+      const crash = interruption(error); if (crash !== undefined) throw crash;
+      try { return await refuseImport(store, plan, { workspace: store.workspace, from: 'agents-md', onStep, onTransition }, error); }
+      catch (failure) { if (failure instanceof ForeignIntent) return 'foreign'; return planError(interruption(failure) ?? failure); }
+    }
   }
   return plan;
 }
@@ -165,11 +223,30 @@ async function savePlan(store: Store, plan: ImportPlan): Promise<void> {
 }
 /** Publish or recover a validated plan, returning only typed moved-state refusals. */
 export async function applyImport(store: Store, plan: ImportPlan, options: PortableImportOptions): Promise<PortableImportResult> {
-  try { return await runImport(store, plan, options); } catch (error) { if (error instanceof ForeignIntent) return foreignIntentResult(); return planError(error); }
+  try { return await runImport(store, plan, options); }
+  catch (error) {
+    if (error instanceof ForeignIntent) return foreignIntentResult();
+    const crash = interruption(error); if (crash !== undefined) throw crash;
+    try { return await refuseImport(store, plan, options, error); }
+    catch (failure) {
+      if (failure instanceof ForeignIntent) return foreignIntentResult();
+      if (failure instanceof PlanForeign) return { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: plan.expected.map(row => ({ slug: row.slug, reason: 'Foreign record occupies the reserved import id; dependent plan compensated' })) };
+      return planError(interruption(failure) ?? failure);
+    }
+  }
+}
+/** Complete a recoverable, guarded SDK rollback before clearing only this intent. */
+async function refuseImport(store: Store, plan: ImportPlan, options: PortableImportOptions, error: unknown): Promise<never> {
+  plan.refusing = true;
+  await savePlan(store, plan);
+  await rollbackImport(store, plan, options);
+  await removeIntent(store, plan);
+  if (error instanceof PlanForeign) throw error;
+  return planError(error);
 }
 /** Validate the captured read set before schema writes or SDK preview. */
-export async function validateImportPlan(store: Store, plan: ImportPlan): Promise<void> {
-  try { await guardPlan(store, plan); } catch (error) { return planError(error); }
+export async function validateImportPlan(store: Store, plan: ImportPlan, onStep?: PortableImportOptions['onStep']): Promise<void> {
+  try { await readGuardApply(store, plan, onStep, async () => {}); } catch (error) { return planError(error); }
 }
 /** Persist the frozen plan before the SDK's first write, then remove only that owned intent after commit. */
 async function runImport(store: Store, plan: ImportPlan, options: PortableImportOptions): Promise<PortableImportResult> {
@@ -180,17 +257,14 @@ async function runImport(store: Store, plan: ImportPlan, options: PortableImport
   });
   await savePlan(store, plan);
   await options.onStep?.('intent');
-  const checked = new Map<string, string>();
-  /** Keep the SDK's item-lock CAS and interrupt, rather than compensate over a native edit. */
+  /** Validate every target before writing, and let ordinary refusals compensate. */
   const commit = async (transactionId: string, mutations: BulkItemMutation[]) => {
-    try {
-      await guardPlan(store, plan, checked);
-      await store.fence(() => commitItemMutations({ pmRoot: store.workspace, author: plan.author, transactionId, mutations, createCompensation: 'delete', onTransition: async event => {
-        try { await options.onTransition?.(event); } finally { await guardPlan(store, plan, checked); }
-      } }));
-    } catch (error) {
-      return planError(error);
-    }
+    await readGuardApply(store, plan, options.onStep, async () => {
+      await store.fence(() => guardedCompensation(store, plan, () => commitItemMutations({ pmRoot: store.workspace, author: plan.author, transactionId, mutations, createCompensation: 'delete', onTransition: async event => {
+        await options.onTransition?.(event);
+        if (!event.transition.includes('compensat')) await guardPlan(store, plan);
+      } })));
+    });
   };
   if (plan.nodes !== undefined && !plan.nodesDone) {
     try { await commit(`${plan.transactionId}-nodes`, plan.nodes); }
@@ -198,17 +272,17 @@ async function runImport(store: Store, plan: ImportPlan, options: PortableImport
       if (!isPmCliExpectedError(error) || error.code !== 'item_identity_reserved') throw error;
       const next = await replanNodes(store, plan);
       intentTokens.set(next, intentTokens.get(plan)!);
-      await guardPlan(store, plan, checked);
+      await validateImportPlan(store, plan, options.onStep);
       return runImport(store, next, options);
     }
-    const expected = await expectedTargets(store, plan.expected);
-    await guardPlan(store, plan, checked);
+    await readGuardApply(store, plan, options.onStep, async expected => {
     plan.mutations = plan.mutations.map(row => {
       if (row.op !== 'create') return row;
       const { type: _type, allowDuplicate: _duplicate, ...options } = row.options;
       return { op: 'update', id: row.id, match: { key: 'updated_at', value: expected.find(target => target.id === row.id)!.version }, options: { ...options, allowUnresolvedDeps: false, ...(Array.isArray(options.dep) && options.dep.length > 0 ? { replaceDeps: true } : { clearDeps: true }) } };
     });
     plan.expected = expected; plan.nodesDone = true;
+    });
     await savePlan(store, plan);
     await options.onStep?.('nodes');
   }

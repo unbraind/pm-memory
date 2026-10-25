@@ -33,4 +33,4 @@ export type { ViewField, ConsentPolicy, ConsentLedger, ViewSource, ViewManifest,
 
 /** Versioned portable policy metadata and validated atomic import contracts. */
 export { POLICY_MANIFEST, parsePolicy } from './src/portable.ts';
-export type { PortableRelationship, PortableGuidance, PortablePolicyManifest, PortableImportOptions, PortableImportResult } from './src/portable.ts';
+export type { PortableRelationship, PortableGuidance, PortablePolicyManifest, PortableImportOptions, PortableImportResult, PortableExportResult } from './src/portable.ts';

@@ -1,14 +1,13 @@
 import { readSettings, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import { digest, MemoryError } from './core.ts';
-import { expectedTargets } from './portable-plan.ts';
+import { expectedTargets, importIdentity } from './portable-plan.ts';
 import type { ImportPlan } from './portable-plan.ts';
 import { parsePolicy, type PortableGuidance } from './portable.ts';
 import type { Store } from './store.ts';
 
 /** Rebind compensated creations whose deleted identities remain reserved by SDK history. */
 export async function replanNodes(store: Store, plan: ImportPlan): Promise<ImportPlan> {
-  const replaced = await expectedTargets(store, plan.expected);
-  const transactionId = `memory-policy-${digest(JSON.stringify([plan.input, replaced])).slice(0, 40)}`;
+  const identity = await importIdentity(store, plan.input); const { transactionId } = identity;
   const settings = await readSettings(store.workspace);
   const ids = new Map(plan.expected.map(target => [target.slug, plan.mutations.some(row => row.id === target.id && row.op === 'create') ? `${settings.id_prefix}${digest(`${transactionId}:${target.slug}`).slice(0, 24)}` : target.id]));
   const mutations = plan.mutations.map(mutation => {
@@ -24,5 +23,6 @@ export async function replanNodes(store: Store, plan: ImportPlan): Promise<Impor
     return { ...mutation, id: ids.get(row.slug)!, options: { ...mutation.options, ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: row.relationships.map(({ slug, ...edge }) => ({ id: ids.get(slug)!, ...edge })) }), mutation.op === 'create' ? 'create' : 'update') } };
   });
   const expected = await expectedTargets(store, plan.expected.map(target => ({ id: ids.get(target.slug)!, slug: target.slug })));
-  return { ...plan, transactionId, mutations, expected, members: [...ids.values()], nodes: undefined, nodesDone: false, snapshots: undefined };
+  const initial = (plan.initial ?? plan.expected).map(target => ({ ...target, id: ids.get(target.slug)! }));
+  return { ...plan, ...identity, ownedTransactions: [...(plan.ownedTransactions ?? []), plan.transactionId], mutations, expected, initial, members: [...ids.values()], nodes: undefined, nodesDone: false, snapshots: undefined };
 }

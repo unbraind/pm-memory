@@ -9,7 +9,7 @@ import { digest } from '../src/core.ts';
 import { policyBody } from '../src/portable.ts';
 import { replanNodes } from '../src/portable-replan.ts';
 import { pendingImport, type ImportPlan } from '../src/portable-plan.ts';
-import { tracker, snapshot } from './helpers.ts';
+import { tracker, snapshot, crashAtStep } from './helpers.ts';
 
 /** Build one actual pending-data scenario without mocks or repository discovery. */
 async function pendingScenario(t: Parameters<typeof tracker>[0]) {
@@ -23,7 +23,7 @@ async function pendingScenario(t: Parameters<typeof tracker>[0]) {
 /** Pause a real plan at intent before exercising its persisted recovery contract. */
 async function interruptedScenario(t: Parameters<typeof tracker>[0]) {
   const scenario = await pendingScenario(t);
-  await assert.rejects(importDir(scenario.path, { ...scenario.target.options, from: 'agents-md', onStep: step => { if (step === 'intent') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+  await assert.rejects(importDir(scenario.path, { ...scenario.target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
   return scenario;
 }
 /** Match a typed refusal while checking that it supplies a remedy. */
@@ -74,7 +74,7 @@ test('a native edit after interruption cannot be stamped as imported provenance'
   assert.equal((await target.client.get(id, { full: true })).item.body, 'Native peer edit');
 });
 
-test('relationship inventory rejects malformed edges and unavailable targets before writes', async t => {
+test('relationship inventory rejects malformed local edges and reports external targets', async t => {
   const { source, target, path } = await pendingScenario(t);
   const original = JSON.parse(await readFile(join(path, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
   for (const relationships of [null, [null], [{ slug: 'policy', kind: 'unknown' }], [{ slug: 'policy', kind: 'related', unknown: true }], [{ slug: 'absent', kind: 'related' }]]) {
@@ -86,14 +86,17 @@ test('relationship inventory rejects malformed edges and unavailable targets bef
   const foreign = await source.client.create({ title: 'Native task' });
   const memory = (await source.client.listAllComplete()).items.find(item => item.memory_slug === 'policy')!;
   await source.store.link(memory.id, String(foreign.item.id));
-  await assert.rejects(exportDir(join(source.root, 'refused'), { ...source.options, to: 'agents-md' }), refused);
+  const exported = await exportDir(join(source.root, 'external'), { ...source.options, to: 'agents-md' });
+  assert.ok(exported.omitted_links?.some(row => row.target === foreign.item.id && row.reason === 'missing'));
 });
 
 test('owned recovery plans require every revision and SDK guard in all frozen phases', async t => {
   const { target, path, intent } = await interruptedScenario(t);
   const plan = JSON.parse(JSON.parse(await readFile(intent, 'utf8')).payload) as ImportPlan;
   const invalid: unknown[] = [
-    { ...plan, expected: null }, { ...plan, nodesDone: 'yes' },
+    { ...plan, expected: null }, { ...plan, nodesDone: 'yes' }, { ...plan, refusing: 'yes' }, { ...plan, attempt: 3 }, { ...plan, attempt: 'invalid' },
+    ...[null, [3], ['wrong']].map(ownedTransactions => ({ ...plan, ownedTransactions })),
+    ...[null, [null], [3], [{}], [{ id: 'other', version: null }], [{ id: plan.expected[0].id, version: 3 }]].map(initial => ({ ...plan, initial })),
     ...[null, {}, { ...plan.expected[0], id: 3 }, { ...plan.expected[0], slug: null }, { ...plan.expected[0], version: 3 }, { ...plan.expected[0], length: -1 }, { ...plan.expected[0], length: 0.5 }, { ...plan.expected[0], history: null }].map(row => ({ ...plan, expected: [row] })),
     ...[null, [], { op: 'close' }, { op: 'create', id: 3 }, { op: 'create', id: 'x', options: null }, { op: 'create', id: 'x', options: 3 },
       { ...plan.mutations[0], unique: null }, { ...plan.mutations[0], unique: [] }, { ...plan.mutations[0], unique: { key: 'wrong', value: 'policy' } }, { ...plan.mutations[0], unique: { key: 'memory_slug', value: 3 } },
@@ -117,7 +120,7 @@ test('SDK item-lock CAS errors remain typed and never publish stale data', async
   assert.equal((await target.client.listAllComplete()).items.length, 0);
 });
 
-test('compensated provenance rebinds CAS on retry and refuses edits made after compensation', async t => {
+test('failed provenance compensates the full import and retains later native edits on retry', async t => {
   for (const peer of [false, true]) {
     const { target, path, row } = await pendingScenario(t);
     await importDir(path, { ...target.options, from: 'agents-md' });
@@ -125,12 +128,12 @@ test('compensated provenance rebinds CAS on retry and refuses edits made after c
     await writeFile(join(path, row.path), policyBody(row, 'Retry B'));
     await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onTransition: event => {
       if (event.transactionId.endsWith('-snapshot') && event.transition === 'step_recorded') throw new Error('Provenance publication failure');
-    } }), /Provenance publication failure/);
+    } }), error => error instanceof MemoryError && error.code === 'transaction');
     const native = (await target.client.listAllComplete({ includeBody: true })).items[0];
-    assert.equal(native.body, 'Retry B');
+    assert.equal(native.body, 'Public review policy');
     if (peer) {
       await target.client.update(native.id, { body: 'Peer C' }); const before = await snapshot(target.workspace);
-      await assert.rejects(importDir(path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'conflict');
+      const result = await importDir(path, { ...target.options, from: 'agents-md' }); assert.ok('skipped' in result); assert.equal(result.skipped.length, 1);
       assert.deepEqual(await snapshot(target.workspace), before);
     } else {
       await importDir(path, { ...target.options, from: 'agents-md' });

@@ -112,7 +112,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
   assert.equal(seededA.updated, 1, `MASTER_SEED=${MASTER_SEED}: seed old A applied`);
   const seeded = await readState(base.client);
   assert.deepEqual(seeded.model, initial, `MASTER_SEED=${MASTER_SEED}: SDK-read initial A graph`);
-  const ids = new Map(seeded.items.map(item => [String(item.memory_slug), item.id]));
+  const baseIds = new Map(seeded.items.map(item => [String(item.memory_slug), item.id]));
   let totalSteps = 0; let freshSteps = 0; let freshCases = 0;
   for (let sequence = START; sequence < START + SEQUENCES; sequence++) {
     const seed = (MASTER_SEED + Math.imul(sequence, 0x9e3779b9)) >>> 0; let completed = false;
@@ -122,6 +122,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
       await mkdir(root);
       await cp(base.workspace, workspace, { recursive: true, filter: path => !['runtime', 'locks', 'checkpoints'].includes(relative(base.workspace, path).split('/')[0]) });
       const client = new PmClient({ pmRoot: workspace, noExtensions: true, author: 'memory-test' });
+      const ids = new Map(baseIds);
       const options = { workspace, author: 'memory-test' }; const to = sequence % 2 === 0 ? 'agents-md' : 'claude-code';
       let model = structuredClone(initial); const baseline = new Map(seeded.native); const exports: SavedModel[] = [];
       let operation = 'initialize'; let step = 0; let lastNative = seeded.native; let accepted: string[] = []; const foreign = new Set<string>();
@@ -163,6 +164,17 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
       };
       /** Advance the reference only after a no-edit interrupted batch has recovered. */
       const acceptRecovery = (saved: SavedModel): void => { model = structuredClone(saved.desired); accepted = model.map(row => row.slug); };
+      /** Delete one complete generation, then recreate the same archived input. */
+      const recreate = async (saved: SavedModel, label: string) => {
+        operation = `delete ${label}`;
+        for (const item of (await client.listAllComplete()).items) await client.run('delete', { id: item.id, options: { force: true } });
+        model.splice(0); ids.clear(); await check();
+        operation = `reimport ${label}`;
+        assert.equal((await importDir(saved.path, { ...options, from: to })).imported, 3);
+        model.splice(0, model.length, ...structuredClone(saved.desired)); accepted = model.map(row => row.slug);
+        for (const item of (await client.listAllComplete()).items) ids.set(String(item.memory_slug), item.id);
+        await check();
+      };
       /** Interrupt one of all journal boundaries and predict each durable data mutation. */
       const crash = async (saved: SavedModel, boundary: number, count: number) => {
         let eventIndex = 0;
@@ -206,6 +218,41 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         operation = 'import restore B'; await apply(restoreB); await check();
         operation = 'restore older native body'; await client.update(ids.get('alpha')!, { body: restore.desired.find(row => row.slug === 'alpha')!.body }); model.find(row => row.slug === 'alpha')!.body = restore.desired.find(row => row.slug === 'alpha')!.body; await check();
         operation = 'retry restore B'; await apply(restoreB); await check();
+        // Deletion must not return the import identity to a completed generation.
+        await recreate(restoreB, 'imported memories');
+        operation = 'retry recreated generation'; await apply(restoreB); await check();
+        await recreate(restoreB, 'recreated generation');
+        const midBase = await save(); const midInput = await variant(midBase, `Atomic alpha ${random()}`);
+        const midBeta = `Atomic beta ${random()}`; await writeBody(midInput.path, midBeta, 'beta'); midInput.desired.find(row => row.slug === 'beta')!.body = midBeta;
+        operation = 'mid-batch precondition refusal leaves memories unchanged';
+        const midPeer = `Atomic peer policy ${random()}`; let midInjected = false; let midRefusal: unknown;
+        try { await importDir(midInput.path, { ...options, from: to, onTransition: async event => {
+          if (!midInjected && event.transition === 'step_applied') { midInjected = true; await client.update(ids.get('policy')!, { body: midPeer }); }
+        } }); } catch (error) { midRefusal = error; }
+        model.find(row => row.slug === 'policy')!.body = midPeer; await check();
+        assert.ok(midRefusal instanceof MemoryError && midRefusal.remedy.length > 0);
+        operation = 'retry mid-batch refusal'; await apply(midInput); await check();
+        // Sample EVERY shared-helper read/guard/apply boundary in all three paths.
+        const mode = ['fresh', 'interrupted', 'compensated'][sequence % 3];
+        const boundary = Math.floor(sequence / 3) % (mode === 'interrupted' ? 4 : 6);
+        const raceBase = await save(); const raceInput = await variant(raceBase, `Recovery boundary ${random()}`);
+        operation = 'prepare recovery boundary';
+        if (mode === 'interrupted') await assert.rejects(importDir(raceInput.path, { ...options, from: to, onStep: step => { if (step === 'intent') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+        if (mode === 'compensated') await assert.rejects(importDir(raceInput.path, { ...options, from: to, onTransition: event => {
+          if (event.transition === 'step_recorded') throw new Error('Begin model compensation');
+          if (event.transition === 'compensated') throw new WorkspaceTransactionInterruptedError();
+        } }), WorkspaceTransactionInterruptedError);
+        await check();
+        operation = `peer edit at ${mode} read guard CAS boundary ${boundary}`;
+        const peerSlug = sequence % 2 === 0 ? 'policy' : 'alpha'; const peerBody = `Peer recovery C ${random()}`; let casIndex = 0; let injected = false;
+        await assert.rejects(importDir(raceInput.path, { ...options, from: to, onStep: async step => {
+          if (step.startsWith('cas-') && casIndex++ === boundary) { await client.update(ids.get(peerSlug)!, { body: peerBody }); injected = true; }
+        } }), error => error instanceof MemoryError && error.remedy.length > 0);
+        assert.equal(injected, true, `seed=${seed} mode=${mode} boundary=${boundary}`);
+        model.find(row => row.slug === peerSlug)!.body = peerBody; await check();
+        operation = 'retry after compensated refusal'; await apply(raceInput); await check();
+        operation = 'export recovery rebase'; const recoveredBase = await save(); await check();
+        operation = 'import recovery rebase'; await apply(recoveredBase); await check();
         // Multi-target crash/recovery: every mutation and both commits are sampled.
         operation = 'export crash base'; const crashBase = await save(); await check();
         operation = 'multi-target crash input'; const crashInput = await variant(crashBase, `Crash alpha ${random()}`);
@@ -269,8 +316,16 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           /** Complete an untouched plan or retain the foreign component verbatim. */
           const retryFresh = async () => {
             if (moved) {
-              try { const result = await importDir(input.path, { ...options, from: to }); assert.ok('skipped' in result); assert.deepEqual(result.skipped.map(row => row.slug).sort(), ['alpha', 'beta']); assert.ok(result.skipped.every(row => row.reason.includes('Foreign'))); }
+              // Before the node-stage readback, a moved reserved creation refuses
+              // the entire atomic plan; its later fresh retry can admit policy.
+              const refusedReservation = boundary === 9 && freshModel.some(row => row.slug === 'beta');
+              let completed = false;
+              try { const result = await importDir(input.path, { ...options, from: to }); assert.ok('skipped' in result); assert.deepEqual(result.skipped.map(row => row.slug).sort(), refusedReservation ? ['alpha', 'beta', 'policy'] : ['alpha', 'beta']); assert.ok(result.skipped.every(row => row.reason.includes('Foreign'))); completed = !refusedReservation; }
               catch (error) { assert.ok(error instanceof MemoryError && error.code === 'conflict'); }
+              // Refusal restores owned creations; a later fresh retry may admit
+              // the independent policy while retaining the foreign component.
+              const fullyCommitted = boundary === 27 || boundary === 30;
+              if (!fullyCommitted) freshModel = completed ? [freshModel.find(row => row.slug === 'alpha')!, structuredClone(input.desired.find(row => row.slug === 'policy')!)] : [freshModel.find(row => row.slug === 'alpha')!];
               const native = (await client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!;
               assert.equal(native.memory_source, 'foreign:model');
             } else {
@@ -290,7 +345,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
     });
     assert.equal(completed, true, `MASTER_SEED=${MASTER_SEED} SEQUENCE_SEED=${seed}: sequence did not complete`);
   }
-  assert.equal(totalSteps, SEQUENCES * 33);
+  assert.equal(totalSteps, SEQUENCES * 45);
   assert.equal(freshCases, 1);
   t.diagnostic(`MODEL_BATCH start=${START} count=${SEQUENCES} SDK-read steps=${totalSteps + freshSteps} MASTER_SEED=0x${MASTER_SEED.toString(16)} fresh-cases=${freshCases} fresh-steps=${freshSteps}`);
 });

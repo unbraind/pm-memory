@@ -3,10 +3,11 @@ import { constants } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { parse } from 'yaml';
+import { certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { metadata, Store } from './store.ts';
-import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody } from './portable.ts';
-import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult } from './portable.ts';
+import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, foreignMemories } from './portable.ts';
+import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult } from './portable.ts';
 import type { Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
 
 /** A parsed source document with its exact original bytes retained separately. */
@@ -236,14 +237,22 @@ function exportedReferences(bytes: Buffer, memories: readonly Memory[], targets:
   }));
 }
 /** Export exact imported bytes when semantically unchanged, with conflict-safe native generation otherwise. */
-export async function exportDir(path: string, options: MemoryOptions & { to: Exclude<Harness, 'cursor'>; onStep?: (step: string) => void | Promise<void> }): Promise<{ exported: number; byte_preserved: number }> {
+export async function exportDir(path: string, options: MemoryOptions & { to: Exclude<Harness, 'cursor'>; onStep?: (step: string) => void | Promise<void> }): Promise<PortableExportResult> {
   harness(options.to, true);
   const store = new Store(options);
   return store.write(async () => {
-    const memories = await store.read();
+    const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
+    const foreign = foreignMemories(corpus);
+    const memories = await store.read(new Set(corpus.filter(item => !foreign.some(record => record.id === item.id)).map(item => item.id)), corpus);
+    const foreignReceipt = foreign.length === 0 ? {} : { skipped: foreign.map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };
     if (memories.some(item => item.consent !== undefined && item.status !== 'canceled' && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
-    if (memories.some(item => item.validity !== undefined && item.status !== 'canceled' && !item.artifact)) {
-      const active = memories.filter(item => item.status !== 'canceled' && !item.artifact).sort((a, b) => a.slug.localeCompare(b.slug));
+    const active = memories.filter(item => item.status !== 'canceled' && !item.artifact).sort((a, b) => a.slug.localeCompare(b.slug));
+    const omitted_links: NonNullable<PortableExportResult['omitted_links']> = active.flatMap(item => item.relationships.flatMap(edge => {
+        if (active.some(target => target.id === edge.id)) return [];
+        const target = memories.find(target => target.id === edge.id);
+        return [{ slug: item.slug, target: edge.id, kind: edge.kind, reason: target === undefined ? 'missing' as const : target.status === 'canceled' ? 'canceled' as const : 'artifact' as const }];
+    }));
+    if (active.some(item => item.validity !== undefined)) {
       const guidance = await Promise.all(active.map(item => policyRecord(store, item, active)));
       const manifest: PortablePolicyManifest = { version: 1, format: 'pm-memory-policy', harness: options.to, guidance };
       const outputs = new Map<string, Buffer>([[POLICY_MANIFEST, Buffer.from(JSON.stringify(manifest, null, 2) + '\n')]]);
@@ -251,7 +260,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       const index = guidance.map(row => `- [${row.slug}](${row.path})${row.validity === null ? '' : ` [${row.validity.from}, ${row.validity.until}); retain policy manifest and renewal evidence`}`).join('\n');
       outputs.set(options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md', Buffer.from(`<!-- pm-memory-policy:v1; keep ${POLICY_MANIFEST} -->\n${index}\n`));
       await store.fence(() => publish(resolve(path), outputs, options.onStep));
-      return { exported: outputs.size, byte_preserved: 0 };
+      return { exported: outputs.size, byte_preserved: 0, ...foreignReceipt, ...(omitted_links.length === 0 ? {} : { omitted_links }) };
     }
     const indexName = options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md';
     const names = new Set([indexName.toLowerCase()]);
@@ -308,6 +317,6 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       if (!resolved.equals(bytes)) { outputs.set(name, resolved); preserved.delete(name); }
     }
     await store.fence(() => publish(resolve(path), outputs, options.onStep));
-    return { exported: outputs.size, byte_preserved: preserved.size };
+    return { exported: outputs.size, byte_preserved: preserved.size, ...foreignReceipt, ...(omitted_links.length === 0 ? {} : { omitted_links }) };
   });
 }
