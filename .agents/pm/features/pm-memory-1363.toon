@@ -2,15 +2,16 @@ id: pm-memory-1363
 title: Preserve guidance validity in portable harness round trips
 description: Define interoperable policy-window metadata and renewal history for portable harness files.
 type: Feature
+pm_format_version: 2
 status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T22:03:10.834Z"
-updated_at: "2026-10-25T03:17:28.276Z"
+updated_at: "2026-10-25T04:16:52.796Z"
 author: codex-agent
 acceptance_criteria: Bounded guidance can round trip without becoming unbounded or silently losing evidence; imported windows are validated before writes.
 parent: pm-memory-0kwy
-comments[12]{created_at,author,text}:
+comments[14]{created_at,author,text}:
   "2026-10-25T01:04:43.613Z",codex-agent,"Claimed portable policy-window work. Design inspection: existing transfer refuses bounded guidance and sequential imports can partially publish. Investigating SDK transactions and existing lease/history surfaces before selecting an atomic import contract. Will preserve window evidence and renewal ancestry, reject broadened or removed bounds, and validate in non-git trackers with crash and competing-writer boundaries."
   "2026-10-25T01:15:25.678Z",codex-agent,"Implemented versioned policy inventory plus editable body files, exact window and renewal validation, full-batch SDK preview/commit, deterministic recovery ids, foreign-record skips, and staged export publication. Targeted suite: 24 passed before the final update/rollback and independent-export tests were added. Randomized sets cover both harnesses, mixed bounded/unbounded guidance, kinds, tags and renewal counts. Existing unbounded byte-preserving transfers remain supported. CI now invokes the explicit npm release:check gate as well as the existing Bun gate; local full release gates are intentionally deferred to CI on this saturated host."
   "2026-10-25T01:17:54.916Z",codex-agent,"Read-only public-copy validation passed: 17 public items, 6 nonempty bodies, 232693 projected input bytes; 17 derived scenario guidance records, 34 renewal records retained per harness, 19 exported files per harness, all 17 unchanged on identical retries, zero lost windows/evidence, edited bodies needs-renewal. Every source file was permission-protected and its aggregate fingerprint remained unchanged. Evidence: docs/portable-guidance-validation.md. The first unrestricted read created only SDK runtime metadata caches, so the measured run used an independently extracted read-only copy."
@@ -23,6 +24,8 @@ comments[12]{created_at,author,text}:
   "2026-10-25T03:11:14.421Z",codex-agent,"Three focused regressions now pass: A/B/A updates read back as A; newline/CRLF imports retry without false native-edit skips; mixed bounded/unbounded graph edges retain kinds and targets, including removals. Revert proofs in isolated snapshots: content-only transaction identity fails older-manifest replay (0 pass/1 fail); raw-body provenance comparison fails whitespace retries (0/1); removing exported relationships fails the mixed graph round trip (0/1). The normalized baseline is captured from SDK reads after writes and committed in a second recoverable batch. Target history anchors plus the frozen pending plan cover both stages; expanded create/update crash tests pass (14 SDK transitions for two records). The 500-sequence model is running."
   "2026-10-25T03:13:23.140Z",codex-agent,"The review model has passed more than 380 independent sequences so far without a failure. It compares complete semantic content, bounds, and relationship targets/kinds against a reference model after every step, using raw SDK-read normalized snapshots only as the provenance oracle. Expanded boundary testing passes: both SDK data and provenance transactions recover from every create/update transition; foreign or corrupt pending records are skipped or refused without adoption. Targeted coverage measured portable-plan.ts at 100% in all four dimensions. Portable relationship metadata is now required in the Memory SDK projection, preventing callers from accidentally representing a native graph only as an untyped id list."
   "2026-10-25T03:17:25.138Z",codex-agent,"Model property PASS: 500 independent seeded sequences, 7500 complete SDK-read state comparisons, master seed 0x1363cafe (325307134), per-sequence seed = (master + imul(index, 0x9e3779b9)) >>> 0. Operations: export, import archived/older manifests with A/B/A, native body/description/relationship edits, leading/trailing whitespace and CRLF variants, link additions/removals, mixed bounded/unbounded guidance, final native rebase and import(X)==X. Zero failures, skips or cancellations. Each failure prints master seed, sequence seed, operation and step. Three targeted review regressions pass; targeted crash/compensation tests pass; four pending-plan/relationship validation tests pass. Source typecheck, lint, docstrings and zero duplication pass. SDK gaps retained: PmClient has no bound batch helper; previewItemMutations does not expose normalized staged values, so provenance uses actual SDK write/read capture; no public journal-status reader is exposed, so the owned SDK snapshot journal is inspected read-only for completion. Native SDK edge import reasserts author_source; kinds, targets, author/time/source data and original input remain retained."
+  "2026-10-25T04:11:33.436Z",codex-agent,"CI c6a1567: npm and Bun on Node 26 each passed 272 tests, 2 packed acceptance tests, 500 sequences/7500 state checks and 100% coverage across 28 sources. Node 22 passed its other 271 tests but hit the 30-minute model-test timeout after 100 sequences (no assertion failure). Clock-only profiling showed no meaningful improvement. Optimized the harness instead: one certified SDK read now supplies both independent model checks and normalized provenance, and each case clones a verified initial A state INCLUDING completed journals instead of redundantly recreating it. Every case still performs A/B/A, six random operations, final rebase, and 15 SDK-read checks; all 500 sequences and 7500 checks are retained. Per-sequence subtests bound test-runner resources and expose seeds individually; the full-case time allowance is 90 minutes. Production fixes and coverage thresholds are unchanged. Local Node 22 coverage profile passes all 10 sampled sequences/150 checks. The unchanged full 500-sequence optimized run is active locally."
+  "2026-10-25T04:16:49.717Z",codex-agent,"Harness optimization retains the full reference model, operation alphabet, seed formula and 7500 sequence-step SDK assertions. It seeds and verifies A/B/A once via SDK, copies the completed A journals into each independent tracker, then tests the exact A retry, B update and older A replay in every sequence. Each step performs one complete SDK read shared by content/graph assertions and the read-back provenance oracle; native snapshots are accepted as baselines only after content/graph equality passes. Each sequence has its own subtest and fail-fast completion assertion. The default count remains 500, with six random operations plus the fixed replay/rebase steps. No SDK mocks, skip paths or reduced coverage thresholds were added. Typecheck, lint and zero duplication pass after the optimization."
 files[14]{path,scope}:
   .github/workflows/ci.yml,project
   index.ts,project
@@ -55,12 +58,14 @@ tests[3]:
       source_ref: feat/portable-guidance-windows
   - command: node --test test/portable-model.test.ts
     scope: project
-    timeout_seconds: 1800
+    timeout_seconds: 5400
     provenance:
       author: codex-agent
       created_at: "2026-10-25T03:11:13.234Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
+    updated_by: codex-agent
+    updated_at: "2026-10-25T04:11:31.988Z"
 docs[4]{path,scope}:
   docs/portable-guidance-validation.md,project
   examples/portable-guidance.ts,project
