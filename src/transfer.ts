@@ -244,7 +244,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     if (memories.some(item => item.consent !== undefined && item.status !== 'canceled' && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
     if (memories.some(item => item.validity !== undefined && item.status !== 'canceled' && !item.artifact)) {
       const active = memories.filter(item => item.status !== 'canceled' && !item.artifact).sort((a, b) => a.slug.localeCompare(b.slug));
-      const guidance = await Promise.all(active.map(item => policyRecord(store, item)));
+      const guidance = await Promise.all(active.map(item => policyRecord(store, item, active)));
       const manifest: PortablePolicyManifest = { version: 1, format: 'pm-memory-policy', harness: options.to, guidance };
       const outputs = new Map<string, Buffer>([[POLICY_MANIFEST, Buffer.from(JSON.stringify(manifest, null, 2) + '\n')]]);
       for (const [index, row] of guidance.entries()) outputs.set(row.path, policyBody(row, active[index].body));

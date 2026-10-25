@@ -204,12 +204,12 @@ Invalid bounds or policy, nonstanding targets and exhausted revisions produce `M
 
 ## Portable policy windows
 
-`memory export` automatically writes the version 1 policy format when any active
-memory is bounded. Both `--to agents-md` and `--to claude-code` produce
-`pm-memory-policy.json`, `memories/<slug>.md` body files and the harness index.
-Keep this directory together. The index links to bodies and labels inclusive
-start/exclusive end bounds; it never duplicates bounded text as unbounded advice.
-A standalone exported body or index refuses import without its manifest.
+`memory export` automatically writes the version 1 policy format when any active memory
+is bounded. Both `--to agents-md` and `--to claude-code` produce `pm-memory-
+policy.json`, `memories/<slug>.md` body files and the harness index. Keep this directory
+together. The index links to bodies and labels inclusive start/exclusive end bounds; it
+never duplicates bounded text as unbounded advice. A standalone exported body or index
+refuses import without its manifest.
 
 ```sh
 pm memory export ./policy-copy --to agents-md
@@ -218,47 +218,60 @@ pm memory import ./policy-copy --from agents-md --json
 pm memory get release-policy --json
 ```
 
-The exported `PortablePolicyManifest` contains an explicit format/version/harness,
-a complete guidance inventory, semantic metadata, pin state, an exported content
-snapshot hash, the latest `GuidanceWindow`, and every renewal in revision order.
-Each renewal retains `from`, `until`, `recordedAt`, `revision`, `contentHash` and
-`evidence` verbatim. Evidence may reference reviewed documents or public tracker
-items. It remains an author's assertion. Earlier evidence is retained in native
-history and the registered `memory_renewals` field after import and re-export.
-Unbounded entries explicitly carry `validity: null` and an empty renewal list.
+The exported `PortablePolicyManifest` contains an explicit format/version/harness, a
+complete guidance inventory, semantic metadata, typed native relationships with portable
+targets, pin state, an exported content snapshot hash, the latest `GuidanceWindow`, and
+every renewal in revision order. Each renewal retains `from`, `until`, `recordedAt`,
+`revision`, `contentHash` and `evidence` verbatim. Evidence may reference reviewed
+documents or public tracker items. It remains an author's assertion. Earlier evidence is
+retained in native history and the registered `memory_renewals` field after import and
+re-export. Unbounded entries explicitly carry `validity: null` and an empty renewal
+list.
 
-Body markers bind their manifest policy and pin state. Body edits preserve the
-old evidence digest, so changed guidance becomes `needs-renewal`; import never
-renews it implicitly. Changing bounds, removing evidence, skipping/reordering
-renewals, changing the policy marker, missing bodies, unknown keys/versions and
-noncanonical timestamps refuse with `MemoryError.code === 'validity'` and a
-restore/renew remedy (CLI exit 2). Restore the original export before using
-`memory renew` with fresh evidence to author a new window. Independent native
-content or pin edits are skipped with a reason. A newer native renewal refuses
-an older import. Adjacent files outside the inventory are skipped with reasons.
-These integrity checks are not signatures: import only trusted exports; a party
-that rewrites both the manifest and its markers can author a different policy.
+Body markers bind their manifest policy and pin state. Body edits preserve the old
+evidence digest, so changed guidance becomes `needs-renewal`; import never renews it
+implicitly. Changing bounds, removing evidence, skipping/reordering renewals, changing
+the policy marker, missing bodies, unknown keys/versions and noncanonical timestamps
+refuse with `MemoryError.code === 'validity'` and a restore/renew remedy (CLI exit 2).
+Restore the original export before using `memory renew` with fresh evidence to author a
+new window. Independent native content or pin edits are skipped with a reason. A newer
+native renewal refuses an older import. Adjacent files outside the inventory are skipped
+with reasons. These integrity checks are not signatures: import only trusted exports; a
+party that rewrites both the manifest and its markers can author a different policy.
 
-Imports validate the complete manifest, every body, privacy and existing policy
-ancestry before registering fields. The SDK previews the complete item batch,
-then commits it under the package writer lease using `commitItemMutations` with
-stable transaction and item ids. Interrupted batches resume on the same input;
-ordinary commit failures use SDK history-preserving compensation. This is logical
-atomicity with durable recovery, not isolated snapshot visibility for unrelated
-tracker readers. Schema registration is idempotent and precedes the item batch.
-The lease covers the state read, planning, preview and publication, and releases
-last. Direct writers outside this package must coordinate separately.
-Exports stage their complete directory and publish with a rename; matching peer
-publication succeeds, differing publication refuses without overwriting it.
+Imports validate the complete manifest, every body, privacy and existing policy ancestry
+before registering fields. The SDK previews the complete item batch, then commits it
+under the package writer lease using `commitItemMutations` with transaction ids bound to
+input plus target history positions. A checksummed, lease-owned pending plan freezes
+item ids and SDK batches for crash replay. A/B/A imports therefore apply A again after
+B. Interrupted batches resume on the same input; ordinary SDK batch failures use
+history-preserving compensation. After storing the data batch, the importer reads values
+back through the SDK and commits its normalized provenance baseline as a second
+recoverable batch. Native edits during an interrupted capture refuse rather than being
+stamped as imported. Raw input whitespace is never compared with stored values to
+classify native edits. This is logical atomicity with durable recovery, not isolated
+snapshot visibility for unrelated tracker readers. Schema registration is idempotent and
+precedes the item batch. The lease covers the state read, planning, preview and
+publication, and releases last. Direct writers outside this package must coordinate
+separately. Relationship target ids are remapped to portable slugs and back, including
+kinds, source references and author/time provenance; SDK edge authorship is reasserted
+by its native mutation path. Updates replace the relationship set, including removals. A
+target absent from the inventory refuses before writes; non-memory native targets must
+remain in their native tracker. Exports stage their complete directory and publish with
+a rename; matching peer publication succeeds, differing publication refuses without
+overwriting it.
 
-The existing CLI commands return compact host TOON or `--json` counts; policy
-imports also return `skipped: [{slug, reason}]`. Bodies and renewal histories are
-kept in files rather than echoed in the receipt. SDK clients use `importDir`,
-`exportDir`, `PortableImportOptions`, `PortableImportResult`, `PortableGuidance`,
-`PortablePolicyManifest` and the pure `parsePolicy` validator. See the
-[typed example](examples/portable-guidance.ts) and
-[public-tracker validation](docs/portable-guidance-validation.md).
-
+The existing CLI commands return compact host TOON or `--json` counts; policy imports
+also return `skipped: [{slug, reason}]`. Bodies and renewal histories are kept in files
+rather than echoed in the receipt. SDK clients use `importDir`, `exportDir`,
+`PortableImportOptions`, `PortableImportResult`, `PortableGuidance`,
+`PortablePolicyManifest` and the pure `parsePolicy` validator. See the [typed
+example](examples/portable-guidance.ts) and [public-tracker validation](docs/portable-
+guidance-validation.md). The state-machine property executes 500 independent seeded
+sequences (master seed `0x1363cafe`) with 7,500 SDK-read state checks over both
+harnesses, older-manifest replays, native body/field/relationship edits,
+whitespace/CRLF, link additions/removals and mixed bounded/unbounded guidance. Every
+failing sequence prints its master seed, sequence seed, operation and step.
 ### Without git
 
 Policy import/export, renewal and retrieval work in initialized plain directories,

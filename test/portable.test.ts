@@ -149,7 +149,7 @@ test('SDK transaction crashes at every transition resume without duplicate items
   const { source, valid, row } = await twoPolicies(t);
   const probe = await tracker(t); const boundaries: string[] = [];
   await importDir(source.path, { ...probe.options, from: 'agents-md', onTransition: event => { boundaries.push(`${event.transition}:${event.stepId ?? ''}`); } });
-  assert.equal(boundaries.length, 7);
+  assert.equal(boundaries.length, 14);
   for (let index = 0; index < boundaries.length; index++) {
     const target = await tracker(t); let step = 0;
     await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onTransition: () => { if (step++ === index) throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
@@ -164,7 +164,7 @@ test('SDK transaction crashes at every transition resume without duplicate items
 
 test('competing imports injected at every transaction boundary share one non-git tracker and report peer success', async t => {
   const source = await fixture(t);
-  for (let boundary = 0; boundary < 5; boundary++) {
+  for (let boundary = 0; boundary < 10; boundary++) {
     const target = await tracker(t); let step = 0; let peer: ReturnType<typeof importDir> | undefined;
     const first = await importDir(source.path, { ...target.options, from: 'agents-md', onTransition: () => { if (step++ === boundary) peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' }); } });
     assert.equal(first.imported, 1); assert.ok(peer);
@@ -243,7 +243,7 @@ test('missing manifests and foreign native records are refused or skipped with e
 test('updates recover and compensate at every SDK write boundary with no duplicate or lost evidence', async t => {
   const { source, valid } = await twoPolicies(t);
   const target = await tracker(t); await importDir(source.path, { ...target.options, from: 'agents-md' });
-  for (let boundary = 0; boundary < 7; boundary++) {
+  for (let boundary = 0; boundary < 14; boundary++) {
     const expected = `Policy harness edit ${boundary}`;
     for (const row of valid.guidance) await writeFile(join(source.path, row.path), policyBody(row, expected));
     let step = 0;
@@ -285,7 +285,8 @@ test('foreign deterministic identities and malformed package provenance are skip
   const source = await fixture(t); const target = await tracker(t);
   const valid = parsePolicy(await manifest(source.path)); const row = valid.guidance[0];
   const body = (await readFile(join(source.path, row.path), 'utf8')).slice(policyBody(row, '').length);
-  const transactionId = `memory-policy-${digest(JSON.stringify([valid, [body]])).slice(0, 40)}`;
+  const inputHash = digest(JSON.stringify([valid, [body]]));
+  const transactionId = `memory-policy-${digest(JSON.stringify([inputHash, []])).slice(0, 40)}`;
   const id = `${(await readSettings(target.workspace)).id_prefix}${digest(`${transactionId}:${row.slug}`).slice(0, 24)}`;
   await target.client.run('create', { options: { title: 'Foreign deterministic identity', id } });
   const result = await importDir(source.path, { ...target.options, from: 'agents-md' });

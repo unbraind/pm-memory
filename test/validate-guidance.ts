@@ -13,7 +13,7 @@ mock.timers.enable({ apis: ['Date'], now });
 const client = new PmClient({ pmRoot: workspace, noExtensions: true });
 const corpus = certifyCompleteListResult(await client.listAllComplete({ includeBody: true }));
 const memories: Memory[] = corpus.items.map((item, position) => {
-  const memory: Memory = { id: item.id, slug: item.id, title: item.title, description: item.description, body: String(item.body), kind: 'project', why: '', how: '', pinned: true, source: 'public-tracker:read-only-projection', updated: item.updated_at, merge: '', recalls: 0, verdict: 'unknown', status: 'open', tags: item.tags, path: '', original: '', edited: false, artifact: false, links: [] };
+  const memory: Memory = { id: item.id, slug: item.id, title: item.title, description: item.description, body: String(item.body), kind: 'project', why: '', how: '', pinned: true, source: 'public-tracker:read-only-projection', updated: item.updated_at, merge: '', recalls: 0, verdict: 'unknown', status: 'open', tags: item.tags, path: '', original: '', edited: false, artifact: false, relationships: [], links: [] };
   const state = position % 4;
   memory.validity = { from: state === 2 ? '2026-11-01T00:00:00.000Z' : '2026-10-01T00:00:00.000Z', until: state === 1 ? '2026-10-20T00:00:00.000Z' : '2026-12-01T00:00:00.000Z', evidence: 'Validation scenario over read-only public tracker text', recordedAt: '2026-10-01T00:00:00.000Z', contentHash: state === 3 ? '0'.repeat(64) : guidanceHash(memory), revision: 1 };
   return memory;

@@ -9,7 +9,7 @@ import { writerLock } from './writer-lock.ts';
 
 /** All memory metadata uses registered SDK fields, including lossless source artifacts. */
 export const MEMORY_FIELDS: SchemaFieldDefinition[] = [
-  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility', 'consent', 'renewals'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
+  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility', 'consent', 'renewals', 'import_snapshot'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
   ...['pinned', 'edited', 'artifact'].map(name => ({ name: `memory_${name}`, type: 'boolean' as const, optional: true })),
   { name: 'memory_recalls', type: 'number', optional: true },
 ];
@@ -94,7 +94,7 @@ export class Store {
       if (!Number.isSafeInteger(recalls) || recalls < 0) throw new MemoryError('schema', 'Invalid memory recall counter', 'Restore a nonnegative integer counter through pm update');
       const verdict = item.memory_verdict ?? 'unknown';
       if (!['verified', 'stale', 'unknown'].includes(String(verdict))) throw new MemoryError('schema', 'Invalid memory verdict', 'Use verified, stale or unknown');
-      result.push({ ...(item.memory_consent === undefined ? {} : { consent: String(item.memory_consent) }), validity: readWindow(item.memory_validity), id: item.id, slug: key, title: item.title, description: item.description, reason: String(item.memory_reason ?? ''), body: String(item.body), kind: kind(item.memory_kind), why: String(item.memory_why ?? ''), how: String(item.memory_how ?? ''), pinned: item.memory_pinned === true, source: String(item.memory_source ?? 'native:item'), updated: String(item.memory_changed_at ?? item.created_at), merge: String(item.memory_merge ?? ''), recalls, verdict: verdict as Memory['verdict'], status: item.status, tags: item.tags, path: String(item.memory_path ?? ''), original: String(item.memory_original ?? ''), edited: item.memory_edited === true, artifact: item.memory_artifact === true, links: (item.dependencies ?? []).map(edge => edge.id), supersedes: (item.dependencies ?? []).filter(edge => edge.kind === 'supersedes').map(edge => edge.id) });
+      result.push({ ...(item.memory_consent === undefined ? {} : { consent: String(item.memory_consent) }), importSnapshot: item.memory_import_snapshot === undefined ? undefined : String(item.memory_import_snapshot), validity: readWindow(item.memory_validity), id: item.id, slug: key, title: item.title, description: item.description, reason: String(item.memory_reason ?? ''), body: String(item.body), kind: kind(item.memory_kind), why: String(item.memory_why ?? ''), how: String(item.memory_how ?? ''), pinned: item.memory_pinned === true, source: String(item.memory_source ?? 'native:item'), updated: String(item.memory_changed_at ?? item.created_at), merge: String(item.memory_merge ?? ''), recalls, verdict: verdict as Memory['verdict'], status: item.status, tags: item.tags, path: String(item.memory_path ?? ''), original: String(item.memory_original ?? ''), edited: item.memory_edited === true, artifact: item.memory_artifact === true, relationships: item.dependencies ?? [], links: (item.dependencies ?? []).map(edge => edge.id), supersedes: (item.dependencies ?? []).filter(edge => edge.kind === 'supersedes').map(edge => edge.id) });
     }
     return result;
   }

@@ -1,4 +1,4 @@
-import type { PmClient } from '@unbrained/pm-cli/sdk';
+import type { PmClient, Dependency } from '@unbrained/pm-cli/sdk';
 
 /** Supported semantic memory classes shared by every harness. */
 export const KINDS = ['user', 'feedback', 'project', 'reference'] as const;
@@ -46,6 +46,8 @@ export interface Memory {
   id: string;
   /** Encoded source consent and text-free output lineage; absence is legacy unscoped data. */
   consent?: string;
+  /** Digest of the SDK-read normalized imported state, used to detect independent edits. */
+  importSnapshot?: string;
   /** Latest evidence-backed policy window, if explicitly bounded. */
   validity?: GuidanceWindow;
   /** Stable memory key. */
@@ -88,6 +90,8 @@ export interface Memory {
   edited: boolean;
   /** Directory indexes are lossless artifacts rather than facts. */
   artifact: boolean;
+  /** Complete typed native edges retained by portable policy transfers. */
+  relationships: Dependency[];
   /** Native relationship targets used by generated export. */
   links: string[];
   /** Native supersession targets, distinct from general related links. */
