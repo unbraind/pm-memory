@@ -9,7 +9,7 @@ import { writerLock } from './writer-lock.ts';
 
 /** All memory metadata uses registered SDK fields, including lossless source artifacts. */
 export const MEMORY_FIELDS: SchemaFieldDefinition[] = [
-  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility', 'consent'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
+  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility', 'consent', 'renewals'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
   ...['pinned', 'edited', 'artifact'].map(name => ({ name: `memory_${name}`, type: 'boolean' as const, optional: true })),
   { name: 'memory_recalls', type: 'number', optional: true },
 ];
@@ -67,14 +67,16 @@ export class Store {
     return lease === undefined ? publish() : lease.fence(publish);
   }
   /** Register the custom Knowledge type and compatible metadata through native schema writes. */
-  async register(): Promise<void> {
+  async register(onStep?: (step: string) => void | Promise<void>): Promise<void> {
     const settings = await readSettings(this.workspace);
     if (!settings.item_types.definitions.some(type => type.name === 'Knowledge')) await this.client.schemaAddType('Knowledge', { folder: 'knowledge', description: 'Durable agent knowledge', defaultStatus: 'open' });
+    await onStep?.('schema-type');
     const fields = (await this.client.schemaListFields()).fields;
     for (const field of MEMORY_FIELDS) {
       const found = fields.find(entry => entry.key === field.name);
       if (found !== undefined && found.type !== field.type) throw new MemoryError('schema', 'Incompatible memory field definition', 'Restore the registered memory field type before retrying');
       if (found === undefined) await this.client.schemaAddField(field.name, { type: field.type, description: 'Typed agent memory metadata' });
+      await onStep?.(`schema-field:${field.name}`);
     }
   }
   /** Read a certified full corpus and refuse duplicated or invalid memory identities. */

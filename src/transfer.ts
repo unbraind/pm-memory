@@ -5,6 +5,8 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { metadata, Store } from './store.ts';
+import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody } from './portable.ts';
+import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult } from './portable.ts';
 import type { Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
 
 /** A parsed source document with its exact original bytes retained separately. */
@@ -84,9 +86,11 @@ function sameContent(item: Memory, source: Source): boolean {
   return normalized([item.title, item.description, item.body, item.kind, item.why, item.how]) === normalized([source.title, source.description, source.body, source.kind, source.why, source.how]);
 }
 /** Import regular harness files idempotently, resolving wiki references into native links. */
-export async function importDir(path: string, options: MemoryOptions & { from: Harness; allowEmail?: boolean }): Promise<{ imported: number; updated: number; unchanged: number; unresolved_links: number }> {
+export async function importDir(path: string, options: PortableImportOptions): Promise<{ imported: number; updated: number; unchanged: number; unresolved_links: number } | PortableImportResult> {
   harness(options.from);
   const input = await sources(path);
+  if (input.some(file => file.path === POLICY_MANIFEST)) return importPolicy(input, options);
+  if (input.some(file => file.bytes.includes('pm-memory-policy:v1'))) throw new MemoryError('validity', 'Portable policy manifest is missing', 'Keep pm-memory-policy.json with every exported body file and import the complete directory');
   const offenses: string[] = [];
   for (const source of input) {
     const content = source.bytes.toString('utf8');
@@ -108,6 +112,7 @@ export async function importDir(path: string, options: MemoryOptions & { from: H
     const initial = await store.read();
     for (const source of parsed) {
       const previous = initial.find(item => item.slug === source.slug);
+      if (previous?.validity !== undefined) throw new MemoryError('validity', 'Import would remove the portable policy window', 'Keep pm-memory-policy.json with every exported body file and import the complete directory');
       if (previous !== undefined && (previous.source !== `${options.from}:relative-file` || previous.path !== source.path || previous.edited || !sameContent(previous, sourceDocument(previous.path, Buffer.from(previous.original, 'base64'), options.from)))) throw new MemoryError('conflict', 'Import would overwrite an independently edited memory', 'Export or rename the source before retrying');
     }
     let imported = 0; let updated = 0; let unchanged = 0; let unresolved_links = 0;
@@ -160,7 +165,7 @@ export function exportAncestor(stat: Stats, platform = process.platform): boolea
   return stat.isDirectory() || (stat.isSymbolicLink() && platform !== 'win32' && stat.uid === 0);
 }
 /** Publish a fully planned directory with one rename; failed staging leaves the destination intact. */
-async function publish(root: string, outputs: Map<string, Buffer>): Promise<void> {
+async function publish(root: string, outputs: Map<string, Buffer>, onStep?: (step: string) => void | Promise<void>): Promise<void> {
   for (let parent = dirname(root); ; parent = dirname(parent)) {
     try {
       if (!exportAncestor(await lstat(parent))) throw new MemoryError('path', 'Export ancestor is not a regular directory', 'Choose a destination with regular directory ancestors');
@@ -186,13 +191,25 @@ async function publish(root: string, outputs: Map<string, Buffer>): Promise<void
   await mkdir(dirname(root), { recursive: true });
   const staging = await mkdtemp(join(dirname(root), '.pm-memory-export-'));
   try {
+    await onStep?.('staged');
     for (const [name, bytes] of outputs) {
       const target = resolve(staging, name);
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, bytes, { flag: 'wx' });
+      await onStep?.(`file:${name}`);
     }
     await chmod(staging, 0o777 & ~process.umask());
-    await rename(staging, root);
+    await onStep?.('permissions');
+    try { await rename(staging, root); }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EEXIST') throw error;
+      for (const [name, bytes] of outputs) {
+        const target = await destination(root, name);
+        if (!(await lstat(target)).isFile() || !(await readFile(target)).equals(bytes)) throw new MemoryError('conflict', 'A peer published different export files', 'Choose a new empty export directory');
+      }
+    }
+    await onStep?.('published');
   } finally { await rm(staging, { recursive: true, force: true }); }
 }
 /** Preserve a current original index only when it names exactly the emitted fact paths. */
@@ -220,13 +237,23 @@ function exportedReferences(bytes: Buffer, memories: readonly Memory[], targets:
   }));
 }
 /** Export exact imported bytes when semantically unchanged, with conflict-safe native generation otherwise. */
-export async function exportDir(path: string, options: MemoryOptions & { to: Exclude<Harness, 'cursor'> }): Promise<{ exported: number; byte_preserved: number }> {
+export async function exportDir(path: string, options: MemoryOptions & { to: Exclude<Harness, 'cursor'>; onStep?: (step: string) => void | Promise<void> }): Promise<{ exported: number; byte_preserved: number }> {
   harness(options.to, true);
   const store = new Store(options);
   return store.write(async () => {
     const memories = await store.read();
-    if (memories.some(item => item.validity !== undefined && item.status !== 'canceled' && !item.artifact)) throw new MemoryError('validity', 'Portable harness formats cannot preserve guidance validity', 'Use memory recall or memory get to retain window labels and evidence');
     if (memories.some(item => item.consent !== undefined && item.status !== 'canceled' && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
+    if (memories.some(item => item.validity !== undefined && item.status !== 'canceled' && !item.artifact)) {
+      const active = memories.filter(item => item.status !== 'canceled' && !item.artifact).sort((a, b) => a.slug.localeCompare(b.slug));
+      const guidance = await Promise.all(active.map(item => policyRecord(store, item)));
+      const manifest: PortablePolicyManifest = { version: 1, format: 'pm-memory-policy', harness: options.to, guidance };
+      const outputs = new Map<string, Buffer>([[POLICY_MANIFEST, Buffer.from(JSON.stringify(manifest, null, 2) + '\n')]]);
+      for (const [index, row] of guidance.entries()) outputs.set(row.path, policyBody(row, active[index].body));
+      const index = guidance.map(row => `- [${row.slug}](${row.path})${row.validity === null ? '' : ` [${row.validity.from}, ${row.validity.until}); retain policy manifest and renewal evidence`}`).join('\n');
+      outputs.set(options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md', Buffer.from(`<!-- pm-memory-policy:v1; keep ${POLICY_MANIFEST} -->\n${index}\n`));
+      await store.fence(() => publish(resolve(path), outputs, options.onStep));
+      return { exported: outputs.size, byte_preserved: 0 };
+    }
     const indexName = options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md';
     const names = new Set([indexName.toLowerCase()]);
     const outputs = new Map<string, Buffer>(); const emitted: { item: Memory; name: string }[] = []; const preserved = new Set<string>();
@@ -281,7 +308,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       const resolved = exportedReferences(bytes, memories, targets);
       if (!resolved.equals(bytes)) { outputs.set(name, resolved); preserved.delete(name); }
     }
-    await store.fence(() => publish(resolve(path), outputs));
+    await store.fence(() => publish(resolve(path), outputs, options.onStep));
     return { exported: outputs.size, byte_preserved: preserved.size };
   });
 }

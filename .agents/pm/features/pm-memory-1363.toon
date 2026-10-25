@@ -2,12 +2,36 @@ id: pm-memory-1363
 title: Preserve guidance validity in portable harness round trips
 description: Define interoperable policy-window metadata and renewal history for portable harness files.
 type: Feature
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T22:03:10.834Z"
-updated_at: "2026-10-21T22:03:10.834Z"
+updated_at: "2026-10-25T01:21:30.096Z"
+assignee: codex-agent
+claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: Bounded guidance can round trip without becoming unbounded or silently losing evidence; imported windows are validated before writes.
 parent: pm-memory-0kwy
+comments[5]{created_at,author,text}:
+  "2026-10-25T01:04:43.613Z",codex-agent,"Claimed portable policy-window work. Design inspection: existing transfer refuses bounded guidance and sequential imports can partially publish. Investigating SDK transactions and existing lease/history surfaces before selecting an atomic import contract. Will preserve window evidence and renewal ancestry, reject broadened or removed bounds, and validate in non-git trackers with crash and competing-writer boundaries."
+  "2026-10-25T01:15:25.678Z",codex-agent,"Implemented versioned policy inventory plus editable body files, exact window and renewal validation, full-batch SDK preview/commit, deterministic recovery ids, foreign-record skips, and staged export publication. Targeted suite: 24 passed before the final update/rollback and independent-export tests were added. Randomized sets cover both harnesses, mixed bounded/unbounded guidance, kinds, tags and renewal counts. Existing unbounded byte-preserving transfers remain supported. CI now invokes the explicit npm release:check gate as well as the existing Bun gate; local full release gates are intentionally deferred to CI on this saturated host."
+  "2026-10-25T01:17:54.916Z",codex-agent,"Read-only public-copy validation passed: 17 public items, 6 nonempty bodies, 232693 projected input bytes; 17 derived scenario guidance records, 34 renewal records retained per harness, 19 exported files per harness, all 17 unchanged on identical retries, zero lost windows/evidence, edited bodies needs-renewal. Every source file was permission-protected and its aggregate fingerprint remained unchanged. Evidence: docs/portable-guidance-validation.md. The first unrestricted read created only SDK runtime metadata caches, so the measured run used an independently extracted read-only copy."
+  "2026-10-25T01:21:28.721Z",codex-agent,"Revert proof: in an isolated source snapshot with only transfer.ts restored from origin/main, node --test test/portable.test.ts failed all 16 new regressions (0 pass, 16 fail). Additional focused behavioral reversions preserved the new exporter: restoring only legacy importDir failed 5/5 selected import/refusal/atomic/concurrency regressions; replacing deterministic import ids with random ids failed the SDK crash-recovery regression; removing the writer lease failed the competing-import peer-success regression. Production sources were never reverted in place. Current targeted portable suite: 16/16 pass, with src/portable.ts measured at 100% statements/branches/functions/lines. Typecheck, lint, docstrings and zero-duplication checks pass. The pm-linked npm run typecheck passed through pm test --run --only-last --progress."
+  "2026-10-25T01:21:30.096Z",codex-agent,"SDK usage: certified listAllComplete, native get/history verification, settings/schema APIs, acquireLockLease/fence, previewItemMutations, commitItemMutations, resolveAuthorIdentity and host TOON/JSON rendering. SDK limitation: PmClient has no bound batch-commit method; the public commitItemMutations helper requires an explicit filesystem pmRoot, so hosted backend acceptance is not claimed. Its atomicity is logical with compensation/recovery; unrelated readers and writers outside the package lease are not isolated. No SDK core behavior was reimplemented."
+files[7]{path,scope}:
+  .github/workflows/ci.yml,project
+  index.ts,project
+  src/portable.ts,project
+  src/store.ts,project
+  src/transfer.ts,project
+  test/guidance.test.ts,project
+  test/portable.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/portable.test.ts test/transfer.test.ts test/guidance.test.ts,project,codex-agent,"2026-10-25T01:15:30.522Z",local_mutation,feat/portable-guidance-windows
+  npm run typecheck,project,codex-agent,"2026-10-25T01:18:37.873Z",local_mutation,feat/portable-guidance-windows
+docs[4]{path,scope}:
+  docs/portable-guidance-validation.md,project
+  examples/portable-guidance.ts,project
+  examples/validate-portable.ts,project
+  README.md,project
 body: Follow-up to time-bounded guidance. Existing harness formats do not represent the new native validity contract; export deliberately refuses bounded active guidance with a recall/get remedy until a safe portable representation exists.

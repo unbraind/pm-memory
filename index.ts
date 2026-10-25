@@ -30,3 +30,7 @@ export type { GuidanceWindow, GuidanceState, GuidanceOptions, RenewOptions } fro
 /** Authorize purpose-limited recall, withdraw consent and inspect text-free output lineage. */
 export { grantConsent, withdrawConsent, createView, inspectView, VIEW_FIELDS } from './src/consent.ts';
 export type { ViewField, ConsentPolicy, ConsentLedger, ViewSource, ViewManifest, ViewPacket, ViewOptions } from './src/consent.ts';
+
+/** Versioned portable policy metadata and validated atomic import contracts. */
+export { POLICY_MANIFEST, parsePolicy } from './src/portable.ts';
+export type { PortableGuidance, PortablePolicyManifest, PortableImportOptions, PortableImportResult } from './src/portable.ts';
