@@ -149,7 +149,7 @@ test('SDK transaction crashes at every transition resume without duplicate items
   const { source, valid, row } = await twoPolicies(t);
   const probe = await tracker(t); const boundaries: string[] = [];
   await importDir(source.path, { ...probe.options, from: 'agents-md', onTransition: event => { boundaries.push(`${event.transition}:${event.stepId ?? ''}`); } });
-  assert.equal(boundaries.length, 14);
+  assert.equal(boundaries.length, 21);
   for (let index = 0; index < boundaries.length; index++) {
     const target = await tracker(t); let step = 0;
     await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onTransition: () => { if (step++ === index) throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
@@ -164,7 +164,7 @@ test('SDK transaction crashes at every transition resume without duplicate items
 
 test('competing imports injected at every transaction boundary share one non-git tracker and report peer success', async t => {
   const source = await fixture(t);
-  for (let boundary = 0; boundary < 10; boundary++) {
+  for (let boundary = 0; boundary < 15; boundary++) {
     const target = await tracker(t); let step = 0; let peer: ReturnType<typeof importDir> | undefined;
     const first = await importDir(source.path, { ...target.options, from: 'agents-md', onTransition: () => { if (step++ === boundary) peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' }); } });
     assert.equal(first.imported, 1); assert.ok(peer);

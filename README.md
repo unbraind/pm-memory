@@ -242,10 +242,18 @@ party that rewrites both the manifest and its markers can author a different pol
 Imports validate the complete manifest, every body, privacy and existing policy ancestry
 before registering fields. The SDK previews the complete item batch, then commits it
 under the package writer lease using `commitItemMutations` with transaction ids bound to
-input plus target history positions. A checksummed, lease-owned pending plan freezes
+input plus target history positions and SDK history-prefix hashes. A checksummed, lease-owned pending plan freezes
 item ids and SDK batches for crash replay. A/B/A imports therefore apply A again after
-B. Interrupted batches resume on the same input; ordinary SDK batch failures use
-history-preserving compensation. After storing the data batch, the importer reads values
+B. Interrupted batches resume on the same input only while their expected SDK revisions
+and immutable history prefixes still match. Each update uses the SDK item-lock CAS
+(`match` on `updated_at`), including provenance writes; native edits or ownership
+changes refuse with a typed conflict before replay. Preserve the conflicting intent
+and reconcile it explicitly rather than replaying stale writes; ordinary SDK batch failures use
+history-preserving compensation. New graph members are first created without edges, then the full data batch
+uses SDK-read CAS revisions; even interrupted creation cannot leave dangling edges. Node rollback deletes only
+transaction-owned creations. The SDK reserves deleted identities in history, so retry
+allocates fresh identities and remaps edges while retaining the old audit history.
+After storing the data batch, the importer reads values
 back through the SDK and commits its normalized provenance baseline as a second
 recoverable batch. Native edits during an interrupted capture refuse rather than being
 stamped as imported. Raw input whitespace is never compared with stored values to
@@ -255,7 +263,11 @@ precedes the item batch. The lease covers the state read, planning, preview and
 publication, and releases last. Direct writers outside this package must coordinate
 separately. Relationship target ids are remapped to portable slugs and back, including
 kinds, source references and author/time provenance; SDK edge authorship is reasserted
-by its native mutation path. Updates replace the relationship set, including removals. A
+by its native mutation path. Updates replace the relationship set, including removals. A skipped target closes
+transitively over every dependent row with the same reason before selecting mutations.
+Unchanged compares current SDK content with incoming values through the SDK canonical
+and mutation projections, including SDK-normalized dependency provenance. Saved input
+bytes never establish that current content is unchanged. A
 target absent from the inventory refuses before writes; non-memory native targets must
 remain in their native tracker. Exports stage their complete directory and publish with
 a rename; matching peer publication succeeds, differing publication refuses without
@@ -266,13 +278,17 @@ also return `skipped: [{slug, reason}]`. Bodies and renewal histories are kept i
 rather than echoed in the receipt. SDK clients use `importDir`, `exportDir`,
 `PortableImportOptions`, `PortableImportResult`, `PortableGuidance`,
 `PortablePolicyManifest` and the pure `parsePolicy` validator. See the [typed
-example](examples/portable-guidance.ts) and [public-tracker validation](docs/portable-
-guidance-validation.md). The state-machine property executes 500 independent seeded
-sequences (master seed `0x1363cafe`) with 7,500 SDK-read state checks over both
+example](examples/portable-guidance.ts) and [public-tracker validation](docs/portable-guidance-validation.md). The state-machine property executes 500 independent seeded
+sequences (master seed `0x1363cafe`) with 16,933 SDK-read state checks over both
 harnesses, older-manifest replays, native body/field/relationship edits,
 whitespace/CRLF, link additions/removals and mixed bounded/unbounded guidance. Every
-failing sequence prints its master seed, sequence seed, operation and step. Fifty
-fresh Node workers run ten sequences each, bounding Node 22 coverage bookkeeping
+journal boundary is sampled across the model, including intent, each mutation and
+the node, data and provenance commits. One hundred fresh-tracker branches include
+foreign ownership arriving after a creation crash. Newer native edits after crashes, foreign ownership and restoring an
+older native body are checked against the independent reference and no-dangling
+invariant. Every
+failing sequence prints its master seed, sequence seed, operation and step. One hundred
+fresh Node workers run five sequences each, bounding Node 22 coverage bookkeeping
 without reducing state coverage. The parent verifies each worker and its complete
 SDK-read receipt; workers inherit coverage collection.
 ### Without git

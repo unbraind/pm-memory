@@ -4,7 +4,7 @@ import { mkdtemp, rm, readdir, readFile, mkdir, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import type { TestContext } from 'node:test';
-import { PmClient } from '@unbrained/pm-cli/sdk';
+import { PmClient, type Dependency } from '@unbrained/pm-cli/sdk';
 import { Store } from '../src/store.ts';
 
 /** Initialize a real tracker and register cleanup before any mutations. */
@@ -48,4 +48,9 @@ export async function installExtension(workspace: string): Promise<void> {
 /** Build a runner for the installed pm host with git absent from PATH and ancestor discovery fenced. */
 export function gitlessCli(root: string, workspace: string): (args: string[]) => SpawnSyncReturns<string> {
   return args => spawnSync(process.execPath, [join(import.meta.dirname, '../node_modules/.bin/pm'), 'memory', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, PM_PATH: workspace, PM_AUTHOR: 'memory-test', GIT_CEILING_DIRECTORIES: dirname(root), PATH: root } });
+}
+
+/** Require every local relationship in a closed SDK corpus to resolve. */
+export function assertClosedGraph(items: readonly { id: string; dependencies?: Dependency[] }[]): void {
+  assert.ok(items.every(item => (item.dependencies ?? []).every(edge => items.some(target => target.id === edge.id))), 'SDK state contains a dangling edge');
 }

@@ -1,6 +1,6 @@
-import { getHistoryPath, readHistoryEntries, readSettings, previewItemMutations, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, DEPENDENCY_KIND_VALUES, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
+import { getHistoryPath, readHistoryEntries, readSettings, hashHistoryStream, previewItemMutations, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, DEPENDENCY_KIND_VALUES, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, CommitItemMutationsOptions, Dependency } from '@unbrained/pm-cli/sdk';
-import { pendingImport, applyImport } from './portable-plan.ts';
+import { pendingImport, applyImport, expectedTargets, validateImportPlan, planError, foreignIntentResult } from './portable-plan.ts';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
@@ -154,6 +154,23 @@ export function canonicalProvenance(row: Pick<PortableGuidance, 'title' | 'descr
 }
 /** Bind exported snapshots to SDK-canonical content and relationship topology. */
 export function snapshotDigest(row: Parameters<typeof canonicalProvenance>[0], body: string, relationships: PortableRelationship[]): string { return digest(JSON.stringify(canonicalProvenance(row, body, relationships))); }
+/** Compare current and desired values through SDK storage and mutation projections. */
+export function mutationDigest(row: Parameters<typeof canonicalProvenance>[0], body: string, relationships: Dependency[]): string {
+  const document = canonicalProvenance(row, body, relationships.map(({ id, ...edge }) => ({ slug: id, ...edge })));
+  const { dependencies, ...metadata } = document.metadata;
+  return digest(JSON.stringify([metadata, document.body, itemDocumentToMutationOptions(JSON.stringify({ dependencies }), 'update')]));
+}
+/** Close every refusal transitively over the portable graph, retaining the root reason. */
+export function closeSkips(rows: readonly PortableGuidance[], skipped: Map<string, string>): void {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows) if (!skipped.has(row.slug)) {
+      const reason = row.relationships.map(edge => skipped.get(edge.slug)).find(reason => reason !== undefined);
+      if (reason !== undefined) { skipped.set(row.slug, reason); changed = true; }
+    }
+  }
+}
 /** Bind a file to its inventory row without embedding unbounded advice in the index. */
 export function policyBody(row: PortableGuidance, body: string): Buffer { return Buffer.from(`<!-- pm-memory-policy:v1 ${row.slug}; policy ${digest(JSON.stringify([row.validity, row.renewals, row.pinned]))}; keep ${POLICY_MANIFEST} -->\n${body}`); }
 /** Parse only files owned by the manifest; foreign adjacent records are skipped with a reason. */
@@ -176,8 +193,8 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
   await options.onStep?.('validated');
   const store = new Store(options);
   return store.write(async () => {
-    const pending = await pendingImport(store);
-    if (pending === 'foreign') return { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [{ slug: 'pending-import', reason: 'Foreign pending import record' }] };
+    const pending = await pendingImport(store, options.onStep);
+    if (pending === 'foreign') return foreignIntentResult();
     if (pending !== undefined) {
       if (pending.input !== inputHash) throw new MemoryError('conflict', 'Another portable import needs recovery', 'Rerun the interrupted input before importing a different manifest');
       return applyImport(store, pending, options);
@@ -189,44 +206,59 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     await options.onStep?.('read');
     const settings = await readSettings(store.workspace);
     const occupied = new Set(corpus.map(item => item.id));
-    const revisions = await Promise.all(current.map(async item => [item.id, await store.history(item.id)]));
+    const revisions = await Promise.all(current.map(async item => [item.id, await store.history(item.id), hashHistoryStream(await readHistoryEntries(getHistoryPath(store.workspace, item.id), item.id))]));
     const transactionId = `memory-policy-${digest(JSON.stringify([inputHash, revisions.sort()])).slice(0, 40)}`;
     const ids = new Map(manifest.guidance.map(row => [row.slug, current.find(item => item.slug === row.slug)?.id ?? `${settings.id_prefix}${digest(`${transactionId}:${row.slug}`).slice(0, 24)}`]));
     const mutations: BulkItemMutation[] = [];
-    const result: PortableImportResult = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: foreign.map(item => ({ slug: item.id, reason: 'Foreign Knowledge record has no package-owned source' })) };
+    const skipped = new Map(manifest.guidance.filter(row => foreign.some(item => item.memory_slug === row.slug)).map(row => [row.slug, 'Foreign Knowledge record has no package-owned source']));
+    closeSkips(manifest.guidance, skipped);
+    const decisions = new Map<string, 'imported' | 'updated' | 'unchanged'>();
+    const result: PortableImportResult = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: foreign.filter(item => !manifest.guidance.some(row => row.slug === item.memory_slug)).map(item => ({ slug: item.id, reason: 'Foreign Knowledge record has no package-owned source' })) };
     for (const file of input) if (file.path !== POLICY_MANIFEST && file.path !== 'AGENTS.md' && file.path !== 'MEMORY.md' && !manifest.guidance.some(row => row.path === file.path)) result.skipped.push({ slug: file.path, reason: 'Foreign file absent from the policy inventory' });
     for (const [index, row] of manifest.guidance.entries()) {
-      if (foreign.some(item => item.memory_slug === row.slug)) continue;
+      if (skipped.has(row.slug)) continue;
       const previous = current.find(item => item.slug === row.slug);
       const id = ids.get(row.slug)!;
       const body = bodies[index];
-      if (previous === undefined && occupied.has(id)) { result.skipped.push({ slug: row.slug, reason: 'Foreign record occupies the deterministic import id' }); continue; }
+      if (previous === undefined && occupied.has(id)) { skipped.set(row.slug, 'Foreign record occupies the deterministic import id'); continue; }
       if (previous !== undefined) {
-        const baseline = JSON.stringify([row, body]);
         if (previous.source !== 'portable:policy-v1') {
-          if (snapshotDigest(previous, previous.body, portableRelationships(previous, current)) !== row.snapshotHash || previous.pinned !== row.pinned) { result.skipped.push({ slug: row.slug, reason: 'Foreign native content differs from the exported guidance' }); continue; }
+          if (snapshotDigest(previous, previous.body, portableRelationships(previous, current)) !== row.snapshotHash || previous.pinned !== row.pinned) { skipped.set(row.slug, 'Foreign native content differs from the exported guidance'); continue; }
         } else {
           try {
             const parsed: unknown = JSON.parse(Buffer.from(previous.original, 'base64').toString('utf8'));
             if (!Array.isArray(parsed) || parsed.length !== 2 || typeof parsed[1] !== 'string') invalid();
             parsePolicy({ version: 1, format: 'pm-memory-policy', harness: options.from, guidance: [parsed[0]] });
-          } catch { result.skipped.push({ slug: row.slug, reason: 'Foreign or unreadable import provenance' }); continue; }
-          if (snapshotDigest(previous, previous.body, portableRelationships(previous, current)) !== previous.importSnapshot && snapshotDigest(previous, previous.body, portableRelationships(previous, current)) !== row.snapshotHash) { result.skipped.push({ slug: row.slug, reason: 'Independently edited native content' }); continue; }
+          } catch { skipped.set(row.slug, 'Foreign or unreadable import provenance'); continue; }
+          const sameInput = mutationDigest(previous, previous.body, previous.relationships) === mutationDigest(row, body, row.relationships.map(({ slug, ...edge }) => ({ id: ids.get(slug)!, ...edge })));
+          const last = sameInput ? (await readHistoryEntries(getHistoryPath(store.workspace, previous.id), previous.id)).at(-1) : undefined;
+          const ownProgress = last?.op === 'create' || last?.message?.startsWith('bulk-item-transaction memory-policy-');
+          if (!ownProgress && snapshotDigest(previous, previous.body, portableRelationships(previous, current)) !== previous.importSnapshot && snapshotDigest(previous, previous.body, portableRelationships(previous, current)) !== row.snapshotHash) { skipped.set(row.slug, 'Independently edited native content'); continue; }
         }
         const prior = await policyRecord(store, previous, current);
         if (!equal(prior.validity, row.validity) || JSON.stringify(prior.renewals) !== JSON.stringify(row.renewals)) invalid();
-        if (previous.original === Buffer.from(baseline).toString('base64')) { result.unchanged++; continue; } else result.updated++;
-      } else result.imported++;
+        if (mutationDigest(previous, previous.body, previous.relationships) === mutationDigest(row, body, row.relationships.map(({ slug, ...edge }) => ({ id: ids.get(slug)!, ...edge })))) {
+          decisions.set(row.slug, 'unchanged');
+          if (previous.importSnapshot === snapshotDigest(previous, previous.body, portableRelationships(previous, current))) continue;
+        } else decisions.set(row.slug, 'updated');
+      } else decisions.set(row.slug, 'imported');
       const fields = { slug: row.slug, kind: row.kind, why: row.why, how: row.how, pinned: row.pinned, source: 'portable:policy-v1', original: Buffer.from(JSON.stringify([row, body])).toString('base64'), path: row.path, edited: false, artifact: false, changed_at: row.updated, renewals: JSON.stringify(row.renewals), ...(row.validity === null ? {} : { validity: JSON.stringify(row.validity) }) };
       // Stable create ids and payloads let the SDK resume an interrupted batch without duplicates.
       const creating = previous === undefined;
-      mutations.push({ op: creating ? 'create' : 'update', id: previous?.id ?? id, options: { title: row.title, description: row.description, body, ...(creating ? { type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true } : {}), tags: row.tags.join(','), ...(creating ? {} : row.relationships.length === 0 ? { clearDeps: true } : { replaceDeps: true }), ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: row.relationships.map(({ slug, ...edge }) => ({ id: ids.get(slug)!, ...edge })) }), creating ? 'create' : 'update'), ...metadata(fields) } });
+      mutations.push({ op: creating ? 'create' : 'update', id: previous?.id ?? id, ...(creating ? { unique: { key: 'memory_slug', value: row.slug } } : { match: { key: 'updated_at', value: corpus.find(item => item.id === previous.id)!.updated_at } }), options: { title: row.title, description: row.description, body, ...(creating ? { type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true } : {}), tags: row.tags.join(','), ...(creating ? {} : row.relationships.length === 0 ? { clearDeps: true } : { replaceDeps: true }), ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: row.relationships.map(({ slug, ...edge }) => ({ id: ids.get(slug)!, ...edge })) }), creating ? 'create' : 'update'), ...metadata(fields) } });
     }
-    if (mutations.length === 0) return result;
+    closeSkips(manifest.guidance, skipped);
+    for (const [slug, reason] of skipped) result.skipped.push({ slug, reason });
+    const admitted = manifest.guidance.filter(row => !skipped.has(row.slug));
+    const planned = mutations.filter(mutation => admitted.some(row => ids.get(row.slug) === mutation.id));
+    for (const row of admitted) result[decisions.get(row.slug)!]++;
+    if (planned.length === 0) return result;
+    const expected = await expectedTargets(store, admitted.map(row => ({ id: ids.get(row.slug)!, slug: row.slug })));
+    const plan = { pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, transactionId, mutations: planned, input: inputHash, result, expected, members: admitted.map(row => ids.get(row.slug)!) };
+    await validateImportPlan(store, plan);
     await store.register(options.onStep);
-    const plan = { pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, transactionId, mutations };
-    await previewItemMutations(plan);
+    try { await previewItemMutations(plan); } catch (error) { return planError(error); }
     await options.onStep?.('previewed');
-    return applyImport(store, { ...plan, input: inputHash, result, members: [...current.map(item => item.id), ...ids.values()] }, options);
+    return applyImport(store, plan, options);
   });
 }

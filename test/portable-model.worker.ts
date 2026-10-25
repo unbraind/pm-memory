@@ -3,16 +3,16 @@ import { isDeepStrictEqual } from 'node:util';
 import { test } from 'node:test';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
-import { canonicalDocument, certifyCompleteListResult, PmClient } from '@unbrained/pm-cli/sdk';
-import { exportDir, importDir, remember, renew, POLICY_MANIFEST } from '../index.ts';
+import { canonicalDocument, certifyCompleteListResult, PmClient, WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
+import { exportDir, importDir, remember, renew, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
-import { tracker } from './helpers.ts';
+import { tracker, assertClosedGraph } from './helpers.ts';
 
 const MASTER_SEED = 0x1363cafe;
 const START = Number(process.env.PM_MEMORY_MODEL_START);
 const SEQUENCES = Number(process.env.PM_MEMORY_MODEL_COUNT);
-assert.ok(Number.isInteger(START) && START >= 0 && START < 500 && START % 10 === 0);
-assert.equal(SEQUENCES, 10);
+assert.ok(Number.isInteger(START) && START >= 0 && START < 500 && START % 5 === 0);
+assert.equal(SEQUENCES, 5);
 /** Reference semantics, intentionally independent of package Memory projections and hashes. */
 interface NodeModel {
   slug: string;
@@ -55,6 +55,7 @@ function nativeFrom(items: SdkRows): Map<string, unknown> {
 /** Read the complete tracker once after a step, then use it for both independent assertions. */
 async function readState(client: PmClient) {
   const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: true })).items;
+  assertClosedGraph(items);
   return { model: modelFrom(items), native: nativeFrom(items), items };
 }
 /** Ask the SDK storage normalizer how an input body will be retained. */
@@ -62,22 +63,24 @@ function storedBody(body: string): string {
   return canonicalDocument({ metadata: { id: 'model', title: 'Model', description: '', type: 'Task', status: 'open', priority: 2, tags: [], created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' }, body }).body;
 }
 /** Locate the editable alpha body without relying on a harness-specific folder layout. */
-async function bodyFile(directory: string): Promise<string> {
+async function bodyFile(directory: string, slug = 'alpha'): Promise<string> {
   const manifest = JSON.parse(await readFile(join(directory, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
-  return join(directory, manifest.guidance.find(row => row.slug === 'alpha')!.path);
+  return join(directory, manifest.guidance.find(row => row.slug === slug)!.path);
 }
 /** Replace only the body bytes below the retained policy marker. */
-async function writeBody(directory: string, body: string): Promise<void> {
-  const file = await bodyFile(directory); const bytes = await readFile(file, 'utf8');
+async function writeBody(directory: string, body: string, slug = 'alpha'): Promise<void> {
+  const file = await bodyFile(directory, slug); const bytes = await readFile(file, 'utf8');
   await writeFile(file, bytes.slice(0, bytes.indexOf('\n') + 1) + body);
 }
 /** Seeded operation generator whose failing sequence can be replayed without timing dependence. */
 function generator(seed: number): () => number { return () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; }; }
 
 // Each independent sequence uses a real non-git clone of one initialized SDK tracker.
-test(`model batch ${START}: seeded stateful replay, SDK provenance and relationships`, { timeout: 300000 }, async t => {
+test(`model batch ${START}: seeded stateful replay, SDK provenance and relationships`, { timeout: 600000 }, async t => {
   t.diagnostic(`MASTER_SEED=0x${MASTER_SEED.toString(16)} sequences=${SEQUENCES}`);
   const base = await tracker(t);
+  const emptyTemplate = join(base.root, 'empty-sdk');
+  await cp(base.workspace, emptyTemplate, { recursive: true, filter: path => !['runtime', 'locks', 'checkpoints'].includes(relative(base.workspace, path).split('/')[0]) });
   const ceiling = process.env.GIT_CEILING_DIRECTORIES; const commandPath = process.env.PATH;
   process.env.GIT_CEILING_DIRECTORIES = dirname(base.root); process.env.PATH = base.root;
   t.after(() => { if (ceiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = ceiling; if (commandPath === undefined) delete process.env.PATH; else process.env.PATH = commandPath; });
@@ -110,7 +113,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
   const seeded = await readState(base.client);
   assert.deepEqual(seeded.model, initial, `MASTER_SEED=${MASTER_SEED}: SDK-read initial A graph`);
   const ids = new Map(seeded.items.map(item => [String(item.memory_slug), item.id]));
-  let totalSteps = 0;
+  let totalSteps = 0; let freshSteps = 0; let freshCases = 0;
   for (let sequence = START; sequence < START + SEQUENCES; sequence++) {
     const seed = (MASTER_SEED + Math.imul(sequence, 0x9e3779b9)) >>> 0; let completed = false;
     await t.test(`sequence ${sequence} seed ${seed}`, async () => {
@@ -121,10 +124,11 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
       const client = new PmClient({ pmRoot: workspace, noExtensions: true, author: 'memory-test' });
       const options = { workspace, author: 'memory-test' }; const to = sequence % 2 === 0 ? 'agents-md' : 'claude-code';
       let model = structuredClone(initial); const baseline = new Map(seeded.native); const exports: SavedModel[] = [];
-      let operation = 'initialize'; let step = 0; let lastNative = seeded.native; let accepted: string[] = [];
+      let operation = 'initialize'; let step = 0; let lastNative = seeded.native; let accepted: string[] = []; const foreign = new Set<string>();
       /** Assert the entire tracker after every operation, with a stable replay coordinate. */
       const check = async () => {
         const actual = await readState(client);
+        for (const slug of foreign) assert.equal(actual.items.find(item => item.memory_slug === slug)!.memory_source, 'foreign:model');
         assert.deepEqual(actual.model, model, `master=${MASTER_SEED} seed=${seed} sequence=${sequence} step=${step} operation=${operation}`);
         lastNative = actual.native;
         for (const key of accepted) baseline.set(key, lastNative.get(key));
@@ -136,23 +140,42 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         const saved = { path, snapshot: structuredClone(model), desired: structuredClone(model), native: lastNative }; exports.push(saved); return saved;
       };
       /** Edit a copied prior export while retaining its policy marker and original snapshot. */
-      const variant = async (saved: SavedModel, body: string) => {
+      const variant = async (saved: SavedModel, body: string, slug = 'alpha') => {
         const path = join(root, `export-${exports.length}`); await cp(saved.path, path, { recursive: true });
-        await writeBody(path, body);
+        await writeBody(path, body, slug);
         const next = { path, snapshot: structuredClone(saved.snapshot), desired: structuredClone(saved.desired), native: saved.native };
-        next.desired.find(row => row.slug === 'alpha')!.body = storedBody(body); exports.push(next); return next;
+        next.desired.find(row => row.slug === slug)!.body = storedBody(body); exports.push(next); return next;
       };
       /** Predict acceptance from native edit history and then compare the SDK-read result. */
       const apply = async (saved: SavedModel) => {
         const skipped: string[] = []; const native = lastNative;
-        for (const row of model) {
-          if (!isDeepStrictEqual(native.get(row.slug), baseline.get(row.slug)) && !isDeepStrictEqual(native.get(row.slug), saved.native.get(row.slug))) { skipped.push(row.slug); continue; }
-          const next = structuredClone(saved.desired.find(item => item.slug === row.slug)!);
-          model = model.map(item => item.slug === row.slug ? next : item);
+        for (const row of model) if (foreign.has(row.slug) || (!isDeepStrictEqual(native.get(row.slug), baseline.get(row.slug)) && !isDeepStrictEqual(native.get(row.slug), saved.native.get(row.slug)))) skipped.push(row.slug);
+        // Reference graph closure, independent of the package planner and native ids.
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const row of saved.desired) if (!skipped.includes(row.slug) && row.relationships.some(edge => skipped.includes(edge.slug))) { skipped.push(row.slug); changed = true; }
         }
+        model = model.map(row => skipped.includes(row.slug) ? row : structuredClone(saved.desired.find(item => item.slug === row.slug)!));
         const result = await importDir(saved.path, { ...options, from: to }); assert.ok('skipped' in result);
         assert.deepEqual(result.skipped.map(row => row.slug).sort(), skipped.sort(), `seed=${seed} operation=${operation}: independent-edit classification`);
         accepted = model.filter(row => !skipped.includes(row.slug)).map(row => row.slug);
+      };
+      /** Advance the reference only after a no-edit interrupted batch has recovered. */
+      const acceptRecovery = (saved: SavedModel): void => { model = structuredClone(saved.desired); accepted = model.map(row => row.slug); };
+      /** Interrupt one of all journal boundaries and predict each durable data mutation. */
+      const crash = async (saved: SavedModel, boundary: number, count: number) => {
+        let eventIndex = 0;
+        await assert.rejects(importDir(saved.path, { ...options, from: to,
+          onStep: value => { if ((value === 'intent' && boundary === 0) || (value === 'readback' && boundary === count + 1) || (value === 'published' && boundary === count + 2)) throw new WorkspaceTransactionInterruptedError(); },
+          onTransition: event => {
+            if (!event.transactionId.endsWith('-snapshot') && event.transition === 'step_applied') {
+              const key = [...ids].find(([, id]) => event.stepId!.includes(`-${id}-`))![0];
+              model = model.map(row => row.slug === key ? structuredClone(saved.desired.find(item => item.slug === key)!) : row);
+            }
+            if (++eventIndex === boundary) throw new WorkspaceTransactionInterruptedError();
+          },
+        }), WorkspaceTransactionInterruptedError);
       };
       try {
         await check();
@@ -177,12 +200,97 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         operation = 'export native rebase'; const final = await save(); await check();
         operation = 'import final X'; await apply(final); await check();
         assert.deepEqual(model, final.desired, `seed=${seed}: import(X) must equal X`);
+        // Fixed review case: importing B, restoring exported A, and retrying B.
+        operation = 'export restore A'; const restore = await save(); await check();
+        operation = 'restore variant B'; const restoreB = await variant(restore, `Restore B ${random()}\r\n`); await check();
+        operation = 'import restore B'; await apply(restoreB); await check();
+        operation = 'restore older native body'; await client.update(ids.get('alpha')!, { body: restore.desired.find(row => row.slug === 'alpha')!.body }); model.find(row => row.slug === 'alpha')!.body = restore.desired.find(row => row.slug === 'alpha')!.body; await check();
+        operation = 'retry restore B'; await apply(restoreB); await check();
+        // Multi-target crash/recovery: every mutation and both commits are sampled.
+        operation = 'export crash base'; const crashBase = await save(); await check();
+        operation = 'multi-target crash input'; const crashInput = await variant(crashBase, `Crash alpha ${random()}`);
+        for (const slug of ['beta', 'policy']) { const body = `Crash ${slug} ${random()}`; await writeBody(crashInput.path, body, slug); crashInput.desired.find(row => row.slug === slug)!.body = body; } await check();
+        operation = 'crash every multi-target journal boundary'; await crash(crashInput, sequence % 21, 18); await check();
+        operation = 'recover multi-target journal'; await importDir(crashInput.path, { ...options, from: to }); acceptRecovery(crashInput); await check();
+        // Fixed foreign-target case, with a dependent that must inherit its refusal.
+        operation = 'native dependent edge'; await client.update(ids.get('beta')!, { dep: [`id=${ids.get('alpha')!},kind=related`], replaceDeps: true }); model.find(row => row.slug === 'beta')!.relationships = [{ slug: 'alpha', kind: 'related' }]; await check();
+        operation = 'export ownership base'; const owned = await save(); await check();
+        operation = 'rebase ownership graph'; await apply(owned); await check();
+        operation = 'foreign tool takes ownership'; await client.run('update', { id: ids.get('alpha')!, options: { memorySource: 'foreign:model' } }); foreign.add('alpha'); await check();
+        operation = 'skip closure stays retryable'; await apply(owned); await check();
+        // Fixed intent/edit/retry case plus every data/provenance boundary. Only
+        // policy changes here; unrelated rows already equal this input or skip.
+        operation = 'native-race input'; const raced = await variant(owned, `Raced policy ${random()}`, 'policy'); await check();
+        operation = 'crash before newer native edit'; await crash(raced, sequence % 13, 10); await check();
+        operation = 'newer native edit after crash'; const node = model.find(row => row.slug === 'policy')!;
+        const newer = `${node.title}\nNative wins ${random()}`;
+        if (sequence % 2 === 0) await remember(newer, { ...options, update: 'policy', kind: 'project' }); else await client.update(ids.get('policy')!, { body: newer });
+        node.body = storedBody(newer); await check();
+        operation = 'retry preserves newer native edit';
+        try { const result = await importDir(raced.path, { ...options, from: to }); assert.ok('skipped' in result); assert.ok(result.skipped.some(row => row.slug === 'policy')); }
+        catch (error) { assert.ok(error instanceof MemoryError && error.code === 'conflict' && error.remedy.length > 0); }
+        await check();
+        if (sequence % 5 === 0) {
+          // A second reference branch starts empty and covers the node journal,
+          // including foreign ownership arriving after a node-stage crash.
+          operation = 'fresh graph branch'; freshCases++;
+          const workspace = join(root, 'fresh-pm'); await cp(emptyTemplate, workspace, { recursive: true });
+          const client = new PmClient({ pmRoot: workspace, noExtensions: true, author: 'memory-test' });
+          const options = { workspace, author: 'memory-test' }; let freshModel: NodeModel[] = [];
+          const input = seeds.get(to)!; const inventory = JSON.parse(await readFile(join(input.path, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+          const freshIndex = sequence / 5; const boundary = freshIndex % 31; const moved = boundary >= 9 && freshIndex % 2 === 0;
+          /** Check native IDs as well as semantic state on the fresh tracker. */
+          const freshCheck = async () => {
+            const actual = await readState(client);
+            assert.deepEqual(actual.model, [...freshModel].sort((a, b) => a.slug.localeCompare(b.slug)), `seed=${seed} fresh boundary=${boundary}`);
+            freshSteps++;
+          };
+          await freshCheck(); let eventIndex = 0;
+          await assert.rejects(importDir(input.path, { ...options, from: to,
+            onStep: step => { if ((step === 'intent' && boundary === 0) || (step === 'nodes' && boundary === 28) || (step === 'readback' && boundary === 29) || (step === 'published' && boundary === 30)) throw new WorkspaceTransactionInterruptedError(); },
+            onTransition: event => {
+              if (event.transition === 'step_applied' && !event.transactionId.endsWith('-snapshot')) {
+                const slug = inventory.guidance[Number(event.stepId!.split('-')[0]) - 1].slug;
+                const desired = structuredClone(input.desired.find(row => row.slug === slug)!);
+                if (event.transactionId.endsWith('-nodes')) { desired.relationships = []; freshModel.push(desired); }
+                else freshModel = freshModel.map(row => row.slug === slug ? desired : row);
+              }
+              if (++eventIndex === boundary) throw new WorkspaceTransactionInterruptedError();
+            },
+          }), WorkspaceTransactionInterruptedError);
+          await freshCheck();
+          if (moved) {
+            operation = 'foreign ownership after node crash';
+            const alpha = await remember('Foreign alpha C', { ...options, update: 'alpha', kind: 'project' });
+            await client.run('update', { id: alpha.id, options: { memorySource: 'foreign:model' } });
+            Object.assign(freshModel.find(row => row.slug === 'alpha')!, { title: 'Foreign alpha C', body: 'Foreign alpha C' });
+            await freshCheck();
+          }
+          /** Complete an untouched plan or retain the foreign component verbatim. */
+          const retryFresh = async () => {
+            if (moved) {
+              try { const result = await importDir(input.path, { ...options, from: to }); assert.ok('skipped' in result); assert.deepEqual(result.skipped.map(row => row.slug).sort(), ['alpha', 'beta']); assert.ok(result.skipped.every(row => row.reason.includes('Foreign'))); }
+              catch (error) { assert.ok(error instanceof MemoryError && error.code === 'conflict'); }
+              const native = (await client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!;
+              assert.equal(native.memory_source, 'foreign:model');
+            } else {
+              const result = await importDir(input.path, { ...options, from: to }); assert.ok('skipped' in result); assert.deepEqual(result.skipped, []);
+            }
+          };
+          operation = 'fresh recovery'; await retryFresh();
+          if (!moved) freshModel.splice(0, freshModel.length, ...structuredClone(input.desired));
+          await freshCheck();
+          operation = 'fresh repeated recovery'; await retryFresh(); await freshCheck();
+        }
+
+
       } catch (error) { throw new Error(`MASTER_SEED=${MASTER_SEED} SEQUENCE_SEED=${seed} sequence=${sequence} step=${step} operation=${operation}`, { cause: error }); }
       await rm(root, { recursive: true });
       completed = true;
     });
     assert.equal(completed, true, `MASTER_SEED=${MASTER_SEED} SEQUENCE_SEED=${seed}: sequence did not complete`);
   }
-  assert.equal(totalSteps, SEQUENCES * 15);
-  t.diagnostic(`MODEL_BATCH start=${START} count=${SEQUENCES} SDK-read steps=${totalSteps} MASTER_SEED=0x${MASTER_SEED.toString(16)}`);
+  assert.equal(totalSteps, SEQUENCES * 33);
+  assert.equal(freshCases, 1);
+  t.diagnostic(`MODEL_BATCH start=${START} count=${SEQUENCES} SDK-read steps=${totalSteps + freshSteps} MASTER_SEED=0x${MASTER_SEED.toString(16)} fresh-cases=${freshCases} fresh-steps=${freshSteps}`);
 });
