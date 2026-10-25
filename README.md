@@ -271,7 +271,10 @@ guidance-validation.md). The state-machine property executes 500 independent see
 sequences (master seed `0x1363cafe`) with 7,500 SDK-read state checks over both
 harnesses, older-manifest replays, native body/field/relationship edits,
 whitespace/CRLF, link additions/removals and mixed bounded/unbounded guidance. Every
-failing sequence prints its master seed, sequence seed, operation and step.
+failing sequence prints its master seed, sequence seed, operation and step. Fifty
+fresh Node workers run ten sequences each, bounding Node 22 coverage bookkeeping
+without reducing state coverage. The parent verifies each worker and its complete
+SDK-read receipt; workers inherit coverage collection.
 ### Without git
 
 Policy import/export, renewal and retrieval work in initialized plain directories,
