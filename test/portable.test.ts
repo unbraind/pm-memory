@@ -322,7 +322,7 @@ test('preparation boundaries serialize a competing import and retain its complet
 test('malformed foreign Knowledge metadata cannot abort or be adopted by a portable import', async t => {
   const source = await fixture(t); const target = await tracker(t); await target.store.register();
   for (const key of ['policy', 'unrelated']) await target.client.run('create', { options: { title: 'Foreign context', type: 'Knowledge', memorySlug: key, memorySource: 'foreign-tool', memoryKind: 'unsupported' } });
-  await target.client.create('Unrelated Knowledge without memory metadata', { type: 'Knowledge' });
+  await target.client.create({ title: 'Unrelated Knowledge without memory metadata', type: 'Knowledge' });
   const receipt = await importDir(source.path, { ...target.options, from: 'agents-md' });
   assert.ok('skipped' in receipt); assert.equal(receipt.skipped.length, 2); assert.equal(receipt.imported, 0);
   assert.ok(receipt.skipped.every(row => /no package-owned source/.test(row.reason)));
