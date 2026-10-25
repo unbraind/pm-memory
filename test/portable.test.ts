@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, readFile, writeFile, rm, cp } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WorkspaceTransactionInterruptedError, getHistoryPath, readHistoryEntries, readSettings } from '@unbrained/pm-cli/sdk';
 import { remember, renew, get, guidanceState, exportDir, importDir, parsePolicy, POLICY_MANIFEST, MemoryError } from '../index.ts';
@@ -317,4 +317,24 @@ test('preparation boundaries serialize a competing import and retain its complet
     assert.equal(first.imported + second.imported, 1);
     await assertRecovered(target);
   }
+});
+
+test('malformed foreign Knowledge metadata cannot abort or be adopted by a portable import', async t => {
+  const source = await fixture(t); const target = await tracker(t); await target.store.register();
+  for (const key of ['policy', 'unrelated']) await target.client.run('create', { options: { title: 'Foreign context', type: 'Knowledge', memorySlug: key, memorySource: 'foreign-tool', memoryKind: 'unsupported' } });
+  await target.client.create('Unrelated Knowledge without memory metadata', { type: 'Knowledge' });
+  const receipt = await importDir(source.path, { ...target.options, from: 'agents-md' });
+  assert.ok('skipped' in receipt); assert.equal(receipt.skipped.length, 2); assert.equal(receipt.imported, 0);
+  assert.ok(receipt.skipped.every(row => /no package-owned source/.test(row.reason)));
+  assert.equal((await target.client.listAllComplete()).items.length, 3);
+});
+
+test('publication permission failures retain the source and rerun after permissions recover', async t => {
+  const source = await fixture(t); const parent = join(source.root, 'permission-case'); await mkdir(parent);
+  const destination = join(parent, 'output');
+  try {
+    await assert.rejects(exportDir(destination, { ...source.options, to: 'agents-md', onStep: async step => { if (step === 'permissions') await chmod(parent, 0o555); } }));
+  } finally { await chmod(parent, 0o755); }
+  await exportDir(destination, { ...source.options, to: 'agents-md' });
+  assert.deepEqual(await manifest(destination), await manifest(source.path));
 });

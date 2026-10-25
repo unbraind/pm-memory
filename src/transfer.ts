@@ -202,8 +202,7 @@ async function publish(root: string, outputs: Map<string, Buffer>, onStep?: (ste
     await onStep?.('permissions');
     try { await rename(staging, root); }
     catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOTEMPTY' && code !== 'EEXIST') throw error;
+      if (!['ENOTEMPTY', 'EEXIST'].includes(String((error as NodeJS.ErrnoException).code))) throw error;
       for (const [name, bytes] of outputs) {
         const target = await destination(root, name);
         if (!(await lstat(target)).isFile() || !(await readFile(target)).equals(bytes)) throw new MemoryError('conflict', 'A peer published different export files', 'Choose a new empty export directory');

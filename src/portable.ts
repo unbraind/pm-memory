@@ -145,15 +145,19 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
   await options.onStep?.('validated');
   const store = new Store(options);
   return store.write(async () => {
-    const current = await store.read();
+    const corpus = certifyCompleteListResult(await store.client.listAllComplete()).items;
+    const sources = ['native:item', 'portable:policy-v1', 'claude-code:relative-file', 'agents-md:relative-file', 'cursor:relative-file'];
+    const foreign = corpus.filter(item => item.type === 'Knowledge' && item.memory_slug !== undefined && !sources.includes(String(item.memory_source)));
+    const current = await store.read(new Set(corpus.filter(item => !foreign.some(record => record.id === item.id)).map(item => item.id)));
     await options.onStep?.('read');
     const settings = await readSettings(store.workspace);
-    const occupied = new Set(certifyCompleteListResult(await store.client.listAllComplete()).items.map(item => item.id));
+    const occupied = new Set(corpus.map(item => item.id));
     const transactionId = `memory-policy-${digest(JSON.stringify([manifest, bodies])).slice(0, 40)}`;
     const mutations: BulkItemMutation[] = [];
-    const result: PortableImportResult = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [] };
+    const result: PortableImportResult = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: foreign.map(item => ({ slug: item.id, reason: 'Foreign Knowledge record has no package-owned source' })) };
     for (const file of input) if (file.path !== POLICY_MANIFEST && file.path !== 'AGENTS.md' && file.path !== 'MEMORY.md' && !manifest.guidance.some(row => row.path === file.path)) result.skipped.push({ slug: file.path, reason: 'Foreign file absent from the policy inventory' });
     for (const [index, row] of manifest.guidance.entries()) {
+      if (foreign.some(item => item.memory_slug === row.slug)) continue;
       const previous = current.find(item => item.slug === row.slug);
       const id = `${settings.id_prefix}${digest(`${transactionId}:${row.slug}`).slice(0, 24)}`;
       const body = bodies[index];

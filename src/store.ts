@@ -80,11 +80,12 @@ export class Store {
     }
   }
   /** Read a certified full corpus and refuse duplicated or invalid memory identities. */
-  async read(): Promise<Memory[]> {
+  async read(only?: ReadonlySet<string>): Promise<Memory[]> {
     const corpus = certifyCompleteListResult(await this.client.listAllComplete({ includeBody: true }));
     const result: Memory[] = [];
     const seen = new Set<string>();
     for (const item of corpus.items) {
+      if (only !== undefined && !only.has(item.id)) continue;
       if (item.type !== 'Knowledge' || item.memory_slug === undefined) continue;
       const key = slug(String(item.memory_slug));
       if (seen.has(key)) throw new MemoryError('duplicate', 'Memory slug is not unique', 'Repair duplicate slug metadata through audited pm updates');
