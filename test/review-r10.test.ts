@@ -45,7 +45,13 @@ test('preserved and revised source references resolve inside the emitted directo
   const rows = await store.read(); const target = rows.find(row => row.slug === 'target')!;
   await client.update(target.id, { status: 'canceled', closeReason: 'Synthetic archive' });
   const output = join(root, 'output');
-  assert.deepEqual(await exportDir(output, { ...options, to: 'claude-code' }), { exported: 3, byte_preserved: 1 });
+  assert.deepEqual(await exportDir(output, { ...options, to: 'claude-code' }), {
+    exported: 3, byte_preserved: 1,
+    omitted_links: [
+      { slug: 'source', target: target.id, kind: 'related', reason: 'canceled' },
+      { slug: 'source', target: rows.find(row => row.artifact)!.id, kind: 'related', reason: 'artifact' },
+    ],
+  });
   assert.equal(await readFile(join(output, 'source.md'), 'utf8'), 'See target, target-file, memory, absent and [[stable]].\n');
   assert.equal(await readFile(join(output, 'stable.md'), 'utf8'), files['stable.md']);
   assert.doesNotMatch(await readFile(join(output, 'MEMORY.md'), 'utf8'), /\]\(target-file\.md\)/);

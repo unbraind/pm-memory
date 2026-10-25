@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T22:03:10.834Z"
-updated_at: "2026-10-25T17:23:19.045Z"
+updated_at: "2026-10-25T18:28:18.978Z"
 author: codex-agent
 acceptance_criteria: Bounded guidance can round trip without becoming unbounded or silently losing evidence; imported windows are validated before writes.
 parent: pm-memory-0kwy
-comments[31]{created_at,author,text}:
+comments[32]{created_at,author,text}:
   "2026-10-25T01:04:43.613Z",codex-agent,"Claimed portable policy-window work. Design inspection: existing transfer refuses bounded guidance and sequential imports can partially publish. Investigating SDK transactions and existing lease/history surfaces before selecting an atomic import contract. Will preserve window evidence and renewal ancestry, reject broadened or removed bounds, and validate in non-git trackers with crash and competing-writer boundaries."
   "2026-10-25T01:15:25.678Z",codex-agent,"Implemented versioned policy inventory plus editable body files, exact window and renewal validation, full-batch SDK preview/commit, deterministic recovery ids, foreign-record skips, and staged export publication. Targeted suite: 24 passed before the final update/rollback and independent-export tests were added. Randomized sets cover both harnesses, mixed bounded/unbounded guidance, kinds, tags and renewal counts. Existing unbounded byte-preserving transfers remain supported. CI now invokes the explicit npm release:check gate as well as the existing Bun gate; local full release gates are intentionally deferred to CI on this saturated host."
   "2026-10-25T01:17:54.916Z",codex-agent,"Read-only public-copy validation passed: 17 public items, 6 nonempty bodies, 232693 projected input bytes; 17 derived scenario guidance records, 34 renewal records retained per harness, 19 exported files per harness, all 17 unchanged on identical retries, zero lost windows/evidence, edited bodies needs-renewal. Every source file was permission-protected and its aggregate fingerprint remained unchanged. Evidence: docs/portable-guidance-validation.md. The first unrestricted read created only SDK runtime metadata caches, so the measured run used an independently extracted read-only copy."
@@ -43,7 +43,8 @@ comments[31]{created_at,author,text}:
   "2026-10-25T17:09:28.825Z",codex-agent,"Additional targeted results: the initial 55-test portable suite passed, the latest 15 rollback tests passed, and foreign export/wrong-type identity refusal passed after correcting a test fixture to look up the SDK-created item through the complete SDK list. Final local coverage is running against frozen production files. Import and export now filter foreign ownership and decode content from one certified SDK snapshot, including wrong-type memory identities. Allocation delegates hashing to SDK deriveMutationTransactionId with a UUID persisted in the intent. Model samples at starts 0, 50, 150 and 200 passed 20 sequences/919 SDK-read checks; the node-commit-before-readback refusal is distinguished from an accepted fresh retry. Full 500-sequence gates remain CI-only."
   "2026-10-25T17:22:50.684Z",codex-agent,"Round-three validation: the four targeted portable suites passed 58/58, and the final foreign-intent recovery case passed separately, giving 59 distinct passing regressions with zero failures/cancellations/skips. Combined c8 measurement covers portable.ts, portable-plan.ts, portable-replan.ts and portable-rollback.ts at 100% statements, branches, functions and lines. Typecheck, lint and docstring gates pass; shared test helpers retain the unchanged zero-duplication threshold. Four sampled five-sequence workers pass all 20 sequences and 919 SDK-read checks. Full 500-sequence/22933-check model and npm/Bun release gates will run on the pushed head in CI; final run receipts will be maintained in PR 15. The original read-only public-copy measurements remain unchanged. SDK gaps: PmClient has no bound batch commit; previewItemMutations exposes no normalized staged values; no public transaction-journal status/abort/replan reader; unconditional SDK bulk restoration requires item-lock mutation guards and a separate monotonic SDK rollback transaction; delete compensation reserves identities and requires SDK edge remapping. Refusal restores memory document bytes while the SDK audit remains append-only; newer peer revisions and adopted support graphs are retained. Hosted acceptance remains unverified."
   "2026-10-25T17:23:18.989Z",codex-agent,"Final three helper-refactored rollback regressions pass 3/3; duplication is 0%, typecheck/lint/docstrings pass (35 files, 140 documented declarations). Changelog generation and check pass. Local strict pm health retains one environment-only extension_host_pm_cli_version_skew: pinned host 2026.10.23 versus separately installed pm-github 2026.10.25. Tracker integrity and history_drift checks are OK. No dependency pins or external extensions were changed; clean CI health remains required. Claim released; item remains in_progress for orchestrator verification."
-files[19]{path,scope}:
+  "2026-10-25T18:28:17.399Z",codex-agent,"First round-three CI candidate ae1b222 completed all 500 model sequences and 22933 SDK-read comparisons, with the full source table at 100% in all four dimensions. The Node 26 npm gate stopped at 405/406 tests because an older legacy-export regression asserted the exact two-field receipt and did not yet expect the new omitted_links contract. Updated that existing assertion to require the precise canceled and artifact receipts while retaining every emitted-file, byte-preservation and re-import assertion. node --test test/review-r10.test.ts passes 4/4; the pinned pm test --run --only-last --progress also passes. Typecheck, lint and zero duplication pass. No production source changed after ae1b222. A new exact-head CI run remains required; the failed and superseded run is not full-gate evidence."
+files[20]{path,scope}:
   .github/workflows/ci.yml,project
   index.ts,project
   scripts/bench.ts,project
@@ -62,8 +63,9 @@ files[19]{path,scope}:
   test/portable-review.test.ts,project
   test/portable-rollback.test.ts,project
   test/portable.test.ts,project
+  test/review-r10.test.ts,project
   test/validate-guidance.ts,project
-tests[6]:
+tests[7]:
   - command: node --test test/portable.test.ts test/transfer.test.ts test/guidance.test.ts
     scope: project
     provenance:
@@ -107,6 +109,13 @@ tests[6]:
     provenance:
       author: codex-agent
       created_at: "2026-10-25T14:54:32.788Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: node --test test/review-r10.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-25T18:27:15.154Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
 docs[4]{path,scope}:
