@@ -10,7 +10,7 @@ import { metadata, Store } from './store.ts';
 import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, ownedMemories, closeSkips } from './portable.ts';
 import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship } from './portable.ts';
 import type { Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
-import { ownershipPatch, portableFields, previousOwnership, creationMetadata } from './portable-ownership.ts';
+import { ownershipPatch, portableFields, previousOwnership, creationMetadata, PORTABLE_FIELDS } from './portable-ownership.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
 import { applyImport, expectedTargets, importIdentity, validateImportPlan, recoverInput, previewImport } from './portable-plan.ts';
 
@@ -94,10 +94,10 @@ function sourceDocument(path: string, bytes: Buffer, from: Harness): Source {
   if (why !== null) represented.push('why'); if (how !== null) represented.push('how');
   return { represented, path, slug: slug(typeof metadata.name === 'string' && /^[a-z0-9][a-z0-9_-]{0,119}$/.test(metadata.name) ? metadata.name : key), description: typeof metadata.description === 'string' ? metadata.description : '', title: title.slice(0, 160).toWellFormed(), body, kind: classification === undefined ? 'reference' : kind(classification), artifact: from === 'claude-code' && basename(path).toUpperCase() === 'MEMORY.MD', original, why: why?.[1] ?? '', how: how?.[1] ?? '', links: [...body.matchAll(/\[\[([a-z0-9_-]+)\]\]/g)].map(match => match[1]) };
 }
-/** Compare semantic content so native pm edits cannot silently export obsolete original bytes. */
+/** Original bytes must reproduce all portable fields, including implicit legacy defaults. */
 function sameContent(item: Memory, source: Source): boolean {
-  const native = portableFields(item, item.body); const represented = portableFields({ ...item, ...source }, source.body);
-  return (['body', ...source.represented] as const).every(field => native[field] === represented[field]);
+  const native = portableFields(item, item.body); const decoded = portableFields({ ...source, pinned: false, tags: [] }, source.body);
+  return PORTABLE_FIELDS.every(field => native[field] === decoded[field]);
 }
 /** Legacy wiki references own additions; absent text cannot prove deletion ownership. */
 function sourceRelationships(source: Source, memories: readonly Pick<Memory, 'id' | 'slug' | 'path'>[]): PortableRelationship[] {
@@ -314,8 +314,11 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
     const owned = await ownedMemories(store, corpus); const { foreign } = owned;
     const ids = new Map(owned.memories.map(item => [item.slug, item.id]));
+    const nativeGraphEdits = new Set<string>();
     const memories = await Promise.all(owned.memories.map(async item => {
-      const source = item.source.endsWith(':relative-file') ? (await previousOwnership(store, item, ids))?.source : undefined;
+      const previous = item.source.endsWith(':relative-file') ? await previousOwnership(store, item, ids) : undefined;
+      if ((previous?.nativeRelationships?.length ?? 0) > 0) nativeGraphEdits.add(item.id);
+      const source = previous?.source;
       return source === undefined ? item : { ...item, original: source.original };
     }));
     const foreignReceipt = foreign.length === 0 ? {} : { skipped: foreign.map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };
@@ -341,7 +344,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       if (item.status === 'canceled') continue;
       await store.history(item.id);
       let name: string; let bytes: Buffer;
-      if (item.path !== '' && !item.edited && item.source === `${options.to}:relative-file` && sameContent(item, sourceDocument(item.path, Buffer.from(item.original, 'base64'), options.to))) {
+      if (item.path !== '' && !item.edited && !nativeGraphEdits.has(item.id) && item.source === `${options.to}:relative-file` && sameContent(item, sourceDocument(item.path, Buffer.from(item.original, 'base64'), options.to))) {
         name = safePath(item.path); bytes = Buffer.from(item.original, 'base64'); preserved.add(name);
       } else if (!item.artifact) return commit(await policyOutputs(store, active, options.to), 0);
       else continue;

@@ -20,7 +20,7 @@ for (const manager of ['npm', 'bun']) test(`packed ${manager} consumer installs,
   const scratch = mkdtempSync(join(tmpdir(), 'memory-consumer-'));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const manifest = JSON.parse(readFileSync(join(repository, 'package.json'), 'utf8')) as { version: string; devDependencies: Record<string, string> };
-  const env = { ...npmEnvironment(gitEnvironment(process.env)), HOME: scratch, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', PM_AUTHOR: 'memory-consumer' };
+  const env = { ...npmEnvironment(gitEnvironment(process.env)), HOME: scratch, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_CEILING_DIRECTORIES: scratch, PM_AUTHOR: 'memory-consumer' };
   const packed = JSON.parse(execute(repository, ['pack', '--json', '--pack-destination', scratch, '--ignore-scripts'], 'npm', env)) as { filename: string; files: { path: string }[] }[];
   const allowed = /^(dist\/|manifest\.json$|package\.json$|README\.md$|ARCHITECTURE\.md$|LICENSE$|CHANGELOG\.md$)/;
   assert.ok(packed[0].files.every(file => allowed.test(file.path)), 'Packed file allowlist');
@@ -46,6 +46,44 @@ for (const api of [index, importDir, exportDir, verify, consolidate, observe, ut
 console.log('embedded accepted');
 `);
     assert.match(execute(consumer, ['embed.ts'], manager === 'npm' ? process.execPath : 'bun', hostEnv), /embedded accepted/);
+    writeFileSync(join(consumer, 'lossless.ts'), `import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { PmClient } from '@unbrained/pm-cli/sdk';
+import { importDir } from 'pm-memory';
+const workspace = process.env.PM_PATH;
+const client = new PmClient({ cwd: process.cwd(), pmRoot: workspace, author: 'memory-consumer', noExtensions: true });
+if (process.argv[2] === 'setup') {
+  await client.init('lossless', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+  const source = join(process.cwd(), 'lossless-source'); await mkdir(source);
+  await writeFile(join(source, 'MEMORY.md'), '- [Alpha](alpha.md)\\n');
+  await writeFile(join(source, 'alpha.md'), '# Alpha\\nOriginal guidance\\n');
+  await importDir(source, { workspace, author: 'memory-consumer', from: 'claude-code' });
+  const item = (await client.listAllComplete()).items.find(row => row.memory_slug === 'alpha');
+  await client.run('update', { id: item.id, options: { description: 'Native hook', memoryKind: 'feedback', memoryWhy: 'Native reason', memoryHow: 'Native application', memoryPinned: true, tags: 'native,packed' } });
+} else {
+  const destination = join(process.cwd(), 'lossless-destination', process.argv[2]);
+  const fresh = new PmClient({ cwd: process.cwd(), pmRoot: destination, author: 'memory-consumer', noExtensions: true });
+  await fresh.init('fresh', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+  await importDir(join(process.cwd(), process.argv[2]), { workspace: destination, author: 'memory-consumer', from: 'claude-code' });
+  const item = (await fresh.listAllComplete({ includeBody: true })).items.find(row => row.memory_slug === 'alpha');
+  assert.equal(item.description, 'Native hook'); assert.equal(item.memory_kind, 'feedback');
+  assert.equal(item.memory_why, 'Native reason'); assert.equal(item.memory_how, 'Native application');
+  assert.equal(item.memory_pinned, true); assert.deepEqual(item.tags, ['native', 'packed']);
+  assert.equal(item.body, '# Alpha\\nOriginal guidance');
+}
+console.log('lossless accepted');
+`);
+    const losslessEnv = { ...hostEnv, PM_PATH: join(consumer, 'lossless-tracker') };
+    assert.match(execute(consumer, ['lossless.ts', 'setup'], manager === 'npm' ? process.execPath : 'bun', losslessEnv), /lossless accepted/);
+    execute(consumer, [...prefix, 'package', 'install', join(scratch, packed[0].filename)], executable, losslessEnv);
+    for (const format of ['json', 'toon']) {
+      const output = `lossless-${format}`;
+      const receipt = execute(consumer, [...prefix, 'memory', 'export', output, '--to', 'claude-code', ...(format === 'json' ? ['--json'] : [])], executable, losslessEnv);
+      if (format === 'json') assert.equal(JSON.parse(receipt).byte_preserved, 0);
+      else assert.match(receipt, /byte_preserved: 0/);
+      assert.match(execute(consumer, ['lossless.ts', output], manager === 'npm' ? process.execPath : 'bun', losslessEnv), /lossless accepted/);
+    }
     const remembered = JSON.parse(execute(consumer, [...prefix, 'memory', 'remember', 'Packed host remembers context', '--kind', 'user', '--slug', 'packed', '--pin', '--json'], executable, hostEnv)) as { slug: string; updated: boolean };
     assert.equal(remembered.slug, 'packed'); assert.equal(remembered.updated, false);
     const packet = JSON.parse(execute(consumer, [...prefix, 'memory', 'recall', 'host context', '--budget', '200', '--json'], executable, hostEnv)) as { recall: string; estimated_tokens: number; memories: { slug: string }[] };
