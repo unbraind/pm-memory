@@ -6,20 +6,24 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-25T23:21:38.707Z"
-updated_at: "2026-10-25T23:36:22.647Z"
-assignee: codex-agent
-claim_principal: codex-agent
+updated_at: "2026-10-26T00:14:10.935Z"
 author: codex-agent
-comments[2]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-10-25T23:21:43.000Z",codex-agent,"Normalize daily scheduling and PM_RELEASE_APPROVED job gates while preserving release decisions, generated changelogs and release notes. Verify OIDC publishing without a stored npm token, manifest metadata, packed allowlists and private-data scans. No open homepage/author PR was found during orientation. No publishing, trust setup, approval variable changes or merges are authorized."
   "2026-10-25T23:36:21.441Z",codex-agent,"Pack verification: npm pack --dry-run --json and the actual npm pack --ignore-scripts artifact agree on 66 allowlisted files (dist: 60; root files: 6). Every packed member was scanned for absolute home paths, npm/GitHub/cloud tokens, private keys, hosted-data locations, private addresses and historical owner email addresses: PASS with zero matches. Regression proof: five independent workflow mutations (approval, provenance, token environment, daily schedule and OR bypass) plus the original manifest each fail the new contract check; restored contract passes 4/4. The linked test also passes through pm test --run --progress. Next gates: npm run release:check and bun run release:check with isolated HOME and Git configuration."
-files[4]{path,scope}:
+  "2026-10-25T23:49:55.265Z",codex-agent,"CI previously executed the complete npm gate as individually listed steps. Consolidated those steps into npm run release:check so the required npm and Bun entrypoints are both exercised directly on the PR. Retained the explicit identity check and Bun graph-install check; no source thresholds or release checks were removed. Restoring the previous CI workflow makes the new entrypoint regression fail; restored check passes 1/1."
+  "2026-10-25T23:53:58.132Z",codex-agent,"The first Bun release gate reached packed acceptance after all source checks passed, then npm itself reported Exit handler never called during the Bun consumer activation. The npm release gate passed earlier. Retrying the unchanged focused packed acceptance before rerunning the full Bun gate; no retries or exclusions are being added to the package tests."
+  "2026-10-26T00:14:07.744Z",codex-agent,"Full local gates PASS: npm run release:check and bun run release:check, each with isolated HOME, GIT_CONFIG_GLOBAL=/dev/null and GIT_CONFIG_NOSYSTEM=1. Suite receipts: npm: 1/1/1/1/2/1/1/1/250/2 tests; bun: 1/1/1/1/2/1/1/1/251/2 tests. No thresholds were relaxed. The package remains unpublished and the approval variable unset; first publication requires the owner login and initial trusted-publisher registration. For the local first publish, explicitly override provenance with --provenance=false because publishConfig enables provenance for cloud CI. CI must confirm the final PR head. The tracker item stays in progress for orchestrator verification."
+files[6]{path,scope}:
+  .github/workflows/ci.yml,project
   .github/workflows/release.yml,project
   ARCHITECTURE.md,project
   package.json,project
   test/release-approval.test.ts,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  test/release-ci.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/release-approval.test.ts,project,codex-agent,"2026-10-25T23:21:46.764Z",local_mutation,chore/release-gate-approval
+  node --test test/release-ci.test.ts,project,codex-agent,"2026-10-25T23:49:58.064Z",local_mutation,chore/release-gate-approval
 docs[1]{path,scope}:
   README.md,project
 body: ""
