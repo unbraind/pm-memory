@@ -21,10 +21,10 @@ async function semantics(target: Tracker) {
   })).sort((a, b) => String(a.slug).localeCompare(String(b.slug)));
 }
 /** Minimal legacy fixtures omit every optional semantic field without omitting the harness index. */
-async function legacy(target: Tracker, from: Harness) {
+async function legacy(target: Tracker, from: Harness, empty = false) {
   const path = join(target.root, 'source'); await mkdir(path);
   if (from === 'claude-code') await writeFile(join(path, 'MEMORY.md'), '- [Alpha](alpha.md)\n- [Beta](beta.md)\n');
-  await writeFile(join(path, from === 'agents-md' ? 'AGENTS.md' : 'alpha.md'), '# Alpha\nPortable source\n');
+  await writeFile(join(path, from === 'agents-md' ? 'AGENTS.md' : 'alpha.md'), empty ? '' : '# Alpha\nPortable source\n');
   if (from === 'claude-code') await writeFile(join(path, 'beta.md'), '# Beta\nSecond portable source\n');
   await importDir(path, { ...target.options, from });
   return (await target.client.listAllComplete({ includeBody: true })).items.find(row => row.memory_slug === (from === 'agents-md' ? 'agents' : 'alpha'))!;
@@ -46,7 +46,7 @@ test('lossless export refuses stale indexed Claude bytes after absent-field nati
 
 test('fresh tracker export law covers every portable field and legacy adapter without git', async t => {
   for (const from of ['claude-code', 'agents-md', 'cursor'] as const) {
-    const source = await tracker(t); const alpha = await legacy(source, from);
+    const source = await tracker(t); const alpha = await legacy(source, from, true);
     const changes = { title: 'Native title', description: 'Native description', body: 'Native body\r\n', memoryKind: 'project', memoryWhy: 'Native reason', memoryHow: 'Native application', memoryPinned: true, tags: 'native,portable' };
     const oldPath = process.env.PATH; const oldCeiling = process.env.GIT_CEILING_DIRECTORIES;
     process.env.PATH = source.root; process.env.GIT_CEILING_DIRECTORIES = dirname(source.root);
