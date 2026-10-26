@@ -1,6 +1,6 @@
-import { getHistoryPath, readHistoryEntries, readSettings, previewItemMutations, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, DEPENDENCY_KIND_VALUES, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
+import { getHistoryPath, readHistoryEntries, readSettings, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, DEPENDENCY_KIND_VALUES, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, CommitItemMutationsOptions, Dependency } from '@unbrained/pm-cli/sdk';
-import { recoverInput, applyImport, expectedTargets, validateImportPlan, planError, importIdentity } from './portable-plan.ts';
+import { recoverInput, applyImport, expectedTargets, validateImportPlan, previewImport, importIdentity } from './portable-plan.ts';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
@@ -302,7 +302,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     const plan = { pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, ...identity, mutations: planned, ownership: ownership.filter(target => planned.some(row => row.id === target.id)), input: inputHash, result, expected, initial: expected, members: admitted.map(row => ids.get(row.slug)!) };
     await validateImportPlan(store, plan, options.onStep);
     await store.register(options.onStep);
-    try { await previewItemMutations(plan); } catch (error) { return planError(error); }
+    await previewImport(store, plan);
     await options.onStep?.('previewed');
     return applyImport(store, plan, options);
   });

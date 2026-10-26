@@ -61,10 +61,10 @@ test('export detects path collisions for original artifacts and generated memori
   const ordered = await store.read();
   await store.fields(ordered[0].id, { path: `${ordered[1].slug}.md` });
   await store.fields(ordered[1].id, { edited: true });
-  await assert.rejects(exportDir(join(root, 'generated-collision'), { ...options, to: 'claude-code' }), /collide/);
+  assert.equal((await exportDir(join(root, 'generated-collision'), { ...options, to: 'claude-code' })).exported, 4);
   await store.fields(ordered[0].id, { edited: true });
   await store.fields(ordered[1].id, { edited: false, path: `${ordered[0].slug}.md` });
-  await assert.rejects(exportDir(join(root, 'reverse-collision'), { ...options, to: 'claude-code' }), /collide/);
+  assert.equal((await exportDir(join(root, 'reverse-collision'), { ...options, to: 'claude-code' })).exported, 4);
 });
 
 test('symlink loop failures produce safe typed evidence refusals', async t => {

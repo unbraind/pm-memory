@@ -5,7 +5,7 @@ import type { ImportPlan } from './portable-plan.ts';
 import { parsePolicy, type PortableGuidance } from './portable.ts';
 import type { Store } from './store.ts';
 import { relationshipPatch } from './portable-ownership.ts';
-import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
+import type { BulkItemMutation, Dependency } from '@unbrained/pm-cli/sdk';
 
 /** Validate the original policy payload before adopting a compensated creation. */
 function recoveryRecord(mutation: BulkItemMutation): PortableGuidance {
@@ -25,14 +25,16 @@ export async function replanNodes(store: Store, plan: ImportPlan): Promise<Impor
   const settings = await readSettings(store.workspace);
   const ids = new Map(plan.expected.map(target => [target.slug, plan.mutations.some(row => row.id === target.id && row.op === 'create') ? `${settings.id_prefix}${digest(`${transactionId}:${target.slug}`).slice(0, 24)}` : target.id]));
   const remapped = new Map(plan.expected.map(target => [target.id, ids.get(target.slug)!]));
-  const ownership = plan.ownership.map(target => ({ ...target, id: remapped.get(target.id)!, relationships: target.relationships.map(edge => ({ ...edge, id: remapped.get(edge.id) ?? edge.id })), graph: target.graph.map(edge => ({ ...edge, id: remapped.get(edge.id) ?? edge.id })) }));
-  const current = (await store.client.listAllComplete({ includeBody: true })).items;
-  const mutations = plan.mutations.map(mutation => {
+  /** Both represented and native-only edges keep external identities during remapping. */
+  const remapEdge = (edge: Dependency): Dependency => ({ ...edge, id: remapped.get(edge.id) ?? edge.id });
+  const ownership = plan.ownership.map(target => ({ ...target, id: remapped.get(target.id)!, relationships: target.relationships.map(remapEdge), graph: target.graph.map(remapEdge) }));
+  const mutations = await Promise.all(plan.mutations.map(async mutation => {
     if (mutation.op === 'create' && mutation.options.memorySource === 'portable:policy-v1') recoveryRecord(mutation);
     const target = ownership.find(target => target.id === remapped.get(mutation.id))!;
     const { dep: _dep, depRemove: _remove, ...options } = mutation.options!;
-    return { ...mutation, id: target.id, options: { ...options, ...(mutation.op === 'create' ? itemDocumentToMutationOptions(JSON.stringify({ dependencies: target.graph }), 'create') : relationshipPatch(current.find(item => item.id === mutation.id)?.dependencies ?? [], target.graph)) } };
-  });
+    const before = mutation.op === 'create' ? undefined : (await store.client.get(mutation.id, { full: true })).item;
+    return { ...mutation, id: target.id, options: { ...options, ...(mutation.op === 'create' ? itemDocumentToMutationOptions(JSON.stringify({ dependencies: target.graph }), 'create') : relationshipPatch(before!.dependencies ?? [], target.graph)) } };
+  }));
   const expected = await expectedTargets(store, plan.expected.map(target => ({ id: ids.get(target.slug)!, slug: target.slug })));
   const initial = (plan.initial ?? plan.expected).map(target => ({ ...target, id: ids.get(target.slug)! }));
   return { ...plan, ...identity, ownership, ownedTransactions: [...(plan.ownedTransactions ?? []), plan.transactionId], mutations, expected, initial, members: [...ids.values()], nodes: undefined, nodesDone: false, snapshots: undefined };

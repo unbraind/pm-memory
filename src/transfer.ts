@@ -3,16 +3,16 @@ import { constants } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { parse } from 'yaml';
-import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDocumentToMutationOptions, previewItemMutations } from '@unbrained/pm-cli/sdk';
+import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { metadata, Store } from './store.ts';
 import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, ownedMemories, closeSkips } from './portable.ts';
 import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship } from './portable.ts';
 import type { Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
-import { ownershipPatch, portableFields, previousOwnership } from './portable-ownership.ts';
+import { ownershipPatch, portableFields, previousOwnership, creationMetadata } from './portable-ownership.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
-import { applyImport, expectedTargets, importIdentity, validateImportPlan, recoverInput, planError } from './portable-plan.ts';
+import { applyImport, expectedTargets, importIdentity, validateImportPlan, recoverInput, previewImport } from './portable-plan.ts';
 
 /** A parsed source document with its exact original bytes retained separately. */
 interface Source {
@@ -117,6 +117,10 @@ function sourceOwnership(source: Source, before: Source, item: Memory, memories:
 function sourceReceipt(target: OwnedTarget, source: Source): OwnedTarget {
   return { ...target, fields: Object.fromEntries(Object.entries(target.fields).filter(([key]) => key === 'body' || source.represented.some(field => field === key))), source: { original: source.original } };
 }
+/** Creation history identifies a legacy source even after native-only identity edits. */
+function legacyOrigin(value: Awaited<ReturnType<typeof creationMetadata>>, source: Source, from: Harness): boolean {
+  return value?.memory_source === `${from}:relative-file` && value.memory_path === source.path && value.memory_slug === source.slug;
+}
 /** Import regular harness files idempotently, resolving wiki references into native links. */
 export async function importDir(path: string, options: PortableImportOptions): Promise<{ imported: number; updated: number; unchanged: number; unresolved_links: number } | PortableImportResult> {
   harness(options.from);
@@ -148,18 +152,31 @@ export async function importDir(path: string, options: PortableImportOptions): P
     const { foreign, memories: initial } = await ownedMemories(store, corpus);
     await options.onStep?.('read');
     const settings = await readSettings(store.workspace); const identity = await importIdentity(store, inputHash);
-    const ids = new Map(parsed.map(source => [source.slug, initial.find(item => item.slug === source.slug)?.id ?? `${settings.id_prefix}${digest(`${identity.transactionId}:${source.slug}`).slice(0, 24)}`]));
+    const origins = new Map(await Promise.all([...initial, ...foreign].map(async item => [item.id, await creationMetadata(store, item.id)] as const)));
+    const selected = new Map<string, Memory>(); const skipped = new Map<string, string>();
+    for (const source of parsed) {
+      const named = initial.find(item => item.slug === source.slug);
+      const candidates = named === undefined ? initial.filter(item => legacyOrigin(origins.get(item.id), source, options.from)) : [named];
+      if (candidates.length > 1) throw new MemoryError('conflict', 'Ambiguous native legacy origin', 'Export current guidance and choose one native identity before importing');
+      if (candidates.length === 1) {
+        const candidate = candidates[0]; const origin = origins.get(candidate.id);
+        if (candidate.source === `${options.from}:relative-file` && (origin === undefined || typeof origin.memory_original !== 'string')) skipped.set(source.slug, 'Foreign legacy record has no immutable source provenance');
+        else selected.set(source.slug, candidate);
+      }
+    }
+    const ids = new Map(parsed.map(source => [source.slug, selected.get(source.slug)?.id ?? `${settings.id_prefix}${digest(`${identity.transactionId}:${source.slug}`).slice(0, 24)}`]));
     const references = [...initial.map(item => ({ id: item.id, slug: item.slug, path: item.path })), ...parsed.filter(source => !initial.some(item => item.slug === source.slug)).map(source => ({ id: ids.get(source.slug)!, slug: source.slug, path: source.path }))];
     const baselineIds = new Map([...initial.map(item => [item.slug, item.id] as const), ...ids]);
-    const skipped = new Map(parsed.filter(source => foreign.some(item => item.memory_slug === source.slug)).map(source => [source.slug, 'Foreign record has no package-owned source']));
+    for (const source of parsed) if (foreign.some(item => item.memory_slug === source.slug || legacyOrigin(origins.get(item.id), source, options.from))) skipped.set(source.slug, 'Foreign record has no package-owned source');
     closeSkips(parsed.map(source => ({ slug: source.slug, relationships: sourceRelationships(source, references) })), skipped);
     const result = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [...foreign.filter(item => !parsed.some(source => source.slug === item.memory_slug)).map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })), ...[...skipped].map(([slug, reason]) => ({ slug, reason }))] };
     const mutations: BulkItemMutation[] = []; const ownership: OwnedTarget[] = [];
     for (const source of parsed) {
       if (skipped.has(source.slug)) continue;
-      const previous = initial.find(item => item.slug === source.slug); const id = ids.get(source.slug)!;
+      const previous = selected.get(source.slug); const id = ids.get(source.slug)!;
+      const origin = previous === undefined ? undefined : origins.get(previous.id);
       if (previous?.validity !== undefined) throw new MemoryError('validity', 'Import would remove the portable policy window', 'Keep pm-memory-policy.json with every exported body file and import the complete directory');
-      if (previous !== undefined && (previous.source !== `${options.from}:relative-file` || previous.path !== source.path || previous.edited)) throw new MemoryError('conflict', 'Import would overwrite an independently edited memory', 'Export or rename the source before retrying');
+      if (previous !== undefined && !legacyOrigin(origin, source, options.from)) throw new MemoryError('conflict', 'Import would overwrite an independently edited memory', 'Export or rename the source before retrying');
       const relationships = sourceRelationships(source, references);
       for (const reference of source.links) if (!references.some(item => item.slug === reference) && references.filter(item => stemOf(item.path) === reference).length !== 1) result.unresolved_links++;
       if (previous === undefined) {
@@ -168,9 +185,8 @@ export async function importDir(path: string, options: PortableImportOptions): P
         mutations.push({ op: 'create', id, unique: { key: 'memory_slug', value: source.slug }, options: { title: source.title, body: source.body, description: source.description, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: graph }), 'create'), ...metadata(fields) } });
         ownership.push(sourceReceipt({ id, fields: portableFields({ ...source, pinned: false, tags: [] }, source.body), relationships: graph, graph }, source)); result.imported++;
       } else {
-        const before = sourceDocument(previous.path, Buffer.from(previous.original, 'base64'), options.from);
+        const before = sourceDocument(source.path, Buffer.from(String(origin!.memory_original), 'base64'), options.from);
         const prior = await previousOwnership(store, previous, baselineIds);
-        if (!sameContent(previous, before) && prior === undefined) throw new MemoryError('conflict', 'Import would overwrite an independently edited memory', 'Export or rename the source before retrying');
         const row = sourceOwnership(source, before, previous, references);
         const patch = ownershipPatch(previous, row, source.body, baselineIds, baselineIds, prior, false);
         if (patch.conflicts.length > 0) {
@@ -183,10 +199,12 @@ export async function importDir(path: string, options: PortableImportOptions): P
       }
     }
     if (mutations.length === 0) { const { skipped: refusals, ...counts } = result; return refusals.length === 0 ? counts : result; }
-    const expected = await expectedTargets(store, parsed.filter(source => !skipped.has(source.slug)).map(source => ({ id: ids.get(source.slug)!, slug: source.slug })), corpus);
+    const readSet = new Map(parsed.filter(source => !skipped.has(source.slug)).map(source => [ids.get(source.slug)!, source.slug]));
+    for (const target of ownership) for (const edge of target.relationships) if (!readSet.has(edge.id)) readSet.set(edge.id, initial.find(item => item.id === edge.id)!.slug);
+    const expected = await expectedTargets(store, [...readSet].map(([id, slug]) => ({ id, slug })), corpus);
     const plan = { ...identity, input: inputHash, author: resolveAuthorIdentity(options.author, settings.author_default).author, mutations, ownership, expected, initial: expected, members: expected.map(row => row.id), result };
     await validateImportPlan(store, plan, options.onStep); await store.register(options.onStep);
-    try { await previewItemMutations({ ...plan, pmRoot: store.workspace }); } catch (error) { return planError(error); }
+    await previewImport(store, plan);
     await options.onStep?.('previewed');
     const { skipped: refusals, ...counts } = await applyImport(store, plan, options); return refusals.length === 0 ? counts : { ...counts, skipped: refusals };
   });

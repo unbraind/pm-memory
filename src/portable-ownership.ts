@@ -42,8 +42,10 @@ export interface OwnedTarget {
 export interface PreviousOwnership {
   /** Unrepresented or subsequently native-edited fields grant no portable authority. */
   fields: Partial<PortableFields>;
-  /** Absent when a later native graph edit requires the export baseline instead. */
+  /** Prior represented edges remain authoritative outside the actual native edit scope. */
   relationships?: Dependency[];
+  /** SDK-read edge identities changed natively after the portable receipt. */
+  nativeRelationships?: Dependency[];
   /** Latest represented legacy source, when this receipt came from a text harness. */
   source?: OwnedTarget['source'];
 }
@@ -144,7 +146,8 @@ export function ownershipPatch(current: Memory, row: PortableGuidance, body: str
     const base = exported.find(edge => edgeKey(edge) === key); const old = previouslyOwned?.find(edge => edgeKey(edge) === key);
     if (edgeHash(now) === edgeHash(next)) continue;
     if (next === undefined && !removeRepresented) continue;
-    if ((previouslyOwned !== undefined && edgeHash(now) === edgeHash(old)) || (edgeHash(next) !== edgeHash(base) && edgeHash(now) === edgeHash(base))) {
+    const nativeEdit = prior?.nativeRelationships?.some(changed => [now, next, old].some(edge => edge !== undefined && edge.id === changed.id && edge.kind === changed.kind && (edge.source_kind === undefined || edge.source_kind === changed.source_kind)));
+    if ((previouslyOwned !== undefined && !nativeEdit && edgeHash(now) === edgeHash(old)) || (edgeHash(next) !== edgeHash(base) && edgeHash(now) === edgeHash(base))) {
       const position = graph.findIndex(edge => edgeKey(edge) === key); if (position !== -1) graph.splice(position, 1);
       if (next !== undefined) graph.push(next);
     } else if (edgeHash(next) !== edgeHash(base)) conflicts.push(`relationship:${key}`);
@@ -156,10 +159,21 @@ export function ownershipPatch(current: Memory, row: PortableGuidance, body: str
 export async function previousOwnership(store: Store, item: Memory, ids: ReadonlyMap<string, string>): Promise<PreviousOwnership | undefined> {
   const entries = await readHistoryEntries(getHistoryPath(store.workspace, item.id), item.id);
   const attempted = new Set<string>();
-  const changed = new Set<string>();
+  const changed = new Set<string>(); const graphEdits = new Set<number>();
   /** Invalidate native-edited fields without discarding ownership of unrelated values. */
-  const retained = (target: Pick<OwnedTarget, 'fields' | 'relationships' | 'source'>): PreviousOwnership => ({ fields: Object.fromEntries(PORTABLE_FIELDS.filter(key => !changed.has(key) && target.fields[key] !== undefined).map(key => [key, target.fields[key]!])) as Partial<PortableFields>, ...(changed.has('relationships') ? {} : { relationships: target.relationships }), ...(target.source === undefined ? {} : { source: target.source }) });
-  for (const entry of entries.reverse()) {
+  const retained = (target: Pick<OwnedTarget, 'fields' | 'relationships' | 'source'>): PreviousOwnership => {
+    const nativeEdges = new Map<string, Dependency>();
+    for (const index of graphEdits) {
+      const before = (replayHistoryToTarget(entries, index - 1).metadata.dependencies ?? []) as Dependency[];
+      const after = (replayHistoryToTarget(entries, index).metadata.dependencies ?? []) as Dependency[];
+      for (const key of new Set([...before, ...after].map(edgeKey))) {
+        const old = before.find(edge => edgeKey(edge) === key); const current = after.find(edge => edgeKey(edge) === key);
+        if (edgeHash(old) !== edgeHash(current)) nativeEdges.set(key, current ?? old!);
+      }
+    }
+    return { fields: Object.fromEntries(PORTABLE_FIELDS.filter(key => !changed.has(key) && target.fields[key] !== undefined).map(key => [key, target.fields[key]!])) as Partial<PortableFields>, relationships: target.relationships, nativeRelationships: [...nativeEdges.values()], ...(target.source === undefined ? {} : { source: target.source }) };
+  };
+  for (const [position, entry] of [...entries].reverse().entries()) {
     const match = /^bulk-item-transaction (memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})) /.exec(entry.message ?? '');
     if (match === null) {
       if (!entry.message?.startsWith('bulk-item-transaction memory-policy-') && entry.op !== 'create') for (const patch of entry.patch) {
@@ -167,7 +181,7 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
           const path = key === 'body' ? '/body' : `/metadata/${['kind', 'why', 'how', 'pinned'].includes(key) ? `memory_${key}` : key}`;
           if (patch.path === path || patch.path.startsWith(`${path}/`)) changed.add(key);
         }
-        if (patch.path.startsWith('/metadata/dependencies')) changed.add('relationships');
+        if (patch.path.startsWith('/metadata/dependencies')) graphEdits.add(entries.length - 1 - position);
       }
       continue;
     }

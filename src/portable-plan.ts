@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { writeFileAtomic, commitItemMutations, commitWorkspaceTransaction, deriveMutationTransactionId, getHistoryPath, readHistoryEntries, hashHistoryStream, certifyCompleteListResult, WorkspaceTransactionInterruptedError, PmClient, isPmCliExpectedError, replayHistoryToTarget } from '@unbrained/pm-cli/sdk';
+import { writeFileAtomic, commitItemMutations, commitWorkspaceTransaction, previewItemMutations, deriveMutationTransactionId, getHistoryPath, readHistoryEntries, hashHistoryStream, certifyCompleteListResult, WorkspaceTransactionInterruptedError, PmClient, isPmCliExpectedError, replayHistoryToTarget } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import { replanNodes } from './portable-replan.ts';
 import { digest, MemoryError } from './core.ts';
@@ -215,8 +215,8 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
   if (plan.refusing) return drainRefusal(store, plan, onStep, onTransition);
   const journal = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.transactionId}-snapshot.json`));
   if (typeof journal === 'object' && journal !== null && 'status' in journal && journal.status === 'committed') { await onStep?.('recover-published'); return await removeIntent(store, plan) ? undefined : 'foreign'; }
-  if (plan.ownership === undefined) {
-    // Older frozen whole-record plans must compensate before the current adapter replans.
+  if (plan.ownership === undefined || plan.ownership.some(target => target.relationships.some(edge => !plan.expected.some(row => row.id === edge.id)))) {
+    // Older whole-record or incomplete read-set plans must compensate before the current adapter replans.
     if (plan.initial === undefined) plan.initial = plan.expected.map(target => plan.nodes?.some(row => row.id === target.id) ? { ...target, version: null, length: 0, history: hashHistoryStream([]) } : target);
     plan.refusing = true; await savePlan(store, plan);
     return drainRefusal(store, plan, onStep, onTransition);
@@ -269,6 +269,11 @@ async function refuseImport(store: Store, plan: ImportPlan, options: PortableImp
   await removeIntent(store, plan);
   if (error instanceof PlanForeign) throw error;
   return planError(error);
+}
+/** Preview creations before updates so SDK validation resolves newly represented targets. */
+export async function previewImport(store: Store, plan: ImportPlan): Promise<void> {
+  const mutations = [...plan.mutations.filter(row => row.op === 'create'), ...plan.mutations.filter(row => row.op === 'update')];
+  try { await previewItemMutations({ ...plan, mutations, pmRoot: store.workspace }); } catch (error) { return planError(error); }
 }
 /** Validate the captured read set before schema writes or SDK preview. */
 export async function validateImportPlan(store: Store, plan: ImportPlan, onStep?: PortableImportOptions['onStep']): Promise<void> {

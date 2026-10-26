@@ -265,7 +265,7 @@ transaction-owned creations. The SDK reserves deleted identities in history, so 
 allocates fresh identities and remaps edges while retaining the old audit history.
 Portable ownership receipts are committed in a second recoverable SDK workspace
 transaction, outside native item fields. Their field fingerprints use the SDK storage
-normalizer. Immutable history identifies later native changes per field, so an older
+normalizer. Immutable history identifies later native changes per field and relationship identity, so an older
 manifest can still replay without adopting a native edit as portable state. No input
 bookkeeping, verification, utility, unknown fields or other native-only metadata is
 rewritten on existing records. An unchanged source round trip performs no item writes.
@@ -281,7 +281,7 @@ represented relationship identities. An edge can be removed only if the current 
 previous portable document explicitly carried it; omitted targets remain unknown here.
 Native Task, canceled, missing, artifact, foreign and otherwise unrepresented links stay
 untouched. Native links added or removed after export also survive unchanged imports.
-A skipped target closes
+Unrelated native edge edits do not revoke authority over other portable edges. Mixed batches preview creations before updates so the SDK resolves new targets; represented legacy targets outside the input join the guarded read set. Legacy identity and provenance come from immutable creation history. A skipped target closes
 transitively over every dependent row with the same reason before selecting mutations.
 Unchanged compares current SDK content with incoming values through the SDK canonical
 and mutation projections, including SDK-normalized dependency provenance. Saved input
@@ -322,7 +322,7 @@ seed `(master + imul(index, 0x9e3779b9)) >>> 0`. The reference copies SDK state 
 applies only the explicitly selected changes directly through the SDK; it imports no
 production ownership/projection helpers. Every comparison includes unknown/native-only
 fields, all relationship target classes and all registered built-in kind spellings. Each law
-runs 250 bounded and 250 entirely unbounded inventories.
+runs 250 bounded and 250 entirely unbounded inventories, with 250 native-origin and 250 genuinely imported-origin records.
 Only the SDK-managed modification clock is excluded for records deliberately edited by
 the reference. Identity compares every returned field, including that clock.
 

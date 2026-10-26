@@ -53,7 +53,10 @@ test('frontmatter names are stable keys, file stems remain aliases and only trul
   assert.equal(release.description, 'Safe release workflow'); assert.deepEqual(release.links, [review.id]); assert.deepEqual(review.links, [release.id]);
   const before = await snapshot(options.workspace); assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unchanged, 2); assert.deepEqual(await snapshot(options.workspace), before);
   const out = join(root, 'out'); await exportDir(out, { ...options, to: 'claude-code' });
-  for (const name of ['legacy-file.md', 'review-file.md']) assert.equal(await readFile(join(out, name), 'utf8'), (await readFile(join(source, name), 'utf8')).replace('[[absent]]', 'absent'));
+  for (const item of [release, review]) assert.equal((await readFile(join(out, 'memories', `${item.slug}.md`), 'utf8')).split('\n').slice(1).join('\n'), item.body);
+  const retained = (await store.client.listAllComplete({ includeBody: true })).items;
+  await importDir(out, { ...options, from: 'claude-code' });
+  assert.deepEqual((await store.client.listAllComplete({ includeBody: true })).items, retained);
 });
 
 test('compact recall retains a huge top result at 200 tokens, shows scores and descriptions, and get returns full content', async t => {

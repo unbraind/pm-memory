@@ -6,7 +6,7 @@ import { exportDir, importDir, remember, renew, POLICY_MANIFEST, MemoryError } f
 import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody } from '../src/portable.ts';
 import { tracker, snapshot, crashAtStep, assertSkippedUnchanged, exportedPolicy, editIntent, crashAfterCompensation } from './helpers.ts';
-import { WorkspaceTransactionInterruptedError, commitItemMutations, getHistoryPath } from '@unbrained/pm-cli/sdk';
+import { WorkspaceTransactionInterruptedError, commitItemMutations, getHistoryPath, getItemPath, canonicalDocument, serializeItemDocument, resolveItemTypeRegistry, readSettings } from '@unbrained/pm-cli/sdk';
 import type { ImportPlan } from '../src/portable-plan.ts';
 import { replanNodes } from '../src/portable-replan.ts';
 import { creationMetadata } from '../src/portable-ownership.ts';
@@ -288,4 +288,110 @@ test('repeated foreign SDK transaction markers grant no portable field ownership
   assert.equal((await importDir(path, { ...source.options, from: 'agents-md' })).updated, 1);
   const current = (await source.client.get(id, { full: true })).item;
   assert.equal(current.description, 'Native second edit'); assert.equal(current.body, 'Portable body B');
+});
+
+test('legacy field locality preserves native edits, source bookkeeping and unrelated metadata', async t => {
+  const target = await tracker(t); const file = join(target.root, 'alpha.md');
+  const first = '---\nname: alpha\ndescription: Original hook\n---\nOriginal body';
+  await writeFile(file, first); await importDir(file, { ...target.options, from: 'claude-code' });
+  const id = (await target.client.listAllComplete()).items[0].id;
+  await target.client.run('update', { id, options: { description: 'Native hook C', memorySlug: 'native-renamed', memoryEdited: true, memoryPath: 'native-path.md', memoryOriginal: 'native-only-original', memoryImportSnapshot: 'native-only-snapshot' } });
+  const before = (await target.client.get(id, { full: true })).item;
+  await writeFile(file, first.replace('Original body', 'Harness body B'));
+  const result = await importDir(file, { ...target.options, from: 'claude-code' });
+  assert.equal(result.updated, 1); assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /description/);
+  const actual = (await target.client.get(id, { full: true })).item;
+  assert.equal(actual.body, 'Harness body B');
+  const bodyOnly = { ...before, body: actual.body, updated_at: actual.updated_at };
+  assert.deepEqual(actual, bodyOnly);
+  const saved = await snapshot(target.workspace);
+  await assert.rejects(importDir(file, { ...target.options, from: 'claude-code' }), error => error instanceof MemoryError && error.code === 'conflict');
+  assert.deepEqual(await snapshot(target.workspace), saved);
+  await target.store.fields(id, { source: 'foreign:tool' });
+  await assertSkippedUnchanged(() => importDir(file, { ...target.options, from: 'claude-code' }), target.workspace, 2);
+});
+
+test('artifact-only legacy projections preserve native bookkeeping and emit an empty policy inventory', async t => {
+  const target = await tracker(t); const file = join(target.root, 'MEMORY.md'); await writeFile(file, '# Native artifact');
+  await importDir(file, { ...target.options, from: 'claude-code' });
+  const id = (await target.client.listAllComplete()).items[0].id;
+  await target.store.fields(id, { edited: true, import_snapshot: 'legacy-native-snapshot' });
+  const before = (await target.client.listAllComplete({ includeBody: true })).items;
+  const { path, manifest } = await exportedPolicy(target);
+  assert.deepEqual(manifest.guidance, []);
+  await importDir(path, { ...target.options, from: 'agents-md' });
+  assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
+});
+
+test('malformed immutable creation provenance is skipped without adopting a package source tag', async t => {
+  const { path } = await policyScenario(t);
+  for (const original of ['{', 'null', '[]', '[{},3]', '[{},"body"]']) {
+    const target = await tracker(t); await target.store.register();
+    await target.client.run('create', { options: { title: 'Retained unrelated record', type: 'Knowledge', memorySlug: 'policy', memoryKind: 'project', memorySource: 'portable:policy-v1', memoryOriginal: Buffer.from(original).toString('base64') } });
+    await assertSkippedUnchanged(() => importDir(path, { ...target.options, from: 'agents-md' }), target.workspace);
+  }
+});
+
+test('compensated mixed imports remap new nodes while retaining native external links', async t => {
+  const source = await tracker(t); const target = await tracker(t);
+  const alpha = await remember('Alpha original', { ...source.options, slug: 'alpha', kind: 'project' });
+  const first = await exportedPolicy(source, 'first'); await importDir(first.path, { ...target.options, from: 'agents-md' });
+  const id = (await target.client.listAllComplete()).items[0].id;
+  const task = (await target.client.create({ title: 'Native retained Task' })).item; await target.store.link(id, task.id);
+  await remember('Alpha replacement', { ...source.options, update: 'alpha', kind: 'project' });
+  const beta = await remember('New beta reference', { ...source.options, slug: 'beta', kind: 'reference', forceNew: true }); await source.store.link(alpha.id, beta.id);
+  const next = await exportedPolicy(source, 'next');
+  await assert.rejects(importDir(next.path, { ...target.options, from: 'agents-md', onTransition: crashAfterCompensation }), WorkspaceTransactionInterruptedError);
+  assert.equal((await importDir(next.path, { ...target.options, from: 'agents-md' })).updated, 1);
+  const rows = (await target.client.listAllComplete({ includeBody: true })).items;
+  const actual = rows.find(row => row.id === id)!; const importedBeta = rows.find(row => row.memory_slug === 'beta')!;
+  assert.equal(actual.body, 'Alpha replacement');
+  assert.deepEqual(new Set(actual.dependencies!.map(edge => edge.id)), new Set([task.id, importedBeta.id]));
+});
+
+test('single-file legacy imports guard represented targets outside the input and drain older incomplete read sets', async t => {
+  const target = await tracker(t); const beta = await remember('Native beta reference', { ...target.options, slug: 'beta', kind: 'reference' });
+  const file = join(target.root, 'alpha.md'); await writeFile(file, 'Alpha references [[beta]]');
+  await assert.rejects(importDir(file, { ...target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
+  const intent = join(target.workspace, 'runtime', 'memory-policy-import.json');
+  await editIntent(intent, older => ({ ...older, expected: older.expected.filter(row => row.id !== beta.id), initial: older.initial!.filter(row => row.id !== beta.id) }));
+  assert.equal((await importDir(file, { ...target.options, from: 'agents-md' })).imported, 1);
+  const alpha = (await target.client.listAllComplete({ includeBody: true })).items.find(row => row.memory_slug === 'alpha')!;
+  assert.deepEqual(alpha.dependencies!.map(edge => edge.id), [beta.id]);
+  await writeFile(file, 'Alpha updated [[beta]]');
+  let changed = false;
+  await assert.rejects(importDir(file, { ...target.options, from: 'agents-md', onTransition: async event => { if (!changed && event.transition === 'step_applied') { changed = true; await target.client.update(beta.id, { body: 'Native beta C' }); } } }), error => error instanceof MemoryError && error.code === 'conflict');
+  assert.equal((await target.client.get(alpha.id, { full: true })).item.body, alpha.body);
+  assert.equal((await target.client.get(beta.id, { full: true })).item.body, 'Native beta C');
+});
+
+test('ambiguous legacy origins refuse without selecting or overwriting a native record', async t => {
+  const target = await tracker(t); await target.store.register();
+  const file = join(target.root, 'alpha.md'); await writeFile(file, 'Alpha body');
+  for (const suffix of ['one', 'two']) {
+    const id = `memory-test-origin${suffix}`;
+    await target.client.run('create', { options: { id, title: `Legacy origin ${suffix}`, type: 'Knowledge', memoryKind: 'reference', memorySlug: 'alpha', memorySource: 'claude-code:relative-file', memoryPath: 'alpha.md', memoryOriginal: Buffer.from('Alpha body').toString('base64'), allowDuplicate: true } });
+    await target.client.run('update', { id, options: { memorySlug: `renamed-${suffix}` } });
+  }
+  const before = (await target.client.listAllComplete({ includeBody: true })).items;
+  await assert.rejects(importDir(file, { ...target.options, from: 'claude-code' }), error => error instanceof MemoryError && /Ambiguous/.test(error.message));
+  assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
+});
+
+
+test('legacy source tags without immutable provenance remain foreign and close dependent skips', async t => {
+  for (const raw of [false, true]) {
+    const target = await tracker(t); await target.store.register();
+    const id = 'memory-test-unproven';
+    if (raw) {
+      const base = (await target.client.create({ title: 'Native serialization template', type: 'Knowledge' })).item;
+      const document = canonicalDocument({ metadata: { ...base, id, memory_slug: 'alpha', memory_kind: 'reference', memory_source: 'claude-code:relative-file', memory_path: 'alpha.md' }, body: 'Foreign source' });
+      await writeFile(getItemPath(target.workspace, 'Knowledge', id, 'toon', resolveItemTypeRegistry(await readSettings(target.workspace)).type_to_folder), serializeItemDocument(document, { format: 'toon' }));
+    } else await target.client.run('create', { options: { id, title: 'Foreign source tag', type: 'Knowledge', memorySlug: 'alpha', memoryKind: 'reference', memorySource: 'claude-code:relative-file', memoryPath: 'alpha.md' } });
+    const directory = join(target.root, 'sources'); await mkdir(directory);
+    await writeFile(join(directory, 'alpha.md'), 'Alpha incoming'); await writeFile(join(directory, 'beta.md'), 'Beta mentions [[alpha]]');
+    const before = (await target.client.listAllComplete({ includeBody: true })).items;
+    await assertSkippedUnchanged(() => importDir(directory, { ...target.options, from: 'claude-code' }), target.workspace, 2);
+    assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
+  }
 });

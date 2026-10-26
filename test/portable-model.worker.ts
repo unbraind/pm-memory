@@ -165,7 +165,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           for (const key of keys) {
             const now = relation.has(key); const desired = wanted.relationships.some(edge => edgeKey(edge) === key); const before = exported.relationships.some(edge => edgeKey(edge) === key); const old = owned?.relationships.some(edge => edgeKey(edge) === key);
             if (now === desired) continue;
-            if ((!dirty.has('relationships') && owned !== undefined && now === old) || (desired !== before && now === before)) {
+            if ((!dirty.has(`relationship:${key}`) && owned !== undefined && now === old) || (desired !== before && now === before)) {
               if (desired) relation.set(key, wanted.relationships.find(edge => edgeKey(edge) === key)!); else relation.delete(key);
             } else if (desired !== before) refused = true;
           }
@@ -227,8 +227,8 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           if (choice === 1) await apply(exports[random() % exports.length]);
           if (choice === 2) { const body = `\n native ${random()} \r\n`; await client.update(ids.get(key)!, { body }); node.body = storedBody(body); nativeEdits.set(key, new Set([...(nativeEdits.get(key) ?? []), 'body'])); }
           if (choice === 3) { const description = ` Native hook ${random()} \r\n`; await client.update(ids.get(key)!, { description }); node.description = description; nativeEdits.set(key, new Set([...(nativeEdits.get(key) ?? []), 'description'])); }
-          if (choice === 4) { const target = key === 'alpha' ? 'beta' : 'alpha'; await client.update(ids.get(key)!, { dep: [`id=${ids.get(target)!},kind=related`], replaceDeps: true }); node.relationships = [{ slug: target, kind: 'related' }]; nativeEdits.set(key, new Set([...(nativeEdits.get(key) ?? []), 'relationships'])); }
-          if (choice === 5) { await client.update(ids.get(key)!, { clearDeps: true }); node.relationships = []; nativeEdits.set(key, new Set([...(nativeEdits.get(key) ?? []), 'relationships'])); }
+          if (choice === 4) { const target = key === 'alpha' ? 'beta' : 'alpha'; const edited = [...node.relationships.map(edge => `relationship:${edge.slug}:${edge.kind}`), `relationship:${target}:related`]; await client.update(ids.get(key)!, { dep: [`id=${ids.get(target)!},kind=related`], replaceDeps: true }); node.relationships = [{ slug: target, kind: 'related' }]; nativeEdits.set(key, new Set([...(nativeEdits.get(key) ?? []), ...edited])); }
+          if (choice === 5) { const edited = node.relationships.map(edge => `relationship:${edge.slug}:${edge.kind}`); await client.update(ids.get(key)!, { clearDeps: true }); node.relationships = []; nativeEdits.set(key, new Set([...(nativeEdits.get(key) ?? []), ...edited])); }
           if (choice === 6) await variant(exports[random() % exports.length], ` \r\n Variant ${random()} \r\n`);
           await check();
         }
@@ -283,7 +283,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         operation = 'crash every multi-target journal boundary'; await crash(crashInput, sequence % 21, 18); await check();
         operation = 'recover multi-target journal'; await importDir(crashInput.path, { ...options, from: to }); acceptRecovery(crashInput); await check();
         // Fixed foreign-target case, with a dependent that must inherit its refusal.
-        operation = 'native dependent edge'; await client.update(ids.get('beta')!, { dep: [`id=${ids.get('alpha')!},kind=related`], replaceDeps: true }); model.find(row => row.slug === 'beta')!.relationships = [{ slug: 'alpha', kind: 'related' }]; nativeEdits.set('beta', new Set(['relationships'])); await check();
+        operation = 'native dependent edge'; await client.update(ids.get('beta')!, { dep: [`id=${ids.get('alpha')!},kind=related`], replaceDeps: true }); const betaModel = model.find(row => row.slug === 'beta')!; nativeEdits.set('beta', new Set([...betaModel.relationships.map(edge => `relationship:${edge.slug}:${edge.kind}`), 'relationship:alpha:related'])); betaModel.relationships = [{ slug: 'alpha', kind: 'related' }]; await check();
         operation = 'export ownership base'; const owned = await save(); await check();
         operation = 'rebase ownership graph'; await apply(owned); await check();
         operation = 'foreign tool takes ownership'; await client.run('update', { id: ids.get('alpha')!, options: { memorySource: 'foreign:model' } }); foreign.add('alpha'); await check();

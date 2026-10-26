@@ -62,11 +62,20 @@ test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, 
   const task = (await target.client.create({ title: 'Native Task' })).item;
   const native = (await target.client.create({ title: 'Native Knowledge without memory metadata', type: 'Knowledge' })).item;
   await target.client.schemaAddField('native_hint', { type: 'string', description: 'Foreign metadata for ownership laws' });
+  await target.client.run('create', { options: { title: 'Foreign knowledge', type: 'Knowledge', memorySlug: 'foreign', memorySource: 'foreign:law', memoryKind: 'reference' } });
+  const foreign = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'foreign')!;
   const alpha = await remember('Bounded policy alpha', { ...target.options, slug: 'alpha', kind: 'project', pin: true });
   if (Math.floor(START / 25) % 2 === 0) await renew('alpha', { ...target.options, from: '2026-01-01T00:00:00.000Z', until: '2027-01-01T00:00:00.000Z', evidence: 'Independent law model' });
-  await target.client.run('create', { options: { title: 'Foreign knowledge', type: 'Knowledge', memorySlug: 'foreign', memorySource: 'foreign:law', memoryKind: 'unsupported' } });
-  const foreign = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'foreign')!;
-  const targets = [beta.id, task.id, native.id, archived.id, artifact.id, `${alpha.id}-missing`, foreign.id];
+  await target.client.run('update', { id: foreign.id, options: { memoryKind: 'unsupported' } });
+  if (Math.floor(START / 25) % 4 >= 2) {
+    const bootstrap = join(target.root, 'portable-origin');
+    await exportDir(bootstrap, { ...target.options, to: 'agents-md' });
+    await target.client.run('delete', { id: alpha.id, options: { force: true } });
+    await importDir(bootstrap, { ...target.options, from: 'agents-md' });
+    await rm(bootstrap, { recursive: true });
+  }
+  const alphaId = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!.id;
+  const targets = [beta.id, task.id, native.id, archived.id, artifact.id, `${alphaId}-missing`, foreign.id];
   for (let sequence = START; sequence < START + COUNT; sequence++) {
     const seed = (MASTER + Math.imul(sequence, 0x9e3779b9)) >>> 0; const random = randomizer(seed);
     const label = `LAW=${LAW} MASTER_SEED=${MASTER} SEQUENCE=${sequence} SEED=${seed}`;
@@ -74,7 +83,7 @@ test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, 
     const chosen = sequence % targets.length;
     const dependencies = targets.map((id, index) => `id=${id},kind=${index === chosen ? requestedKind : 'related'},author=law-native,created_at=2026-01-01T00:00:00.000Z`);
     try {
-      await target.client.run('update', { id: alpha.id, options: { title: `Policy ${seed}`, description: `Hook ${seed}`, body: `Body ${seed}`, tags: `native-${seed}`, priority: random() % 4, memorySlug: 'alpha', memoryOriginal: '', memoryPath: '', memoryEdited: false, memoryKind: 'project', memoryWhy: `Why ${seed}`, memoryHow: `How ${seed}`, memoryPinned: true, memoryRecalls: random() % 5, memoryVerdict: 'verified', memoryVerifiedAt: '2026-01-01T00:00:00.000Z', memoryReason: `Native reason ${seed}`, memoryMerge: `Native merge ${seed}`, nativeHint: `Foreign ${seed}`, dep: dependencies, replaceDeps: true, allowUnresolvedDeps: true, allowMissingParent: true } });
+      await target.client.run('update', { id: alphaId, options: { title: `Policy ${seed}`, description: `Hook ${seed}`, body: `Body ${seed}`, tags: `native-${seed}`, priority: random() % 4, memorySlug: 'alpha', memoryOriginal: '', memoryPath: '', memoryEdited: false, memoryKind: 'project', memoryWhy: `Why ${seed}`, memoryHow: `How ${seed}`, memoryPinned: true, memoryRecalls: random() % 5, memoryVerdict: 'verified', memoryVerifiedAt: '2026-01-01T00:00:00.000Z', memoryReason: `Native reason ${seed}`, memoryMerge: `Native merge ${seed}`, nativeHint: `Foreign ${seed}`, dep: dependencies, replaceDeps: true, allowUnresolvedDeps: true, allowMissingParent: true } });
       const directory = join(target.root, `case-${sequence}`); const to = sequence % 2 === 0 ? 'agents-md' : 'claude-code';
       await exportDir(directory, { ...target.options, to });
       const before = (await target.client.listAllComplete({ includeBody: true })).items;
@@ -83,7 +92,7 @@ test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, 
       let referenceAction: Record<string, unknown> = {}; let inputAction: Record<string, unknown> = {};
       if (LAW === 'locality') {
         const count = 1 + random() % 3; const first = random() % FIELDS.length;
-        for (let offset = 0; offset < count; offset++) Object.assign(referenceAction, fieldAction(FIELDS[(first + offset) % FIELDS.length], seed + offset, before.find(row => row.id === alpha.id)!));
+        for (let offset = 0; offset < count; offset++) Object.assign(referenceAction, fieldAction(FIELDS[(first + offset) % FIELDS.length], seed + offset, before.find(row => row.id === alphaId)!));
         inputAction = { ...referenceAction };
         const edge = row.relationships[0];
         if (sequence % 4 === 0 && edge !== undefined) {
@@ -95,14 +104,14 @@ test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, 
       }
       if (LAW === 'foreign') {
         const nativeField = FIELDS[random() % FIELDS.length];
-        const nativeAction = fieldAction(nativeField, seed + 1000, before.find(row => row.id === alpha.id)!);
-        await target.client.run('update', { id: alpha.id, options: { ...nativeAction, nativeHint: `New foreign ${seed}`, memorySlug: sequence % 5 === 0 ? `native-${seed}` : 'alpha', memoryOriginal: `native-only-original-${seed}`, memoryPath: `native-${seed}.md`, memoryEdited: true, priority: (Number(before.find(row => row.id === alpha.id)!.priority) + 1) % 4, dep: [`id=${task.id},kind=supersedes,author=peer-law`] } });
+        const nativeAction = fieldAction(nativeField, seed + 1000, before.find(row => row.id === alphaId)!);
+        await target.client.run('update', { id: alphaId, options: { ...nativeAction, nativeHint: `New foreign ${seed}`, memorySlug: sequence % 5 === 0 ? `native-${seed}` : 'alpha', memoryOriginal: `native-only-original-${seed}`, memoryPath: `native-${seed}.md`, memoryEdited: true, priority: (Number(before.find(row => row.id === alphaId)!.priority) + 1) % 4, dep: [`id=${task.id},kind=supersedes,author=peer-law`] } });
         const edited = sequence % 3 === 0 ? nativeField : FIELDS[(FIELDS.indexOf(nativeField) + 1) % FIELDS.length];
-        inputAction = fieldAction(edited, seed + 2000, before.find(row => row.id === alpha.id)!);
+        inputAction = fieldAction(edited, seed + 2000, before.find(row => row.id === alphaId)!);
         if (edited !== nativeField) referenceAction = { ...inputAction };
         if (sequence % 4 === 0 && row.relationships.length > 0) {
           const edge = row.relationships[0]; const id = before.find(item => item.memory_slug === edge.slug)!.id;
-          await target.client.update(alpha.id, { depRemove: [`id=${id},kind=${edge.kind}`] });
+          await target.client.update(alphaId, { depRemove: [`id=${id},kind=${edge.kind}`] });
         }
       }
       if (LAW !== 'identity') await edit(directory, row, inputAction, manifest);
@@ -114,15 +123,15 @@ test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, 
         await mkdir(oracle);
         await cp(target.workspace, oracle, { recursive: true, filter: path => !['runtime', 'locks', 'transactions', 'checkpoints', 'search'].includes(relative(target.workspace, path).split('/')[0]) });
         const client = new PmClient({ pmRoot: oracle, author: target.options.author, noExtensions: true });
-        await client.run('update', { id: alpha.id, options: referenceAction });
+        await client.run('update', { id: alphaId, options: referenceAction });
         expected = (await client.listAllComplete({ includeBody: true })).items;
       }
       await importDir(directory, { ...target.options, from: to });
       const actual = (await target.client.listAllComplete({ includeBody: true })).items;
-      compare(actual, expected, changed ? alpha.id : undefined, `${label} kind=${requestedKind} targetClass=${chosen}`);
+      compare(actual, expected, changed ? alphaId : undefined, `${label} kind=${requestedKind} targetClass=${chosen}`);
       if (LAW === 'identity') assert.deepEqual(actual, before, label);
       await rm(directory, { recursive: true }); if (changed) await rm(oracle, { recursive: true });
-    } catch (cause) { throw new Error(`${label} kind=${requestedKind} targetClass=${chosen}`, { cause }); }
+    } catch (cause) { t.diagnostic(`${label} cause=${cause instanceof Error ? cause.message : String(cause)}`); throw new Error(`${label} kind=${requestedKind} targetClass=${chosen}`, { cause }); }
   }
   t.diagnostic(`OWNERSHIP_LAW law=${LAW} start=${START} count=${COUNT} MASTER_SEED=${MASTER}`);
 });
