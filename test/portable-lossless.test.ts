@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { exportDir, importDir } from '../index.ts';
 import type { Harness } from '../src/types.ts';
@@ -21,10 +21,10 @@ async function semantics(target: Tracker) {
   })).sort((a, b) => String(a.slug).localeCompare(String(b.slug)));
 }
 /** Minimal legacy fixtures omit every optional semantic field without omitting the harness index. */
-async function legacy(target: Tracker, from: Harness, empty = false) {
+async function legacy(target: Tracker, from: Harness, empty = false, linked = false) {
   const path = join(target.root, 'source'); await mkdir(path);
   if (from === 'claude-code') await writeFile(join(path, 'MEMORY.md'), '- [Alpha](alpha.md)\n- [Beta](beta.md)\n');
-  await writeFile(join(path, from === 'agents-md' ? 'AGENTS.md' : 'alpha.md'), empty ? '' : '# Alpha\nPortable source\n');
+  await writeFile(join(path, from === 'agents-md' ? 'AGENTS.md' : 'alpha.md'), empty ? '' : `# Alpha\nPortable source${linked ? ' [[beta]]' : ''}\n`);
   if (from === 'claude-code') await writeFile(join(path, 'beta.md'), '# Beta\nSecond portable source\n');
   await importDir(path, { ...target.options, from });
   return (await target.client.listAllComplete({ includeBody: true })).items.find(row => row.memory_slug === (from === 'agents-md' ? 'agents' : 'alpha'))!;
@@ -80,5 +80,19 @@ test('lossless export retains native relationship additions, removals and proven
     await source.client.run('update', { id: alpha.id, options: transition === 'remove' ? { depRemove: `id=${beta.id},kind=related` } : { dep: `id=${beta.id},kind=${transition === 'add' ? 'supersedes' : 'related'},source_kind=native-evidence,created_at=2025-01-01T00:00:00.000Z` } });
     assert.notDeepEqual(await semantics(source), before);
     await freshRoundTrip(t, source, `graph-${transition}`, 'claude-code');
+  }
+});
+
+test('legacy records without modern receipts retain native relationships in fresh exports', async t => {
+  const ceiling = process.env.GIT_CEILING_DIRECTORIES;
+  t.after(() => { if (ceiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = ceiling; });
+  for (const linked of [false, true]) {
+    const source = await tracker(t); const alpha = await legacy(source, 'claude-code', false, linked);
+    process.env.GIT_CEILING_DIRECTORIES = dirname(source.root);
+    const beta = (await source.client.listAllComplete()).items.find(row => row.memory_slug === 'beta')!;
+    await source.client.run('update', { id: alpha.id, options: linked ? { depRemove: `id=${beta.id},kind=related` } : { dep: `id=${beta.id},kind=supersedes` } });
+    // Retain SDK item/history but simulate an older package without ownership journals.
+    await rename(join(source.workspace, 'transactions', 'sdk'), join(source.root, 'older-journals'));
+    await freshRoundTrip(t, source, `older-export-${linked}`, 'claude-code');
   }
 });

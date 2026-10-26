@@ -317,7 +317,8 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     const nativeGraphEdits = new Set<string>();
     const memories = await Promise.all(owned.memories.map(async item => {
       const previous = item.source.endsWith(':relative-file') ? await previousOwnership(store, item, ids) : undefined;
-      if ((previous?.nativeRelationships?.length ?? 0) > 0) nativeGraphEdits.add(item.id);
+      const unprovenGraph = previous === undefined && !item.edited && item.path !== '' && item.source === `${options.to}:relative-file` && (item.relationships.length > 0 || sourceDocument(item.path, Buffer.from(item.original, 'base64'), options.to).links.length > 0);
+      if ((previous?.nativeRelationships?.length ?? 0) > 0 || unprovenGraph) nativeGraphEdits.add(item.id);
       const source = previous?.source;
       return source === undefined ? item : { ...item, original: source.original };
     }));
