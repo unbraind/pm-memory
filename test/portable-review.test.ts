@@ -6,7 +6,7 @@ import { importDir, exportDir, remember, renew, get, POLICY_MANIFEST, MemoryErro
 import type { PortablePolicyManifest } from '../index.ts';
 import { WorkspaceTransactionInterruptedError, canonicalDocument } from '@unbrained/pm-cli/sdk';
 import { policyBody } from '../src/portable.ts';
-import { tracker, snapshot, assertClosedGraph, memoryDocuments, crashAfterCompensation, crashAtStep as crashStep } from './helpers.ts';
+import { tracker, snapshot, assertClosedGraph, memoryDocuments, crashAfterCompensation, crashAtStep as crashStep, exportedPolicy } from './helpers.ts';
 
 /** Export an actual mixed tracker and expose its harness-editable body. */
 async function scenario(t: Parameters<typeof tracker>[0]) {
@@ -15,8 +15,7 @@ async function scenario(t: Parameters<typeof tracker>[0]) {
   const second = await remember('Memory beta', { ...source.options, slug: 'beta', kind: 'reference', links: [first.id] });
   await remember('Unrelated bounded policy', { ...source.options, slug: 'policy', kind: 'project', pin: true });
   await renew('policy', { ...source.options, from: '2026-01-01T00:00:00.000Z', until: '2027-01-01T00:00:00.000Z', evidence: 'Public review' });
-  const path = join(source.root, 'export'); await exportDir(path, { ...source.options, to: 'agents-md' });
-  const manifest = JSON.parse(await readFile(join(path, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+  const { path, manifest } = await exportedPolicy(source);
   return { ...source, path, manifest, first, second };
 }
 

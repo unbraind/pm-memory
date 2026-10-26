@@ -14,7 +14,7 @@ export async function ownsLatest(store: Store, plan: ImportPlan, id: string): Pr
   const mutation = plan.nodes?.find(row => row.id === id) ?? plan.mutations.find(row => row.id === id && row.op === 'create');
   if (last.op !== 'create' || mutation === undefined || entries.length !== 1) return false;
   const created = replayHistoryToTarget(entries, 0).metadata;
-  return created.memory_source === 'portable:policy-v1' && created.memory_original === mutation.options!.memoryOriginal;
+  return created.memory_source === mutation.options!.memorySource && created.memory_original === mutation.options!.memoryOriginal;
 }
 /** Keep the transitive support graph of every current peer-owned record. */
 async function protectedByPeer(store: Store, plan: ImportPlan, id: string): Promise<boolean> {

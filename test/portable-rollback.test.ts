@@ -225,7 +225,7 @@ test('mixed graph node compensation remaps every edge and reads older intent exp
   envelope.payload = JSON.stringify(older); envelope.checksum = digest(envelope.payload);
   await writeFile(intent, JSON.stringify(envelope));
   const replanned = await target.store.write(() => replanNodes(target.store, older));
-  assert.equal(replanned.mutations.find(row => row.id === native.id)!.op, 'update');
+  assert.equal(replanned.mutations.some(row => row.id === native.id), false, 'unchanged native targets need no mutation');
   await importDir(linked, { ...target.options, from: 'agents-md' });
   const items = (await target.client.listAllComplete()).items; assert.equal(items.length, 3); assertClosedGraph(items);
   assert.equal(items.find(row => row.memory_slug === 'beta')!.dependencies![0].id, native.id);

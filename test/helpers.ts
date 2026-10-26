@@ -1,11 +1,25 @@
 import assert from 'node:assert/strict';
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdtemp, rm, readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { TestContext } from 'node:test';
 import { PmClient, WorkspaceTransactionInterruptedError, type Dependency, type WorkspaceTransactionTransitionContext } from '@unbrained/pm-cli/sdk';
 import { Store } from '../src/store.ts';
+import { testEnvironment } from '../scripts/environment.ts';
+import { exportDir, POLICY_MANIFEST, type PortablePolicyManifest, type importDir } from '../index.ts';
+import type { ImportPlan } from '../src/portable-plan.ts';
+import { digest } from '../src/core.ts';
+
+/** Bound child model lifetimes, retain coverage and require their complete assertion receipt. */
+export async function runModelWorker(t: TestContext, worker: URL, variables: Record<string, string>, receipt: string): Promise<void> {
+  const child = spawn(process.execPath, ['--test', '--test-reporter=tap', fileURLToPath(worker)], { env: { ...testEnvironment(process.env), ...variables }, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill(); });
+  let output = ''; child.stdout.on('data', chunk => { output += String(chunk); }); child.stderr.on('data', chunk => { output += String(chunk); });
+  const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+  assert.equal(code, 0, output); assert.ok(output.includes(receipt), `Missing complete SDK-verified worker receipt: ${output}`);
+}
 
 /** Initialize a real tracker and register cleanup before any mutations. */
 export async function tracker(t: TestContext) {
@@ -16,6 +30,19 @@ export async function tracker(t: TestContext) {
   await client.init('memory-test', { defaults: true, agentGuidance: 'skip', mergeFence: false });
   const options = { workspace, author: 'memory-test' }; const store = new Store(options);
   return { root, workspace, client, options, store };
+}
+/** Export one real policy directory and decode only its public wire inventory. */
+export async function exportedPolicy(source: Pick<Awaited<ReturnType<typeof tracker>>, 'root' | 'options'>, name = 'export') {
+  const path = join(source.root, name); await exportDir(path, { ...source.options, to: 'agents-md' });
+  const manifest = JSON.parse(await readFile(join(path, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+  return { path, manifest };
+}
+/** Alter only a fixture-owned checksummed recovery record, retaining its real SDK plan. */
+export async function editIntent(file: string, change: (plan: ImportPlan) => ImportPlan): Promise<ImportPlan> {
+  const envelope = JSON.parse(await readFile(file, 'utf8')) as { payload: string; checksum: string };
+  const plan = change(JSON.parse(envelope.payload) as ImportPlan);
+  envelope.payload = JSON.stringify(plan); envelope.checksum = digest(envelope.payload);
+  await writeFile(file, JSON.stringify(envelope)); return plan;
 }
 /** Snapshot durable tracker bytes while excluding disposable caches and locks. */
 export async function snapshot(root: string): Promise<Record<string, string>> {
@@ -33,6 +60,12 @@ export async function snapshot(root: string): Promise<Record<string, string>> {
 /** Serialized memory documents are distinct from their append-only SDK audit streams. */
 export async function memoryDocuments(root: string): Promise<Record<string, string>> {
   return Object.fromEntries(Object.entries(await snapshot(root)).filter(([path]) => path.startsWith('knowledge/')));
+}
+/** A native conflict receipt must retain every durable byte of the tracker. */
+export async function assertSkippedUnchanged(run: () => ReturnType<typeof importDir>, workspace: string, count = 1): Promise<void> {
+  const before = await snapshot(workspace); const result = await run();
+  assert.ok('skipped' in result); assert.equal(result.skipped.length, count);
+  assert.deepEqual(await snapshot(workspace), before);
 }
 /** Fail a real SDK write, then simulate process death after durable compensation. */
 export function crashAfterCompensation(event: WorkspaceTransactionTransitionContext): void {

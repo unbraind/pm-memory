@@ -9,7 +9,7 @@ import { digest } from '../src/core.ts';
 import { policyBody } from '../src/portable.ts';
 import { replanNodes } from '../src/portable-replan.ts';
 import { pendingImport, type ImportPlan } from '../src/portable-plan.ts';
-import { tracker, snapshot, crashAtStep } from './helpers.ts';
+import { tracker, snapshot, crashAtStep, assertSkippedUnchanged } from './helpers.ts';
 
 /** Build one actual pending-data scenario without mocks or repository discovery. */
 async function pendingScenario(t: Parameters<typeof tracker>[0]) {
@@ -103,6 +103,7 @@ test('owned recovery plans require every revision and SDK guard in all frozen ph
       { ...plan.mutations[0], id: 'absent' }, { ...plan.mutations[0], op: 'update', match: { key: 'wrong', value: 'version' } },
     ].map(row => ({ ...plan, mutations: [row] })),
     { ...plan, nodes: {} }, { ...plan, snapshots: {} },
+    ...[null, [], [null], [[]], [3], [{}], [{ ...plan.ownership![0], id: 3 }], [{ ...plan.ownership![0], id: 'foreign' }], [{ ...plan.ownership![0], fields: null }], [{ ...plan.ownership![0], relationships: null }], [{ ...plan.ownership![0], relationships: [null] }], [{ ...plan.ownership![0], relationships: [[]] }], [{ ...plan.ownership![0], relationships: [{}] }], [{ ...plan.ownership![0], relationships: [{ id: 3, kind: 'related' }] }], [{ ...plan.ownership![0], relationships: [{ id: 'foreign', kind: 'invalid' }] }], [{ ...plan.ownership![0], graph: null }]].map(ownership => ({ ...plan, ownership })),
   ];
   for (const value of invalid) {
     const payload = JSON.stringify(value); await writeFile(intent, JSON.stringify({ owner: 'pm-memory-policy-plan:1', payload, checksum: digest(payload) }));
@@ -132,9 +133,8 @@ test('failed provenance compensates the full import and retains later native edi
     const native = (await target.client.listAllComplete({ includeBody: true })).items[0];
     assert.equal(native.body, 'Public review policy');
     if (peer) {
-      await target.client.update(native.id, { body: 'Peer C' }); const before = await snapshot(target.workspace);
-      const result = await importDir(path, { ...target.options, from: 'agents-md' }); assert.ok('skipped' in result); assert.equal(result.skipped.length, 1);
-      assert.deepEqual(await snapshot(target.workspace), before);
+      await target.client.update(native.id, { body: 'Peer C' });
+      await assertSkippedUnchanged(() => importDir(path, { ...target.options, from: 'agents-md' }), target.workspace);
     } else {
       await importDir(path, { ...target.options, from: 'agents-md' });
       assert.equal((await target.client.get(native.id, { full: true })).item.body, 'Retry B');

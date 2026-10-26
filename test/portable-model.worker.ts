@@ -124,16 +124,16 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
       const client = new PmClient({ pmRoot: workspace, noExtensions: true, author: 'memory-test' });
       const ids = new Map(baseIds);
       const options = { workspace, author: 'memory-test' }; const to = sequence % 2 === 0 ? 'agents-md' : 'claude-code';
-      let model = structuredClone(initial); const baseline = new Map(seeded.native); const exports: SavedModel[] = [];
-      let operation = 'initialize'; let step = 0; let lastNative = seeded.native; let accepted: string[] = []; const foreign = new Set<string>();
+      let model = structuredClone(initial); const baseline = new Map(initial.map(row => [row.slug, structuredClone(row)])); const nativeEdits = new Map<string, Set<string>>(); const exports: SavedModel[] = [];
+      let operation = 'initialize'; let step = 0; let lastNative = seeded.native; const foreign = new Set<string>();
       /** Assert the entire tracker after every operation, with a stable replay coordinate. */
       const check = async () => {
         const actual = await readState(client);
         for (const slug of foreign) assert.equal(actual.items.find(item => item.memory_slug === slug)!.memory_source, 'foreign:model');
         assert.deepEqual(actual.model, model, `master=${MASTER_SEED} seed=${seed} sequence=${sequence} step=${step} operation=${operation}`);
         lastNative = actual.native;
-        for (const key of accepted) baseline.set(key, lastNative.get(key));
-        accepted = []; step++; totalSteps++;
+
+        step++; totalSteps++;
       };
       /** Export the model's current state and remember it independently of the actual manifest. */
       const save = async () => {
@@ -149,21 +149,44 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
       };
       /** Predict acceptance from native edit history and then compare the SDK-read result. */
       const apply = async (saved: SavedModel) => {
-        const skipped: string[] = []; const native = lastNative;
-        for (const row of model) if (foreign.has(row.slug) || (!isDeepStrictEqual(native.get(row.slug), baseline.get(row.slug)) && !isDeepStrictEqual(native.get(row.slug), saved.native.get(row.slug)))) skipped.push(row.slug);
-        // Reference graph closure, independent of the package planner and native ids.
+        const skipped = new Set(foreign); const conflicts = new Set<string>(); const changes = new Map<string, NodeModel>();
+        for (const row of model) {
+          if (foreign.has(row.slug)) continue;
+          const wanted = saved.desired.find(item => item.slug === row.slug)!; const exported = saved.snapshot.find(item => item.slug === row.slug)!;
+          const owned = baseline.get(row.slug); const dirty = nativeEdits.get(row.slug) ?? new Set<string>(); const next = structuredClone(row); let refused = false;
+          for (const key of ['title', 'description', 'body', 'why', 'how', 'kind', 'pinned', 'tags'] as const) {
+            if (isDeepStrictEqual(row[key], wanted[key])) continue;
+            if ((!dirty.has(key) && owned !== undefined && isDeepStrictEqual(row[key], owned[key])) || (!isDeepStrictEqual(wanted[key], exported[key]) && isDeepStrictEqual(row[key], exported[key]))) Object.assign(next, { [key]: structuredClone(wanted[key]) });
+            else refused = true;
+          }
+          const edgeKey = (edge: NodeModel['relationships'][number]) => `${edge.slug}:${edge.kind}`;
+          const relation = new Map(row.relationships.map(edge => [edgeKey(edge), edge]));
+          const keys = new Set([...row.relationships, ...wanted.relationships, ...exported.relationships, ...(owned?.relationships ?? [])].map(edgeKey));
+          for (const key of keys) {
+            const now = relation.has(key); const desired = wanted.relationships.some(edge => edgeKey(edge) === key); const before = exported.relationships.some(edge => edgeKey(edge) === key); const old = owned?.relationships.some(edge => edgeKey(edge) === key);
+            if (now === desired) continue;
+            if ((!dirty.has('relationships') && owned !== undefined && now === old) || (desired !== before && now === before)) {
+              if (desired) relation.set(key, wanted.relationships.find(edge => edgeKey(edge) === key)!); else relation.delete(key);
+            } else if (desired !== before) refused = true;
+          }
+          next.relationships = [...relation.values()].sort((a, b) => a.slug.localeCompare(b.slug) || a.kind.localeCompare(b.kind));
+          if (!isDeepStrictEqual(next, row)) changes.set(row.slug, next);
+          if (refused) { conflicts.add(row.slug); if (!changes.has(row.slug)) skipped.add(row.slug); }
+        }
+        // Only refused records close dependencies; a field conflict does not erase unrelated edits.
         let changed = true;
         while (changed) {
           changed = false;
-          for (const row of saved.desired) if (!skipped.includes(row.slug) && row.relationships.some(edge => skipped.includes(edge.slug))) { skipped.push(row.slug); changed = true; }
+          for (const row of saved.desired) if (!skipped.has(row.slug) && row.relationships.some(edge => skipped.has(edge.slug))) { skipped.add(row.slug); changed = true; }
         }
-        model = model.map(row => skipped.includes(row.slug) ? row : structuredClone(saved.desired.find(item => item.slug === row.slug)!));
+        model = model.map(row => skipped.has(row.slug) ? row : changes.get(row.slug) ?? row);
         const result = await importDir(saved.path, { ...options, from: to }); assert.ok('skipped' in result);
-        assert.deepEqual(result.skipped.map(row => row.slug).sort(), skipped.sort(), `seed=${seed} operation=${operation}: independent-edit classification`);
-        accepted = model.filter(row => !skipped.includes(row.slug)).map(row => row.slug);
+        assert.deepEqual([...new Set(result.skipped.map(row => row.slug))].sort(), [...new Set([...skipped, ...conflicts])].sort(), `seed=${seed} operation=${operation}: independent-edit classification`);
+        for (const row of saved.desired) if (!skipped.has(row.slug) && changes.has(row.slug)) { baseline.set(row.slug, structuredClone(row)); nativeEdits.delete(row.slug); }
+
       };
       /** Advance the reference only after a no-edit interrupted batch has recovered. */
-      const acceptRecovery = (saved: SavedModel): void => { model = structuredClone(saved.desired); accepted = model.map(row => row.slug); };
+      const acceptRecovery = (saved: SavedModel): void => { model = structuredClone(saved.desired); for (const row of model) baseline.set(row.slug, structuredClone(row)); nativeEdits.clear(); };
       /** Delete one complete generation, then recreate the same archived input. */
       const recreate = async (saved: SavedModel, label: string) => {
         operation = `delete ${label}`;
@@ -171,7 +194,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         model.splice(0); ids.clear(); await check();
         operation = `reimport ${label}`;
         assert.equal((await importDir(saved.path, { ...options, from: to })).imported, 3);
-        model.splice(0, model.length, ...structuredClone(saved.desired)); accepted = model.map(row => row.slug);
+        model.splice(0, model.length, ...structuredClone(saved.desired)); for (const row of model) baseline.set(row.slug, structuredClone(row)); nativeEdits.clear();
         for (const item of (await client.listAllComplete()).items) ids.set(String(item.memory_slug), item.id);
         await check();
       };
@@ -202,10 +225,10 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           operation = ['export', 'import old export', 'native body edit', 'native field edit', 'add link', 'remove links', 'whitespace variant'][choice];
           if (choice === 0) await save();
           if (choice === 1) await apply(exports[random() % exports.length]);
-          if (choice === 2) { const body = `\n native ${random()} \r\n`; await client.update(ids.get(key)!, { body }); node.body = storedBody(body); }
-          if (choice === 3) { const description = ` Native hook ${random()} \r\n`; await client.update(ids.get(key)!, { description }); node.description = description; }
-          if (choice === 4) { const target = key === 'alpha' ? 'beta' : 'alpha'; await client.update(ids.get(key)!, { dep: [`id=${ids.get(target)!},kind=related`], replaceDeps: true }); node.relationships = [{ slug: target, kind: 'related' }]; }
-          if (choice === 5) { await client.update(ids.get(key)!, { clearDeps: true }); node.relationships = []; }
+          if (choice === 2) { const body = `\n native ${random()} \r\n`; await client.update(ids.get(key)!, { body }); node.body = storedBody(body); nativeEdits.set(key, new Set([...(nativeEdits.get(key) ?? []), 'body'])); }
+          if (choice === 3) { const description = ` Native hook ${random()} \r\n`; await client.update(ids.get(key)!, { description }); node.description = description; nativeEdits.set(key, new Set([...(nativeEdits.get(key) ?? []), 'description'])); }
+          if (choice === 4) { const target = key === 'alpha' ? 'beta' : 'alpha'; await client.update(ids.get(key)!, { dep: [`id=${ids.get(target)!},kind=related`], replaceDeps: true }); node.relationships = [{ slug: target, kind: 'related' }]; nativeEdits.set(key, new Set([...(nativeEdits.get(key) ?? []), 'relationships'])); }
+          if (choice === 5) { await client.update(ids.get(key)!, { clearDeps: true }); node.relationships = []; nativeEdits.set(key, new Set([...(nativeEdits.get(key) ?? []), 'relationships'])); }
           if (choice === 6) await variant(exports[random() % exports.length], ` \r\n Variant ${random()} \r\n`);
           await check();
         }
@@ -216,7 +239,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         operation = 'export restore A'; const restore = await save(); await check();
         operation = 'restore variant B'; const restoreB = await variant(restore, `Restore B ${random()}\r\n`); await check();
         operation = 'import restore B'; await apply(restoreB); await check();
-        operation = 'restore older native body'; await client.update(ids.get('alpha')!, { body: restore.desired.find(row => row.slug === 'alpha')!.body }); model.find(row => row.slug === 'alpha')!.body = restore.desired.find(row => row.slug === 'alpha')!.body; await check();
+        operation = 'restore older native body'; await client.update(ids.get('alpha')!, { body: restore.desired.find(row => row.slug === 'alpha')!.body }); model.find(row => row.slug === 'alpha')!.body = restore.desired.find(row => row.slug === 'alpha')!.body; nativeEdits.set('alpha', new Set(['body'])); await check();
         operation = 'retry restore B'; await apply(restoreB); await check();
         // Deletion must not return the import identity to a completed generation.
         await recreate(restoreB, 'imported memories');
@@ -229,7 +252,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         try { await importDir(midInput.path, { ...options, from: to, onTransition: async event => {
           if (!midInjected && event.transition === 'step_applied') { midInjected = true; await client.update(ids.get('policy')!, { body: midPeer }); }
         } }); } catch (error) { midRefusal = error; }
-        model.find(row => row.slug === 'policy')!.body = midPeer; await check();
+        model.find(row => row.slug === 'policy')!.body = midPeer; nativeEdits.set('policy', new Set(['body'])); await check();
         assert.ok(midRefusal instanceof MemoryError && midRefusal.remedy.length > 0);
         operation = 'retry mid-batch refusal'; await apply(midInput); await check();
         // Sample EVERY shared-helper read/guard/apply boundary in all three paths.
@@ -249,7 +272,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           if (step.startsWith('cas-') && casIndex++ === boundary) { await client.update(ids.get(peerSlug)!, { body: peerBody }); injected = true; }
         } }), error => error instanceof MemoryError && error.remedy.length > 0);
         assert.equal(injected, true, `seed=${seed} mode=${mode} boundary=${boundary}`);
-        model.find(row => row.slug === peerSlug)!.body = peerBody; await check();
+        model.find(row => row.slug === peerSlug)!.body = peerBody; nativeEdits.set(peerSlug, new Set(['body'])); await check();
         operation = 'retry after compensated refusal'; await apply(raceInput); await check();
         operation = 'export recovery rebase'; const recoveredBase = await save(); await check();
         operation = 'import recovery rebase'; await apply(recoveredBase); await check();
@@ -260,7 +283,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         operation = 'crash every multi-target journal boundary'; await crash(crashInput, sequence % 21, 18); await check();
         operation = 'recover multi-target journal'; await importDir(crashInput.path, { ...options, from: to }); acceptRecovery(crashInput); await check();
         // Fixed foreign-target case, with a dependent that must inherit its refusal.
-        operation = 'native dependent edge'; await client.update(ids.get('beta')!, { dep: [`id=${ids.get('alpha')!},kind=related`], replaceDeps: true }); model.find(row => row.slug === 'beta')!.relationships = [{ slug: 'alpha', kind: 'related' }]; await check();
+        operation = 'native dependent edge'; await client.update(ids.get('beta')!, { dep: [`id=${ids.get('alpha')!},kind=related`], replaceDeps: true }); model.find(row => row.slug === 'beta')!.relationships = [{ slug: 'alpha', kind: 'related' }]; nativeEdits.set('beta', new Set(['relationships'])); await check();
         operation = 'export ownership base'; const owned = await save(); await check();
         operation = 'rebase ownership graph'; await apply(owned); await check();
         operation = 'foreign tool takes ownership'; await client.run('update', { id: ids.get('alpha')!, options: { memorySource: 'foreign:model' } }); foreign.add('alpha'); await check();
@@ -272,7 +295,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         operation = 'newer native edit after crash'; const node = model.find(row => row.slug === 'policy')!;
         const newer = `${node.title}\nNative wins ${random()}`;
         if (sequence % 2 === 0) await remember(newer, { ...options, update: 'policy', kind: 'project' }); else await client.update(ids.get('policy')!, { body: newer });
-        node.body = storedBody(newer); await check();
+        node.body = storedBody(newer); nativeEdits.set('policy', new Set(['body'])); await check();
         operation = 'retry preserves newer native edit';
         try { const result = await importDir(raced.path, { ...options, from: to }); assert.ok('skipped' in result); assert.ok(result.skipped.some(row => row.slug === 'policy')); }
         catch (error) { assert.ok(error instanceof MemoryError && error.code === 'conflict' && error.remedy.length > 0); }

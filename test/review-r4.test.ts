@@ -43,7 +43,9 @@ test('unchanged remember preserves stale verification, import bytes and reimport
   assert.equal(unchanged.verdict, 'stale'); assert.equal(unchanged.edited, false);
   assert.equal((await client.get(imported.id, { full: true })).item.memory_verified_at, verified);
   const out = join(root, 'out'); await exportDir(out, { ...options, to: 'claude-code' });
-  assert.equal(await readFile(join(out, 'guide.md'), 'utf8'), bytes);
+  assert.equal((await client.get(imported.id, { full: true })).item.memory_original, Buffer.from(bytes).toString('base64'));
+  const exported = await readFile(join(out, 'memories/guide.md'), 'utf8');
+  assert.equal(exported.slice(exported.indexOf('\n') + 1), imported.body);
   assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unchanged, 1);
   await remember(imported.body, { ...options, kind: 'project', update: imported.slug, pin: true });
   const changed = (await store.read()).find(row => row.id === imported.id)!;
@@ -54,7 +56,8 @@ test('unchanged remember preserves stale verification, import bytes and reimport
 test('export rejects reserved and nested case-folded names before publication', async t => {
   const native = await tracker(t);
   await remember('Portable index collision', { ...native.options, kind: 'reference', slug: 'memory' });
-  await assert.rejects(exportDir(join(native.root, 'out'), { ...native.options, to: 'claude-code' }), /Export names collide/);
+  const output = join(native.root, 'out'); await exportDir(output, { ...native.options, to: 'claude-code' });
+  assert.match(await readFile(join(output, 'memories/memory.md'), 'utf8'), /Portable index collision/);
   for (const to of ['claude-code', 'agents-md'] as const) {
     const { root, options } = await tracker(t);
     const source = join(root, 'source'); await mkdir(source);

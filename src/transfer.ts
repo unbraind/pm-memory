@@ -3,15 +3,21 @@ import { constants } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { parse } from 'yaml';
-import { certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
+import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDocumentToMutationOptions, previewItemMutations } from '@unbrained/pm-cli/sdk';
+import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { metadata, Store } from './store.ts';
-import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, foreignMemories } from './portable.ts';
-import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult } from './portable.ts';
+import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, ownedMemories, closeSkips } from './portable.ts';
+import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship } from './portable.ts';
 import type { Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
+import { ownershipPatch, portableFields, previousOwnership } from './portable-ownership.ts';
+import type { OwnedTarget } from './portable-ownership.ts';
+import { applyImport, expectedTargets, importIdentity, validateImportPlan, recoverInput, planError } from './portable-plan.ts';
 
 /** A parsed source document with its exact original bytes retained separately. */
 interface Source {
+  /** Semantic metadata explicitly present in this legacy file. Body is always represented. */
+  represented: ('title' | 'description' | 'kind' | 'why' | 'how')[];
   /** Safe relative export name. */
   path: string;
   /** Native memory key. */
@@ -77,14 +83,39 @@ function sourceDocument(path: string, bytes: Buffer, from: Harness): Source {
   const body = content.slice(front?.[0].length ?? 0);
   const stem = stemOf(path);
   const key = /^[a-z0-9][a-z0-9_-]{0,119}$/.test(stem) ? stem : `import-${digest(path).slice(0, 16)}`;
-  const title = typeof metadata.name === 'string' && metadata.name.trim() !== '' ? metadata.name : body.split(/\r?\n/).find(line => line.trim() !== '')?.replace(/^#+\s*/, '') ?? key;
-  return { path, slug: slug(typeof metadata.name === 'string' && /^[a-z0-9][a-z0-9_-]{0,119}$/.test(metadata.name) ? metadata.name : key), description: typeof metadata.description === 'string' ? metadata.description : '', title: title.slice(0, 160).toWellFormed(), body, kind: classification === undefined ? 'reference' : kind(classification), artifact: from === 'claude-code' && basename(path).toUpperCase() === 'MEMORY.MD', original, why: /\*\*Why:\*\*\s*([^\r\n]*)/i.exec(body)?.[1] ?? '', how: /\*\*How to apply:\*\*\s*([^\r\n]*)/i.exec(body)?.[1] ?? '', links: [...body.matchAll(/\[\[([a-z0-9_-]+)\]\]/g)].map(match => match[1]) };
+  const heading = body.split(/\r?\n/).find(line => line.trim() !== '');
+  const named = typeof metadata.name === 'string' && metadata.name.trim() !== '';
+  const title = named ? metadata.name as string : heading?.replace(/^#+\s*/, '') ?? key;
+  const why = /\*\*Why:\*\*\s*([^\r\n]*)/i.exec(body); const how = /\*\*How to apply:\*\*\s*([^\r\n]*)/i.exec(body);
+  const represented: Source['represented'] = [];
+  if (named || heading !== undefined) represented.push('title');
+  if (typeof metadata.description === 'string') represented.push('description');
+  if (classification !== undefined) represented.push('kind');
+  if (why !== null) represented.push('why'); if (how !== null) represented.push('how');
+  return { represented, path, slug: slug(typeof metadata.name === 'string' && /^[a-z0-9][a-z0-9_-]{0,119}$/.test(metadata.name) ? metadata.name : key), description: typeof metadata.description === 'string' ? metadata.description : '', title: title.slice(0, 160).toWellFormed(), body, kind: classification === undefined ? 'reference' : kind(classification), artifact: from === 'claude-code' && basename(path).toUpperCase() === 'MEMORY.MD', original, why: why?.[1] ?? '', how: how?.[1] ?? '', links: [...body.matchAll(/\[\[([a-z0-9_-]+)\]\]/g)].map(match => match[1]) };
 }
 /** Compare semantic content so native pm edits cannot silently export obsolete original bytes. */
 function sameContent(item: Memory, source: Source): boolean {
-  /** Normalize SDK whitespace boundaries without altering retained source bytes. */
-  const normalized = (values: string[]): string => JSON.stringify(values.map(value => value.replace(/\r\n/g, '\n').trim()));
-  return normalized([item.title, item.description, item.body, item.kind, item.why, item.how]) === normalized([source.title, source.description, source.body, source.kind, source.why, source.how]);
+  const native = portableFields(item, item.body); const represented = portableFields({ ...item, ...source }, source.body);
+  return (['body', ...source.represented] as const).every(field => native[field] === represented[field]);
+}
+/** Legacy wiki references own additions; absent text cannot prove deletion ownership. */
+function sourceRelationships(source: Source, memories: readonly Pick<Memory, 'id' | 'slug' | 'path'>[]): PortableRelationship[] {
+  return source.links.flatMap(reference => {
+    const aliases = memories.filter(item => stemOf(item.path) === reference);
+    const target = memories.find(item => item.slug === reference) ?? (aliases.length === 1 ? aliases[0] : undefined);
+    return target === undefined || target.slug === source.slug ? [] : [{ slug: target.slug, kind: 'related' as const }];
+  });
+}
+/** Project only fields the legacy document actually carries through the shared split. */
+function sourceOwnership(source: Source, before: Source, item: Memory, memories: readonly Pick<Memory, 'id' | 'slug' | 'path'>[]): PortableGuidance {
+  const row = { ...item, ...source, pinned: item.pinned, tags: item.tags, relationships: sourceRelationships(source, memories), path: `memories/${item.slug}.md`, validity: null, renewals: [], snapshotHash: digest(source.original), baseline: { fields: portableFields({ ...item, ...before, pinned: item.pinned, tags: item.tags }, before.body), relationships: sourceRelationships(before, memories) } };
+  for (const field of ['title', 'description', 'kind', 'why', 'how'] as const) if (!source.represented.includes(field)) Object.assign(row, { [field]: item[field] });
+  return row;
+}
+/** Do not acquire authority over implicit defaults or native-only metadata. */
+function sourceReceipt(target: OwnedTarget, source: Source): OwnedTarget {
+  return { ...target, fields: Object.fromEntries(Object.entries(target.fields).filter(([key]) => key === 'body' || source.represented.some(field => field === key))), source: { original: source.original } };
 }
 /** Import regular harness files idempotently, resolving wiki references into native links. */
 export async function importDir(path: string, options: PortableImportOptions): Promise<{ imported: number; updated: number; unchanged: number; unresolved_links: number } | PortableImportResult> {
@@ -110,44 +141,55 @@ export async function importDir(path: string, options: PortableImportOptions): P
   if (new Set(parsed.map(source => source.slug)).size !== parsed.length) throw new MemoryError('duplicate', 'Import names normalize to duplicate slugs', 'Rename the colliding source files');
   const store = new Store(options);
   return store.write(async () => {
-    const initial = await store.read();
+    const inputHash = digest(JSON.stringify([options.from, input]));
+    const recovered = await recoverInput(store, inputHash, options);
+    if (recovered !== undefined) { const { skipped, ...counts } = recovered; return skipped.length === 0 ? counts : { ...counts, skipped }; }
+    const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
+    const { foreign, memories: initial } = await ownedMemories(store, corpus);
+    await options.onStep?.('read');
+    const settings = await readSettings(store.workspace); const identity = await importIdentity(store, inputHash);
+    const ids = new Map(parsed.map(source => [source.slug, initial.find(item => item.slug === source.slug)?.id ?? `${settings.id_prefix}${digest(`${identity.transactionId}:${source.slug}`).slice(0, 24)}`]));
+    const references = [...initial.map(item => ({ id: item.id, slug: item.slug, path: item.path })), ...parsed.filter(source => !initial.some(item => item.slug === source.slug)).map(source => ({ id: ids.get(source.slug)!, slug: source.slug, path: source.path }))];
+    const baselineIds = new Map([...initial.map(item => [item.slug, item.id] as const), ...ids]);
+    const skipped = new Map(parsed.filter(source => foreign.some(item => item.memory_slug === source.slug)).map(source => [source.slug, 'Foreign record has no package-owned source']));
+    closeSkips(parsed.map(source => ({ slug: source.slug, relationships: sourceRelationships(source, references) })), skipped);
+    const result = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [...foreign.filter(item => !parsed.some(source => source.slug === item.memory_slug)).map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })), ...[...skipped].map(([slug, reason]) => ({ slug, reason }))] };
+    const mutations: BulkItemMutation[] = []; const ownership: OwnedTarget[] = [];
     for (const source of parsed) {
-      const previous = initial.find(item => item.slug === source.slug);
+      if (skipped.has(source.slug)) continue;
+      const previous = initial.find(item => item.slug === source.slug); const id = ids.get(source.slug)!;
       if (previous?.validity !== undefined) throw new MemoryError('validity', 'Import would remove the portable policy window', 'Keep pm-memory-policy.json with every exported body file and import the complete directory');
-      if (previous !== undefined && (previous.source !== `${options.from}:relative-file` || previous.path !== source.path || previous.edited || !sameContent(previous, sourceDocument(previous.path, Buffer.from(previous.original, 'base64'), options.from)))) throw new MemoryError('conflict', 'Import would overwrite an independently edited memory', 'Export or rename the source before retrying');
-    }
-    let imported = 0; let updated = 0; let unchanged = 0; let unresolved_links = 0;
-    if (parsed.some(source => initial.find(item => item.slug === source.slug)?.original !== source.original)) await store.register();
-    for (const source of parsed) {
-      const previous = initial.find(item => item.slug === source.slug);
-      if (previous?.original === source.original) { unchanged++; continue; }
-      const fields = { slug: source.slug, kind: source.kind, why: source.why, how: source.how, pinned: false, source: `${options.from}:relative-file`, recalls: previous?.recalls ?? 0, verdict: 'unknown', verified_at: '', original: source.original, path: source.path, edited: false, artifact: source.artifact, changed_at: new Date().toISOString() };
-      if (previous !== undefined && sameContent(previous, source)) fields.changed_at = previous.updated;
+      if (previous !== undefined && (previous.source !== `${options.from}:relative-file` || previous.path !== source.path || previous.edited)) throw new MemoryError('conflict', 'Import would overwrite an independently edited memory', 'Export or rename the source before retrying');
+      const relationships = sourceRelationships(source, references);
+      for (const reference of source.links) if (!references.some(item => item.slug === reference) && references.filter(item => stemOf(item.path) === reference).length !== 1) result.unresolved_links++;
       if (previous === undefined) {
-        await store.client.run('create', { options: { title: source.title, body: source.body, description: source.description, type: 'Knowledge', allowDuplicate: true, ...metadata(fields) } }); imported++;
+        const graph = relationships.map(({ slug, ...edge }) => ({ ...edge, id: baselineIds.get(slug)! }));
+        const fields = { slug: source.slug, kind: source.kind, why: source.why, how: source.how, pinned: false, source: `${options.from}:relative-file`, recalls: 0, verdict: 'unknown', verified_at: '', original: source.original, path: source.path, edited: false, artifact: source.artifact, changed_at: new Date().toISOString() };
+        mutations.push({ op: 'create', id, unique: { key: 'memory_slug', value: source.slug }, options: { title: source.title, body: source.body, description: source.description, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: graph }), 'create'), ...metadata(fields) } });
+        ownership.push(sourceReceipt({ id, fields: portableFields({ ...source, pinned: false, tags: [] }, source.body), relationships: graph, graph }, source)); result.imported++;
       } else {
-        await store.history(previous.id);
-        await store.client.update(previous.id, { title: source.title, description: source.description, body: source.body, ...(previous.status === 'canceled' ? { status: 'open' } : {}), message: 'Revise imported memory source' });
-        await store.fields(previous.id, fields); updated++;
+        const before = sourceDocument(previous.path, Buffer.from(previous.original, 'base64'), options.from);
+        const prior = await previousOwnership(store, previous, baselineIds);
+        if (!sameContent(previous, before) && prior === undefined) throw new MemoryError('conflict', 'Import would overwrite an independently edited memory', 'Export or rename the source before retrying');
+        const row = sourceOwnership(source, before, previous, references);
+        const patch = ownershipPatch(previous, row, source.body, baselineIds, baselineIds, prior, false);
+        if (patch.conflicts.length > 0) {
+          if (Object.keys(patch.options).length === 0) throw new MemoryError('conflict', 'Import would overwrite an independently edited memory', 'Export or rename the source before retrying');
+          result.skipped.push({ slug: source.slug, reason: `Independently edited native fields retained: ${patch.conflicts.join(', ')}` });
+        }
+        if (Object.keys(patch.options).length === 0) { result.unchanged++; continue; }
+        await store.history(previous.id); ownership.push(sourceReceipt(patch.ownership, source)); result.updated++;
+        mutations.push({ op: 'update', id, match: { key: 'updated_at', value: corpus.find(item => item.id === id)!.updated_at }, options: patch.options });
       }
     }
-    const memories = await store.read();
-    for (const source of parsed) for (const reference of source.links) {
-      const exact = memories.find(item => item.slug === reference);
-      const aliases = memories.filter(item => stemOf(item.path) === reference);
-      const target = exact ?? (aliases.length === 1 ? aliases[0] : undefined);
-      if (target === undefined) { unresolved_links++; continue; }
-      const item = memories.find(item => item.slug === source.slug)!;
-      if (item.id !== target.id && !item.links.includes(target.id)) { await store.link(item.id, target.id); item.links.push(target.id); }
-    }
-    return { imported, updated, unchanged, unresolved_links };
+    if (mutations.length === 0) { const { skipped: refusals, ...counts } = result; return refusals.length === 0 ? counts : result; }
+    const expected = await expectedTargets(store, parsed.filter(source => !skipped.has(source.slug)).map(source => ({ id: ids.get(source.slug)!, slug: source.slug })), corpus);
+    const plan = { ...identity, input: inputHash, author: resolveAuthorIdentity(options.author, settings.author_default).author, mutations, ownership, expected, initial: expected, members: expected.map(row => row.id), result };
+    await validateImportPlan(store, plan, options.onStep); await store.register(options.onStep);
+    try { await previewItemMutations({ ...plan, pmRoot: store.workspace }); } catch (error) { return planError(error); }
+    await options.onStep?.('previewed');
+    const { skipped: refusals, ...counts } = await applyImport(store, plan, options); return refusals.length === 0 ? counts : { ...counts, skipped: refusals };
   });
-}
-/** Produce a portable source for a native or deliberately revised fact. */
-function generated(item: Memory, to: Harness, memories: readonly Memory[]): Buffer {
-  const links = item.links.map(id => memories.find(memory => memory.id === id)).filter((memory): memory is Memory => memory !== undefined && memory.status !== 'canceled' && !memory.artifact).map(memory => `[[${memory.slug}]]`).join(' ');
-  const content = to === 'claude-code' ? `---\nname: ${JSON.stringify(item.slug)}\ndescription: ${JSON.stringify(item.description || item.why)}\nmetadata:\n  type: ${item.kind}\n---\n\n${item.body}\n\n**Why:** ${item.why}\n**How to apply:** ${item.how}\n${links}\n` : `## ${item.title}\n\n${item.body}\n\n**Why:** ${item.why}\n**How to apply:** ${item.how}\n${links}\n`;
-  return Buffer.from(content);
 }
 /** Inspect destination parents without creating directories or following symlinks. */
 async function destination(root: string, name: string): Promise<string> {
@@ -236,14 +278,28 @@ function exportedReferences(bytes: Buffer, memories: readonly Memory[], targets:
     return `[[${resolved === target ? reference : target.slug}]]`;
   }));
 }
+/** Canonical raw bodies and explicit ownership avoid changing native state through projection. */
+async function policyOutputs(store: Store, active: readonly Memory[], to: Exclude<Harness, 'cursor'>): Promise<Map<string, Buffer>> {
+  const guidance = await Promise.all(active.map(item => policyRecord(store, item, active)));
+  const manifest: PortablePolicyManifest = { version: 1, format: 'pm-memory-policy', harness: to, guidance };
+  const outputs = new Map<string, Buffer>([[POLICY_MANIFEST, Buffer.from(JSON.stringify(manifest, null, 2) + '\n')]]);
+  for (const [index, row] of guidance.entries()) outputs.set(row.path, policyBody(row, active[index].body));
+  const index = guidance.map(row => `- [${row.slug}](${row.path})${row.validity === null ? '' : ` [${row.validity.from}, ${row.validity.until}); retain policy manifest and renewal evidence`}`).join('\n');
+  outputs.set(to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md', Buffer.from(`<!-- pm-memory-policy:v1; keep ${POLICY_MANIFEST} -->\n${index}\n`));
+  return outputs;
+}
 /** Export exact imported bytes when semantically unchanged, with conflict-safe native generation otherwise. */
 export async function exportDir(path: string, options: MemoryOptions & { to: Exclude<Harness, 'cursor'>; onStep?: (step: string) => void | Promise<void> }): Promise<PortableExportResult> {
   harness(options.to, true);
   const store = new Store(options);
   return store.write(async () => {
     const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
-    const foreign = foreignMemories(corpus);
-    const memories = await store.read(new Set(corpus.filter(item => !foreign.some(record => record.id === item.id)).map(item => item.id)), corpus);
+    const owned = await ownedMemories(store, corpus); const { foreign } = owned;
+    const ids = new Map(owned.memories.map(item => [item.slug, item.id]));
+    const memories = await Promise.all(owned.memories.map(async item => {
+      const source = item.source.endsWith(':relative-file') ? (await previousOwnership(store, item, ids))?.source : undefined;
+      return source === undefined ? item : { ...item, original: source.original };
+    }));
     const foreignReceipt = foreign.length === 0 ? {} : { skipped: foreign.map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };
     if (memories.some(item => item.consent !== undefined && item.status !== 'canceled' && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
     const active = memories.filter(item => item.status !== 'canceled' && !item.artifact).sort((a, b) => a.slug.localeCompare(b.slug));
@@ -252,15 +308,13 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
         const target = memories.find(target => target.id === edge.id);
         return [{ slug: item.slug, target: edge.id, kind: edge.kind, reason: target === undefined ? 'missing' as const : target.status === 'canceled' ? 'canceled' as const : 'artifact' as const }];
     }));
-    if (active.some(item => item.validity !== undefined)) {
-      const guidance = await Promise.all(active.map(item => policyRecord(store, item, active)));
-      const manifest: PortablePolicyManifest = { version: 1, format: 'pm-memory-policy', harness: options.to, guidance };
-      const outputs = new Map<string, Buffer>([[POLICY_MANIFEST, Buffer.from(JSON.stringify(manifest, null, 2) + '\n')]]);
-      for (const [index, row] of guidance.entries()) outputs.set(row.path, policyBody(row, active[index].body));
-      const index = guidance.map(row => `- [${row.slug}](${row.path})${row.validity === null ? '' : ` [${row.validity.from}, ${row.validity.until}); retain policy manifest and renewal evidence`}`).join('\n');
-      outputs.set(options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md', Buffer.from(`<!-- pm-memory-policy:v1; keep ${POLICY_MANIFEST} -->\n${index}\n`));
+    /** Publication and receipts have one lease-fenced path for both wire encodings. */
+    const commit = async (outputs: Map<string, Buffer>, byte_preserved: number): Promise<PortableExportResult> => {
       await store.fence(() => publish(resolve(path), outputs, options.onStep));
-      return { exported: outputs.size, byte_preserved: 0, ...foreignReceipt, ...(omitted_links.length === 0 ? {} : { omitted_links }) };
+      return { exported: outputs.size, byte_preserved, ...foreignReceipt, ...(omitted_links.length === 0 ? {} : { omitted_links }) };
+    };
+    if (memories.length === 0 || memories.some(item => item.validity !== undefined || item.source === 'native:item' || item.source === 'portable:policy-v1')) {
+      return commit(await policyOutputs(store, active, options.to), 0);
     }
     const indexName = options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md';
     const names = new Set([indexName.toLowerCase()]);
@@ -271,10 +325,8 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       let name: string; let bytes: Buffer;
       if (item.path !== '' && !item.edited && item.source === `${options.to}:relative-file` && sameContent(item, sourceDocument(item.path, Buffer.from(item.original, 'base64'), options.to))) {
         name = safePath(item.path); bytes = Buffer.from(item.original, 'base64'); preserved.add(name);
-      } else if (!item.artifact) {
-        name = options.to === 'claude-code' ? `${item.slug}.md` : `memories/${item.slug}.md`;
-        bytes = generated(item, options.to, memories);
-      } else continue;
+      } else if (!item.artifact) return commit(await policyOutputs(store, active, options.to), 0);
+      else continue;
       const folded = name.toLowerCase();
       const originalIndex = name === indexName && item.path === name && !item.edited;
       if (outputs.has(name) || (names.has(folded) && !originalIndex)) throw new MemoryError('conflict', 'Export names collide', 'Rename the conflicting memory slug or source path, including reserved index names');
@@ -282,41 +334,14 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       outputs.set(name, bytes);
       if (!item.artifact) emitted.push({ item, name });
     }
-    if (options.to === 'claude-code') {
-      const original = outputs.get('MEMORY.md');
-      if (original === undefined || !currentIndex(original, emitted.map(row => row.name))) {
-        outputs.set('MEMORY.md', Buffer.from(emitted.map(({ item, name }) => {
-          const encoded = name.split('/').map(part => encodeURIComponent(part)).join('/').replace(/[()]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
-          return `- [${item.title.replace(/[[\]\r\n]/g, ' ')}](${encoded === name ? name : `<${encoded}>`})`;
-        }).join('\n') + '\n'));
-        preserved.delete(indexName);
-      }
-    } else {
-      const original = outputs.get('AGENTS.md');
-      let base = original;
-      for (const item of memories) {
-        if (base === undefined || item.source !== 'agents-md:relative-file' || item.path === 'AGENTS.md') continue;
-        const component = Buffer.from(item.original, 'base64');
-        if (component.length === 0 || outputs.get(item.path)?.equals(component) === true) continue;
-        let at = base.indexOf(component);
-        while (at >= 0) {
-          base = Buffer.concat([base.subarray(0, at), base.subarray(at + component.length)]);
-          at = base.indexOf(component);
-        }
-      }
-      const additions = [...outputs.entries()].filter(([name, bytes]) => name !== 'AGENTS.md' && (base === undefined || !base.includes(bytes))).map(([, bytes]) => bytes);
-      if (base === undefined || additions.length > 0 || base !== original) {
-        outputs.set('AGENTS.md', Buffer.concat([...(base === undefined ? [] : [base, Buffer.from('\n')]), ...additions]));
-        preserved.delete(indexName);
-      }
-    }
+    const original = outputs.get(indexName);
+    const losslessIndex = original !== undefined && (options.to === 'claude-code'
+      ? currentIndex(original, emitted.map(row => row.name))
+      : emitted.every(row => row.name === indexName || original.includes(outputs.get(row.name)!)));
+    if (!losslessIndex) return commit(await policyOutputs(store, active, options.to), 0);
     const targets = new Map(emitted.map(({ item, name }) => [item.id, sourceDocument(name, outputs.get(name)!, options.to)]));
     if (new Set([...targets.values()].map(source => source.slug)).size !== targets.size) throw new MemoryError('conflict', 'Exported names normalize to duplicate slugs', 'Rename the conflicting memory slug or source path before exporting');
-    for (const [name, bytes] of outputs) {
-      const resolved = exportedReferences(bytes, memories, targets);
-      if (!resolved.equals(bytes)) { outputs.set(name, resolved); preserved.delete(name); }
-    }
-    await store.fence(() => publish(resolve(path), outputs, options.onStep));
-    return { exported: outputs.size, byte_preserved: preserved.size, ...foreignReceipt, ...(omitted_links.length === 0 ? {} : { omitted_links }) };
+    for (const bytes of outputs.values()) if (!exportedReferences(bytes, memories, targets).equals(bytes)) return commit(await policyOutputs(store, active, options.to), 0);
+    return commit(outputs, preserved.size);
   });
 }

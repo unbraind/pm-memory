@@ -55,23 +55,29 @@ test('punctuated import paths and path slugs resolve the same wiki aliases idemp
   assert.deepEqual(await snapshot(options.workspace), before);
 });
 
-test('agents directory round trips preserve every byte and append new content once', async t => {
+test('agents policy round trips preserve native state and include new content once', async t => {
   const first = await tracker(t);
   await remember('First standing guidance', { ...first.options, kind: 'project', slug: 'first' });
   const original = join(first.root, 'original'); await exportDir(original, { ...first.options, to: 'agents-md' });
   const second = await tracker(t); await importDir(original, { ...second.options, from: 'agents-md' });
   const repeated = join(second.root, 'repeated');
-  assert.deepEqual(await exportDir(repeated, { ...second.options, to: 'agents-md' }), { exported: 2, byte_preserved: 2 });
-  assert.deepEqual(await snapshot(repeated), await snapshot(original));
+  assert.deepEqual(await exportDir(repeated, { ...second.options, to: 'agents-md' }), { exported: 3, byte_preserved: 0 });
+  const retained = (await second.client.listAllComplete({ includeBody: true })).items;
+  await importDir(repeated, { ...second.options, from: 'agents-md' });
+  assert.deepEqual((await second.client.listAllComplete({ includeBody: true })).items, retained);
   await remember('Second distinct standing guidance', { ...second.options, kind: 'user', slug: 'second' });
   const expanded = join(second.root, 'expanded');
-  assert.deepEqual(await exportDir(expanded, { ...second.options, to: 'agents-md' }), { exported: 3, byte_preserved: 1 });
+  assert.deepEqual(await exportDir(expanded, { ...second.options, to: 'agents-md' }), { exported: 4, byte_preserved: 0 });
   const content = await readFile(join(expanded, 'AGENTS.md'), 'utf8');
-  for (const phrase of ['## First standing guidance', '## Second distinct standing guidance']) assert.equal(content.split(phrase).length - 1, 1);
+  for (const phrase of ['memories/first.md', 'memories/second.md']) assert.equal(content.split(phrase).length - 1, 1);
   const third = await tracker(t); await importDir(expanded, { ...third.options, from: 'agents-md' });
   const final = join(third.root, 'final');
-  assert.deepEqual(await exportDir(final, { ...third.options, to: 'agents-md' }), { exported: 3, byte_preserved: 3 });
-  assert.deepEqual(await snapshot(final), await snapshot(expanded));
+  assert.deepEqual(await exportDir(final, { ...third.options, to: 'agents-md' }), { exported: 4, byte_preserved: 0 });
+  assert.equal(await readFile(join(final, 'AGENTS.md'), 'utf8'), content);
+  for (const slug of ['first', 'second']) {
+    const body = (await readFile(join(final, 'memories', `${slug}.md`), 'utf8')).split('\n').slice(1).join('\n');
+    assert.equal(body, (await third.store.read()).find(row => row.slug === slug)!.body);
+  }
 });
 
 test('privacy audit uses its own repository even under inherited Git hook overrides', async t => {

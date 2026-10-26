@@ -6,7 +6,7 @@ import { consolidate, exportDir, get, importDir, index, recall, verify } from '.
 import { tracker, snapshot } from './helpers.ts';
 
 for (const from of ['claude-code', 'agents-md', 'cursor'] as const) {
-  test(`${from}: changed re-import reopens a consolidated archive for retrieval and export`, async t => {
+  test(`${from}: changed re-import preserves native archival and verification metadata`, async t => {
     const { root, options, store } = await tracker(t);
     const file = join(root, 'policy.md');
     await writeFile(file, 'Original deployment policy\nUse src/removed.ts\n');
@@ -18,27 +18,25 @@ for (const from of ['claude-code', 'agents-md', 'cursor'] as const) {
     const revised = 'Revised deployment policy\nUse src/current.ts\n';
     await writeFile(file, revised);
     assert.deepEqual(await importDir(file, { ...options, from }), { imported: 0, updated: 1, unchanged: 0, unresolved_links: 0 });
-    const memory = await get('policy', options);
+    const memory = (await store.read())[0];
     assert.equal(memory.id, original.id);
-    assert.equal(memory.status, 'open');
+    assert.equal(memory.status, 'canceled');
     assert.equal(memory.body, revised.trim());
-    assert.equal(memory.verdict, 'unknown');
-    assert.equal(memory.original, Buffer.from(revised).toString('base64'));
-    assert.match((await index(options)).text!, /Revised deployment policy/);
-    assert.match((await recall('current', options)).memories!.find(row => row.slug === 'policy')!.text!, /src\/current.ts/);
-    assert.equal((await verify({ ...options, root })).checked, 1);
+    assert.equal(memory.verdict, 'stale');
+    assert.equal(memory.original, original.original);
+    assert.doesNotMatch((await index(options)).text ?? '', /Revised deployment policy/);
+    assert.deepEqual((await recall('current', options)).memories, []);
+    assert.equal((await verify({ ...options, root })).checked, 0);
     const output = join(root, 'output');
     await exportDir(output, { ...options, to: 'claude-code' });
-    const exported = await readFile(join(output, 'policy.md'), 'utf8');
-    assert.match(exported, /Revised deployment policy/);
-    assert.doesNotMatch(exported, /src\/removed.ts/);
+    await assert.rejects(readFile(join(output, 'policy.md')), { code: 'ENOENT' });
     await store.client.update(original.id, { status: 'in_progress' });
     await writeFile(file, revised + 'Keep current guidance.\n');
     assert.equal((await importDir(file, { ...options, from })).updated, 1);
     assert.equal((await get('policy', options)).status, 'in_progress');
   });
 
-  test(`${from}: unchanged re-import keeps an archive untouched until source bytes change`, async t => {
+  test(`${from}: unchanged re-import and source edits both retain native lifecycle ownership`, async t => {
     const { root, options, store } = await tracker(t);
     const file = join(root, 'retained.md');
     const content = 'Retained source policy\nUse src/removed.ts\n';
@@ -57,6 +55,7 @@ for (const from of ['claude-code', 'agents-md', 'cursor'] as const) {
     await assert.rejects(readFile(join(output, 'retained.md')), { code: 'ENOENT' });
     await writeFile(file, content + 'Changed guidance now applies.\n');
     assert.equal((await importDir(file, { ...options, from })).updated, 1);
-    assert.equal((await get('retained', options)).status, 'open');
+    assert.equal((await store.read())[0].status, 'canceled');
+    await assert.rejects(get('retained', options), /does not exist/);
   });
 }

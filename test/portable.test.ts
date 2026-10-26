@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm, chmod, cp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WorkspaceTransactionInterruptedError, getHistoryPath, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import { remember, renew, get, guidanceState, exportDir, importDir, parsePolicy, POLICY_MANIFEST, MemoryError } from '../index.ts';
@@ -30,7 +30,7 @@ async function fixture(t: Parameters<typeof tracker>[0], to: 'agents-md' | 'clau
 /** Create two independent policy rows for batch boundary tests. */
 async function twoPolicies(t: Parameters<typeof tracker>[0]) {
   const source = await fixture(t); const valid = await manifest(source.path);
-  const row = structuredClone(valid.guidance[0]); row.slug = 'second'; row.path = 'memories/second.md'; valid.guidance.push(row);
+  const row = structuredClone(valid.guidance[0]); row.slug = 'second'; row.path = 'memories/second.md'; row.baseline!.slug = row.slug; delete row.baseline!.id; valid.guidance.push(row);
   await save(source.path, valid); await writeFile(join(source.path, row.path), policyBody(row, 'Second policy'));
   return { source, valid, row };
 }
@@ -62,13 +62,17 @@ test('property: import(export(x)) == x for random guidance sets and both harness
     const target = await tracker(t);
     assert.equal((await importDir(path, { ...target.options, from: to })).imported, 12);
     const actual = await Promise.all((await target.store.read()).map(item => policyRecord(target.store, item)));
-    assert.deepEqual(actual.sort((a, b) => a.slug.localeCompare(b.slug)), [...before.guidance].sort((a, b) => a.slug.localeCompare(b.slug)));
+    const nativeIds = new Map((await target.client.listAllComplete()).items.map(item => [String(item.memory_slug), item.id]));
+    for (const row of actual) assert.equal(row.baseline!.id, nativeIds.get(row.slug));
+    // Origin IDs are tracker-local ownership receipts; semantic guidance is portable.
+    const semantic = (rows: PortableGuidance[]) => rows.map(row => ({ ...row, baseline: { ...row.baseline, id: '<native identity>' } })).sort((a, b) => a.slug.localeCompare(b.slug));
+    assert.deepEqual(semantic(actual), semantic(before.guidance));
     for (const item of await source.store.read()) assert.equal((await get(item.slug, target.options)).body, item.body);
     const saved = await snapshot(target.workspace);
     assert.equal((await importDir(path, { ...target.options, from: to })).unchanged, 12);
     assert.deepEqual(await snapshot(target.workspace), saved);
     const again = join(target.root, 'again'); await exportDir(again, { ...target.options, to });
-    assert.deepEqual(await manifest(again), before);
+    assert.deepEqual(semantic((await manifest(again)).guidance), semantic(before.guidance));
     // A later native renewal appends to imported ancestry instead of replacing it.
     const key = before.guidance.find(row => row.validity !== null)!.slug;
     await renew(key, { ...target.options, from, until, evidence: 'New native review' });
@@ -262,7 +266,8 @@ test('updates recover and compensate at every SDK write boundary with no duplica
 
 test('independent trackers recognize identical export peer success and refuse differing peer publication', async t => {
   const source = await fixture(t); const peer = await tracker(t);
-  await importDir(source.path, { ...peer.options, from: 'agents-md' });
+  // An independently copied tracker has the same native identity/ownership baseline.
+  await cp(source.workspace, peer.workspace, { recursive: true, filter: path => !['runtime', 'locks', 'search', 'transactions', 'checkpoints'].includes(path.slice(source.workspace.length + 1).split('/')[0]) });
   for (const different of [false, true]) {
     const out = join(source.root, `independent-${different}`);
     if (different) await remember('Peer changed the semantic instruction', { ...peer.options, kind: 'project', update: 'policy' });
@@ -280,7 +285,7 @@ test('the last invalid row prevents every earlier row from being written', async
   assert.deepEqual(await snapshot(target.workspace), before);
 });
 
-test('foreign reserved identities and malformed package provenance are skipped without adoption or deletion', async t => {
+test('foreign reserved identities are skipped and native provenance edits remain untouched', async t => {
   const source = await fixture(t); const target = await tracker(t);
   let id = '';
   for (const portableMarker of [false, true]) {
@@ -296,8 +301,10 @@ test('foreign reserved identities and malformed package provenance are skipped w
   const imported = await tracker(t); await importDir(source.path, { ...imported.options, from: 'agents-md' });
   for (const original of ['{', 'null', '[]', '[{},3]', '[{},"body"]']) {
     await imported.store.fields((await get('policy', imported.options)).id, { original: Buffer.from(original).toString('base64') });
+    const before = (await imported.client.listAllComplete({ includeBody: true })).items;
     const receipt = await importDir(source.path, { ...imported.options, from: 'agents-md' });
-    assert.ok('skipped' in receipt); assert.match(receipt.skipped[0].reason, /unreadable import provenance/);
+    assert.equal(receipt.unchanged, 1);
+    assert.deepEqual((await imported.client.listAllComplete({ includeBody: true })).items, before);
   }
 });
 
