@@ -333,20 +333,25 @@ test('malformed immutable creation provenance is skipped without adopting a pack
 });
 
 test('compensated mixed imports remap new nodes while retaining native external links', async t => {
-  const source = await tracker(t); const target = await tracker(t);
-  const alpha = await remember('Alpha original', { ...source.options, slug: 'alpha', kind: 'project' });
-  const first = await exportedPolicy(source, 'first'); await importDir(first.path, { ...target.options, from: 'agents-md' });
-  const id = (await target.client.listAllComplete()).items[0].id;
-  const task = (await target.client.create({ title: 'Native retained Task' })).item; await target.store.link(id, task.id);
-  await remember('Alpha replacement', { ...source.options, update: 'alpha', kind: 'project' });
-  const beta = await remember('New beta reference', { ...source.options, slug: 'beta', kind: 'reference', forceNew: true }); await source.store.link(alpha.id, beta.id);
-  const next = await exportedPolicy(source, 'next');
-  await assert.rejects(importDir(next.path, { ...target.options, from: 'agents-md', onTransition: crashAfterCompensation }), WorkspaceTransactionInterruptedError);
-  assert.equal((await importDir(next.path, { ...target.options, from: 'agents-md' })).updated, 1);
-  const rows = (await target.client.listAllComplete({ includeBody: true })).items;
-  const actual = rows.find(row => row.id === id)!; const importedBeta = rows.find(row => row.memory_slug === 'beta')!;
-  assert.equal(actual.body, 'Alpha replacement');
-  assert.deepEqual(new Set(actual.dependencies!.map(edge => edge.id)), new Set([task.id, importedBeta.id]));
+  for (const linked of [false, true]) {
+    const source = await tracker(t); const target = await tracker(t);
+    const alpha = await remember('Alpha original', { ...source.options, slug: 'alpha', kind: 'project' });
+    const first = await exportedPolicy(source, 'first'); await importDir(first.path, { ...target.options, from: 'agents-md' });
+    const id = (await target.client.listAllComplete()).items[0].id;
+    const task = linked ? (await target.client.create({ title: 'Native retained Task' })).item : undefined;
+    if (task !== undefined) await target.store.link(id, task.id);
+    await remember('Alpha replacement', { ...source.options, update: 'alpha', kind: 'project' });
+    const beta = await remember('New beta reference', { ...source.options, slug: 'beta', kind: 'reference', forceNew: true });
+    if (linked) await source.store.link(alpha.id, beta.id);
+    const next = await exportedPolicy(source, 'next');
+    await assert.rejects(importDir(next.path, { ...target.options, from: 'agents-md', onTransition: crashAfterCompensation }), WorkspaceTransactionInterruptedError);
+    assert.equal((await importDir(next.path, { ...target.options, from: 'agents-md' })).updated, 1);
+    const rows = (await target.client.listAllComplete({ includeBody: true })).items;
+    const actual = rows.find(row => row.id === id)!; const importedBeta = rows.find(row => row.memory_slug === 'beta')!;
+    assert.equal(actual.body, 'Alpha replacement');
+    assert.deepEqual(new Set((actual.dependencies ?? []).map(edge => edge.id)), new Set(linked ? [task!.id, importedBeta.id] : []));
+    if (!linked) assert.equal(actual.dependencies, undefined, 'unrepresented dependency metadata stays absent');
+  }
 });
 
 test('single-file legacy imports guard represented targets outside the input and drain older incomplete read sets', async t => {
@@ -392,6 +397,67 @@ test('legacy source tags without immutable provenance remain foreign and close d
     await writeFile(join(directory, 'alpha.md'), 'Alpha incoming'); await writeFile(join(directory, 'beta.md'), 'Beta mentions [[alpha]]');
     const before = (await target.client.listAllComplete({ includeBody: true })).items;
     await assertSkippedUnchanged(() => importDir(directory, { ...target.options, from: 'claude-code' }), target.workspace, 2);
+    assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
+  }
+});
+
+
+test('lossless legacy path aliases stay byte-identical and native key changes use policy projection', async t => {
+  for (const renamed of [false, true]) {
+    const target = await tracker(t); const source = join(target.root, 'sources'); await mkdir(source);
+    const files = {
+      'MEMORY.md': '- [Source](source.md)\n- [Target](target-file.md)\n',
+      'source.md': `Source [[${renamed ? 'new-target' : 'target-file'}]]\n`,
+      'target-file.md': '---\nname: canonical-target\n---\nTarget body\n',
+    };
+    for (const [name, text] of Object.entries(files)) await writeFile(join(source, name), text);
+    await importDir(source, { ...target.options, from: 'claude-code' });
+    const id = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'canonical-target')!.id;
+    if (renamed) await target.store.fields(id, { slug: 'new-target' });
+    const before = (await target.client.listAllComplete({ includeBody: true })).items;
+    const output = join(target.root, 'output'); const result = await exportDir(output, { ...target.options, to: 'claude-code' });
+    if (renamed) {
+      assert.equal(result.byte_preserved, 0);
+      const manifest = JSON.parse(await readFile(join(output, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+      assert.ok(manifest.guidance.some(row => row.slug === 'new-target'));
+      assert.match(await readFile(join(output, 'memories/source.md'), 'utf8'), /\[\[new-target\]\]/);
+    } else {
+      assert.equal(result.byte_preserved, 3);
+      for (const [name, text] of Object.entries(files)) assert.equal(await readFile(join(output, name), 'utf8'), text);
+    }
+    await importDir(output, { ...target.options, from: 'claude-code' });
+    assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
+  }
+});
+
+test('ambiguous legacy export keys refuse before publishing or changing native data', async t => {
+  const target = await tracker(t); const index = join(target.root, 'MEMORY.md');
+  await writeFile(index, '- [First](first.md)\n- [Second](second.md)\n');
+  await importDir(index, { ...target.options, from: 'claude-code' });
+  for (const name of ['first', 'second']) await target.client.run('create', { options: {
+    title: 'shared', body: `${name} body`, type: 'Knowledge', memorySlug: name, memoryKind: 'reference', memorySource: 'claude-code:relative-file', memoryPath: `${name}.md`, memoryOriginal: Buffer.from(`---\nname: shared\n---\n${name} body`).toString('base64'), allowDuplicate: true,
+  } });
+  const before = (await target.client.listAllComplete({ includeBody: true })).items;
+  const output = join(target.root, 'ambiguous');
+  await assert.rejects(exportDir(output, { ...target.options, to: 'claude-code' }), error => error instanceof MemoryError && /duplicate slugs/.test(error.message));
+  await assert.rejects(readFile(join(output, 'MEMORY.md')), { code: 'ENOENT' });
+  assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
+});
+
+test('unavailable legacy references select policy without rewriting native guidance', async t => {
+  for (const reference of ['memory', 'alias', 'absent']) {
+    const target = await tracker(t); const source = join(target.root, 'references'); await mkdir(source);
+    const aliases = reference === 'alias';
+    const paths = ['source.md', ...(aliases ? ['!alias!.md', 'alias.md'] : [])];
+    await writeFile(join(source, 'MEMORY.md'), paths.map(path => `- [Fact](${path})`).join('\n') + '\n');
+    await writeFile(join(source, 'source.md'), `Source [[${reference}]]`);
+    if (aliases) for (const [path, name] of [['!alias!.md', 'first'], ['alias.md', 'second']]) await writeFile(join(source, path), `---\nname: ${name}\n---\n${name} fact`);
+    await importDir(source, { ...target.options, from: 'claude-code' });
+    const before = (await target.client.listAllComplete({ includeBody: true })).items;
+    const output = join(target.root, 'policy');
+    assert.equal((await exportDir(output, { ...target.options, to: 'claude-code' })).byte_preserved, 0);
+    assert.match(await readFile(join(output, 'memories/source.md'), 'utf8'), new RegExp(`\\[\\[${reference}\\]\\]`));
+    await importDir(output, { ...target.options, from: 'claude-code' });
     assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
   }
 });
