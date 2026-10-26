@@ -461,3 +461,23 @@ test('unavailable legacy references select policy without rewriting native guida
     assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
   }
 });
+
+test('legacy imports retain foreign pending intents and return their skip receipt without writes', async t => {
+  const target = await tracker(t); const file = join(target.root, 'alpha.md'); await writeFile(file, 'Harness alpha');
+  const runtime = join(target.workspace, 'runtime'); await mkdir(runtime, { recursive: true });
+  const intent = join(runtime, 'memory-policy-import.json'); const foreign = JSON.stringify({ owner: 'foreign-tool', operation: 'retained' });
+  await writeFile(intent, foreign);
+  await assertSkippedUnchanged(() => importDir(file, { ...target.options, from: 'claude-code' }), target.workspace);
+  assert.equal(await readFile(intent, 'utf8'), foreign);
+  assert.equal((await target.client.listAllComplete()).items.length, 0);
+});
+
+test('legacy input cannot adopt an independently authored native memory with the same key', async t => {
+  const target = await tracker(t);
+  const native = await remember('Independent native alpha', { ...target.options, slug: 'alpha', kind: 'reference' });
+  const file = join(target.root, 'alpha.md'); await writeFile(file, 'Harness replacement');
+  const before = (await target.client.get(native.id, { full: true })).item;
+  await assert.rejects(importDir(file, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'conflict' && error.remedy.length > 0);
+  assert.deepEqual((await target.client.get(native.id, { full: true })).item, before);
+  assert.equal((await target.client.listAllComplete()).items.length, 1);
+});

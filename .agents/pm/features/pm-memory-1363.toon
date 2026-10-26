@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T22:03:10.834Z"
-updated_at: "2026-10-26T19:01:25.698Z"
+updated_at: "2026-10-26T19:50:13.365Z"
 author: codex-agent
 acceptance_criteria: Bounded guidance can round trip without becoming unbounded or silently losing evidence; imported windows are validated before writes.
 parent: pm-memory-0kwy
-comments[46]{created_at,author,text}:
+comments[48]{created_at,author,text}:
   "2026-10-25T01:04:43.613Z",codex-agent,"Claimed portable policy-window work. Design inspection: existing transfer refuses bounded guidance and sequential imports can partially publish. Investigating SDK transactions and existing lease/history surfaces before selecting an atomic import contract. Will preserve window evidence and renewal ancestry, reject broadened or removed bounds, and validate in non-git trackers with crash and competing-writer boundaries."
   "2026-10-25T01:15:25.678Z",codex-agent,"Implemented versioned policy inventory plus editable body files, exact window and renewal validation, full-batch SDK preview/commit, deterministic recovery ids, foreign-record skips, and staged export publication. Targeted suite: 24 passed before the final update/rollback and independent-export tests were added. Randomized sets cover both harnesses, mixed bounded/unbounded guidance, kinds, tags and renewal counts. Existing unbounded byte-preserving transfers remain supported. CI now invokes the explicit npm release:check gate as well as the existing Bun gate; local full release gates are intentionally deferred to CI on this saturated host."
   "2026-10-25T01:17:54.916Z",codex-agent,"Read-only public-copy validation passed: 17 public items, 6 nonempty bodies, 232693 projected input bytes; 17 derived scenario guidance records, 34 renewal records retained per harness, 19 exported files per harness, all 17 unchanged on identical retries, zero lost windows/evidence, edited bodies needs-renewal. Every source file was permission-protected and its aggregate fingerprint remained unchanged. Evidence: docs/portable-guidance-validation.md. The first unrestricted read created only SDK runtime metadata caches, so the measured run used an independently extracted read-only copy."
@@ -58,6 +58,8 @@ comments[46]{created_at,author,text}:
   "2026-10-26T15:03:29.717Z",codex-agent,"The final no-history foreign fixture now resolves the package's configured Knowledge folder through SDK resolveItemTypeRegistry/readSettings/getItemPath rather than assuming a built-in folder. Both missing-original and missing-history variants pass, with dependent skips and SDK state preserved. Final typecheck/lint/docstrings and zero duplication pass. Final local ownership evidence is 22 pinned-pm passing regressions plus this separately passing regression (23 distinct cases); no new production paths remain unverified locally. Releasing the claim before the replacement head's CI to keep receipts and tested head aligned."
   "2026-10-26T18:51:37.779Z",codex-agent,"Resumed after the host OOM interruption. The worktree was clean and local/remote heads both matched d98c29f; no committed work or prior evidence was discarded. Exact-head CI run 40345796533 passed all 432 tests, all 500 sequences for each ownership law, and all 500 retained model sequences/22933 SDK-read comparisons on Node 26, but the release gate correctly failed at 99.67% branch coverage against the unchanged 100% threshold; Node 22 reports the same uncovered branches. Added focused real-tracker cases for mixed compensated updates without dependency metadata, lossless file-stem aliases, renamed-key policy fallback, duplicate exported keys, and artifact/missing/ambiguous legacy references. Every case asserts SDK state preservation or pre-publication refusal. No production behavior or coverage threshold changed. Local test runs use one worker under the new host-resource rule; full npm/Bun gates remain CI-only."
   "2026-10-26T19:01:23.582Z",codex-agent,"Resume validation complete: the pinned pm runner executed node --test --test-concurrency=1 test/portable-ownership.test.ts and passed all 26 tests, zero failures/cancellations/skips. The four focused coverage cases also passed under c8; their branch maps exercise every previously uncovered CI branch in portable-replan.ts and transfer.ts. Typecheck, lint, docstrings (36 files/146 declarations), zero duplication, and diff whitespace checks pass. This resume changes tests and append-only tracker evidence only. Full npm22/npm26/Bun26 release gates will be read from the next pushed head; the prior d98c29f run's 432 passing tests/1500 ownership sequences/500 stateful sequences are retained as partial evidence, not a passing release gate. No background test processes remain for this task."
+  "2026-10-26T19:49:44.941Z",codex-agent,"Exact-head CI run https://github.com/unbraind/pm-memory/actions/runs/40383069164 passed all 435 tests on Node 26, including 1500 ownership-law sequences and 500 stateful sequences with 22933 SDK read-back comparisons, but failed the unchanged 100% coverage gate at 99.93% branches (transfer.ts lines 150 and 179). The two remaining branch cases now pass locally: foreign pending legacy intents are retained with a skip receipt and no writes; independent native same-key content is refused without changes. Focused c8 confirms these paths execute. Typecheck, lint, 36-file/146-declaration docstrings, and zero duplication pass. Tests only; no runtime changes. Earlier clearing-only identity-law revert proof and all four isolated ownership boundary revert proofs remain recorded above. Final exact-head CI URL/counts will be recorded in the PR receipt after this tracker commit to avoid changing the tested head."
+  "2026-10-26T19:50:10.275Z",codex-agent,"Pinned pm focused runner passed both final legacy refusal tests (2/2; zero failures or skips). Local typecheck, lint, docstring and duplication checks pass. Claim released below; item remains in_progress for orchestrator verification. No runtime code changed in this final coverage follow-up."
 files[37]{path,scope}:
   .github/workflows/ci.yml,project
   index.ts,project
@@ -96,7 +98,7 @@ files[37]{path,scope}:
   test/round2.test.ts,project
   test/transfer.test.ts,project
   test/validate-guidance.ts,project
-tests[10]:
+tests[11]:
   - command: node --test test/portable.test.ts test/transfer.test.ts test/guidance.test.ts
     scope: project
     provenance:
@@ -171,6 +173,14 @@ tests[10]:
     provenance:
       author: codex-agent
       created_at: "2026-10-26T18:52:32.546Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: node --test --test-concurrency=1 --test-name-pattern='legacy imports retain foreign pending|legacy input cannot adopt' test/portable-ownership.test.ts
+    scope: project
+    timeout_seconds: 2400
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-26T19:49:47.692Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
 docs[4]{path,scope}:
