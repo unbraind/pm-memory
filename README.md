@@ -272,6 +272,7 @@ rewritten on existing records. An unchanged source round trip performs no item w
 Legacy adapters share this ownership split and the same recoverable SDK batch; implicit defaults and absent wiki links grant no deletion authority. Native identity and source bookkeeping remain unchanged when portable content is revised. Raw input whitespace is never compared with stored values to classify native edits.
 Export reuses original legacy bytes only when their decoded defaults reproduce every portable field, including kind, description, rationale, application, pinning and tags. A native edit to those values or the relationship graph selects the policy format, so a fresh destination retains the current guidance rather than the older legacy defaults.
 Older legacy records without ownership receipts use policy output whenever stored edges or source wiki references make graph fidelity unproven.
+Legacy source bookkeeping is decoded only when attempting legacy output; policy output reads current SDK semantics directly.
 Unrelated tracker readers can observe staged writes until
 commit or recovery completes. Schema registration is idempotent and
 precedes the item batch. The lease covers the state read, planning, preview and

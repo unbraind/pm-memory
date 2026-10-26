@@ -314,11 +314,11 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
     const owned = await ownedMemories(store, corpus); const { foreign } = owned;
     const ids = new Map(owned.memories.map(item => [item.slug, item.id]));
-    const nativeGraphEdits = new Set<string>();
+    const nativeGraphEdits = new Set<string>(); const unreceipted = new Set<string>();
     const memories = await Promise.all(owned.memories.map(async item => {
       const previous = item.source.endsWith(':relative-file') ? await previousOwnership(store, item, ids) : undefined;
-      const unprovenGraph = previous === undefined && !item.edited && item.path !== '' && item.source === `${options.to}:relative-file` && (item.relationships.length > 0 || sourceDocument(item.path, Buffer.from(item.original, 'base64'), options.to).links.length > 0);
-      if ((previous?.nativeRelationships?.length ?? 0) > 0 || unprovenGraph) nativeGraphEdits.add(item.id);
+      if (previous === undefined) unreceipted.add(item.id);
+      if ((previous?.nativeRelationships?.length ?? 0) > 0) nativeGraphEdits.add(item.id);
       const source = previous?.source;
       return source === undefined ? item : { ...item, original: source.original };
     }));
@@ -345,7 +345,9 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       if (item.status === 'canceled') continue;
       await store.history(item.id);
       let name: string; let bytes: Buffer;
-      if (item.path !== '' && !item.edited && !nativeGraphEdits.has(item.id) && item.source === `${options.to}:relative-file` && sameContent(item, sourceDocument(item.path, Buffer.from(item.original, 'base64'), options.to))) {
+      const source = item.path !== '' && !item.edited && !nativeGraphEdits.has(item.id) && item.source === `${options.to}:relative-file` ? sourceDocument(item.path, Buffer.from(item.original, 'base64'), options.to) : undefined;
+      const unprovenGraph = source !== undefined && unreceipted.has(item.id) && (item.relationships.length > 0 || source.links.length > 0);
+      if (source !== undefined && !unprovenGraph && sameContent(item, source)) {
         name = safePath(item.path); bytes = Buffer.from(item.original, 'base64'); preserved.add(name);
       } else if (!item.artifact) return commit(await policyOutputs(store, active, options.to), 0);
       else continue;

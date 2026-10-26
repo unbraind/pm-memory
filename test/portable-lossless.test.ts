@@ -2,11 +2,18 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, writeFile, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { exportDir, importDir } from '../index.ts';
+import { tmpdir } from 'node:os';
+import { exportDir, importDir, remember, renew } from '../index.ts';
 import type { Harness } from '../src/types.ts';
 import { tracker } from './helpers.ts';
 
 type Tracker = Awaited<ReturnType<typeof tracker>>;
+/** Confine all scratch tracker discovery without depending on the enclosing checkout. */
+function gitCeiling(t: Parameters<typeof tracker>[0]) {
+  const previous = process.env.GIT_CEILING_DIRECTORIES;
+  process.env.GIT_CEILING_DIRECTORIES = tmpdir();
+  t.after(() => { if (previous === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = previous; });
+}
 /** The oracle reads SDK values directly, independently of exporter field fingerprints. */
 async function semantics(target: Tracker) {
   const rows = (await target.client.listAllComplete({ includeBody: true })).items;
@@ -30,10 +37,12 @@ async function legacy(target: Tracker, from: Harness, empty = false, linked = fa
   return (await target.client.listAllComplete({ includeBody: true })).items.find(row => row.memory_slug === (from === 'agents-md' ? 'agents' : 'alpha'))!;
 }
 /** Every tested projection must recreate the complete current portable semantics. */
-async function freshRoundTrip(t: Parameters<typeof tracker>[0], source: Tracker, name: string, to: 'claude-code' | 'agents-md') {
-  const expected = await semantics(source); const output = join(source.root, name);
+async function freshRoundTrip(t: Parameters<typeof tracker>[0], source: Tracker, name: string, to: 'claude-code' | 'agents-md', existing?: Tracker) {
+  const destination = existing ?? await tracker(t);
+  const expected = [...await semantics(source), ...await semantics(destination)].sort((a, b) => String(a.slug).localeCompare(String(b.slug)));
+  const output = join(source.root, name);
   const receipt = await exportDir(output, { ...source.options, to });
-  const destination = await tracker(t); await importDir(output, { ...destination.options, from: to });
+  await importDir(output, { ...destination.options, from: to });
   assert.deepEqual(await semantics(destination), expected, name);
   assert.equal(receipt.byte_preserved, 0, name);
 }
@@ -84,15 +93,51 @@ test('lossless export retains native relationship additions, removals and proven
 });
 
 test('legacy records without modern receipts retain native relationships in fresh exports', async t => {
-  const ceiling = process.env.GIT_CEILING_DIRECTORIES;
-  t.after(() => { if (ceiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = ceiling; });
+  gitCeiling(t);
   for (const linked of [false, true]) {
     const source = await tracker(t); const alpha = await legacy(source, 'claude-code', false, linked);
-    process.env.GIT_CEILING_DIRECTORIES = dirname(source.root);
     const beta = (await source.client.listAllComplete()).items.find(row => row.memory_slug === 'beta')!;
     await source.client.run('update', { id: alpha.id, options: linked ? { depRemove: `id=${beta.id},kind=related` } : { dep: `id=${beta.id},kind=supersedes` } });
     // Retain SDK item/history but simulate an older package without ownership journals.
     await rename(join(source.workspace, 'transactions', 'sdk'), join(source.root, 'older-journals'));
     await freshRoundTrip(t, source, `older-export-${linked}`, 'claude-code');
+  }
+});
+
+test('mixed legacy references never adopt native destination matches for unavailable source targets', async t => {
+  gitCeiling(t);
+  for (const reference of ['absent', 'alias']) {
+    const source = await tracker(t); await legacy(source, 'claude-code');
+    const directory = join(source.root, 'source');
+    if (reference === 'alias') {
+      for (const [path, key] of [['!alias!.md', 'first'], ['alias.md', 'second']]) await writeFile(join(directory, path), `---\nname: ${key}\n---\n${key} guidance`);
+      await writeFile(join(directory, 'MEMORY.md'), '- [Alpha](alpha.md)\n- [Beta](beta.md)\n- [First](!alias!.md)\n- [Second](alias.md)\n');
+    }
+    await writeFile(join(directory, 'alpha.md'), `# Alpha\nSee [[beta]] and [[${reference}]].\n`);
+    await importDir(directory, { ...source.options, from: 'claude-code' });
+    const destination = await tracker(t);
+    const native = await remember('Native destination target outside the source inventory', { ...destination.options, slug: reference, kind: 'user' });
+    const before = (await destination.client.get(native.id, { full: true })).item;
+    await freshRoundTrip(t, source, `mixed-${reference}`, 'claude-code', destination);
+    assert.deepEqual((await destination.client.get(native.id, { full: true })).item, before);
+  }
+});
+
+test('policy selection ignores unusable native legacy bookkeeping without changing SDK state', async t => {
+  gitCeiling(t);
+  for (const mode of ['bounded', 'native']) {
+    const source = await tracker(t); const alpha = await legacy(source, 'claude-code');
+    await rename(join(source.workspace, 'transactions', 'sdk'), join(source.root, 'retained-journals'));
+    if (mode === 'bounded') {
+      await source.client.run('update', { id: alpha.id, options: { memoryPinned: true, memoryKind: 'project' } });
+      await renew('alpha', { ...source.options, from: '2026-01-01T00:00:00.000Z', until: '2027-01-01T00:00:00.000Z', evidence: 'Native bookkeeping is outside portable authority' });
+    }
+    else await remember('Native guidance selects policy output', { ...source.options, slug: 'native', kind: 'project' });
+    await source.client.run('update', { id: alpha.id, options: { memoryOriginal: Buffer.from([255]).toString('base64') } });
+    const before = (await source.client.listAllComplete({ includeBody: true })).items;
+    const output = join(source.root, `policy-${mode}`);
+    assert.equal((await exportDir(output, { ...source.options, to: 'claude-code' })).byte_preserved, 0);
+    await importDir(output, { ...source.options, from: 'claude-code' });
+    assert.deepEqual((await source.client.listAllComplete({ includeBody: true })).items, before);
   }
 });
