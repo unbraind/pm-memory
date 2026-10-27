@@ -50,7 +50,7 @@ Every original file, including MEMORY.md, is a Knowledge item. MEMORY.md is mark
 
 ## Claim verification
 
-The extractor classifies complete tokens before inspecting paths. File candidates have a recognized filename extension, an explicit relative/home/absolute prefix, or multiple segments including a source directory such as src, scripts, test, docs, .github or .agents. Repository owner/name pairs are repo claims; scoped npm names and package-qualified subpaths are package claims. URLs, slash-joined flags, member expressions and known runtime calls cannot leak file substrings. Repeated claims retain their uncertainty context.
+The extractor classifies complete tokens before inspecting paths. File candidates have a recognized filename extension, an explicit relative, home-directory or absolute prefix, or multiple segments including a source directory such as src, scripts, test, docs, .github or .agents. Repository owner/name pairs are repo claims; scoped npm names and package-qualified subpaths are package claims. URLs, slash-joined flags, member expressions and known runtime calls cannot leak file substrings. Repeated claims retain their uncertainty context.
 
 Candidate syntax alone does not establish current file use. Temporary names, glob/brace/placeholder patterns, abbreviated paths, joined filenames, undelimited directory pairs, process-search patterns, ignore rules, dependency exports, fenced examples and explicitly historical or hypothetical sentences stay unknown. These conservative heuristics can miss real stale references; they do not attempt general natural-language entailment. File extensions use a documented implementation vocabulary to distinguish filenames from member access.
 

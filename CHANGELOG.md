@@ -21,5 +21,6 @@
 
 ### Other
 
+- Release readiness behind PM_RELEASE_APPROVED ([pm-memory-release-gate](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-release-gate.toon))
 - Recover process-reused writers and fence expired memory leases ([pm-memory-sdk-lock-protocol](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-sdk-lock-protocol.toon))
 - Reconcile stale in-progress tracker records (2026-10-23) ([pm-memory-reconcile-1023](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-reconcile-1023.toon))

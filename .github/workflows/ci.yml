@@ -60,7 +60,7 @@ jobs:
       - name: Verify commit identities and private path policy
         run: npm run identity:check
 
-      - name: Npm release gates
+      - name: Full npm release gate
         run: npm run release:check
 
       - name: Verify Bun can install the package graph
