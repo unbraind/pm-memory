@@ -2,15 +2,32 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { restore, WorkspaceTransactionInterruptedError, getItemPath, getHistoryPath, readHistoryEntries, commitItemMutations, serializeItemDocument, canonicalDocument, type WorkspaceTransactionTransitionContext } from '@unbrained/pm-cli/sdk';
+import { restore, deleteItem, WorkspaceTransactionInterruptedError, getItemPath, getItemAt, readSettings, resolveItemTypeRegistry, locateItem, getHistoryPath, readHistoryEntries, commitItemMutations, serializeItemDocument, canonicalDocument, type WorkspaceTransactionTransitionContext } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, renew, MemoryError, POLICY_MANIFEST } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody, skipOccupiedIdentities } from '../src/portable.ts';
 import { replanNodes } from '../src/portable-replan.ts';
 import { digest } from '../src/core.ts';
-import { guardedCompensation, ownsLatest, ownsCreation } from '../src/portable-rollback.ts';
+import { guardedCompensation, rollbackImport, ownsLatest, ownsCreation } from '../src/portable-rollback.ts';
 import { importIdentity, validateImportPlan, pendingImport, applyImport, type ImportPlan } from '../src/portable-plan.ts';
 import { tracker, memoryDocuments, assertClosedGraph, crashAfterCompensation, crashAtStep, importSubset, explicitRecreation } from './helpers.ts';
+
+/** Freeze one real source creation before its first SDK write. */
+async function creationProofScenario(t: Parameters<typeof tracker>[0]) {
+  const target = await tracker(t); const input = join(target.root, 'alpha.md'); await writeFile(input, 'Alpha A');
+  await assert.rejects(importDir(input, { ...target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
+  const plan = JSON.parse(JSON.parse(await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload) as ImportPlan;
+  return { target, plan, node: plan.nodes![0] };
+}
+/** Both SDK compensation operations must retain the complete peer-owned document. */
+async function assertSuperseded(target: Awaited<ReturnType<typeof tracker>>, plan: ImportPlan, id: string, operation: () => Promise<unknown>): Promise<void> {
+  const before = (await target.client.listAllComplete({ includeBody: true })).items;
+  let refusal: unknown;
+  try { await guardedCompensation(target.store, plan, operation); } catch (error) { refusal = error; }
+  assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
+  assert.ok(refusal instanceof Error); assert.match(refusal.message, /superseded/);
+  assert.equal(await ownsLatest(target.store, plan, id), false);
+}
 
 /** A real two-target import plus a bounded unchanged read-set dependency. */
 async function rollbackScenario(t: Parameters<typeof tracker>[0]) {
@@ -50,6 +67,48 @@ async function assertForeignIntent(result: Awaited<ReturnType<typeof importDir>>
   assert.equal(injected, true); assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /Foreign pending/);
   assert.equal(await readFile(intent, 'utf8'), foreign);
 }
+
+test('compensation requires full birth evidence and an uninterrupted owned history tail', async t => {
+  for (const extra of [false, true]) {
+    const { target, plan, node } = await creationProofScenario(t);
+    await target.client.create({ ...node.options, id: node.id, ...(extra ? { priority: 1 } : {}) });
+    assert.equal(await ownsLatest(target.store, plan, node.id), !extra, 'A complete untouched SDK birth is positive ownership evidence');
+    if (!extra) await target.client.update(node.id, { body: 'Native C', author: 'peer-agent' });
+    await target.client.update(node.id, { description: 'A copied later transaction marker proves nothing', author: plan.author, message: `bulk-item-transaction ${plan.transactionId} ${node.id} update` });
+    await assertSuperseded(target, plan, node.id, () => deleteItem(node.id, { author: plan.author, force: true }, { pmRoot: target.workspace }));
+    if (!extra) {
+      const moved = structuredClone(plan); (moved.initial ?? moved.expected)[0].history = '0'.repeat(64);
+      assert.equal(await ownsLatest(target.store, moved, node.id), false, 'The captured immutable history prefix is part of the proof');
+    }
+  }
+  const { target, plan, items } = await pausedScenario(t); const alpha = items.find(row => row.memory_slug === 'alpha')!;
+  await target.client.update(alpha.id, { body: 'Native C', author: 'peer-agent' });
+  await target.client.update(alpha.id, { description: 'A later copied transaction marker', author: plan.author, message: `bulk-item-transaction ${plan.transactionId} ${alpha.id} update` });
+  await assertSuperseded(target, plan, alpha.id, () => restore(alpha.id, alpha.updated_at, { author: plan.author, force: true }, { pmRoot: target.workspace }));
+});
+
+test('compensation treats drifted missing and malformed native proof records as foreign', async t => {
+  const { target, plan, node } = await creationProofScenario(t);
+  await target.client.create({ ...node.options, id: node.id });
+  assert.equal(await ownsLatest(target.store, plan, node.id), true);
+  const settings = await readSettings(target.workspace);
+  const located = await locateItem(target.workspace, node.id, settings.id_prefix, settings.item_format, resolveItemTypeRegistry(settings).type_to_folder); assert.ok(located);
+  const file = located.itemPath; const original = await readFile(file);
+  const { document } = await getItemAt(node.id, '1', { pmRoot: target.workspace });
+  await writeFile(file, serializeItemDocument(canonicalDocument({ ...document, metadata: { ...document.metadata, priority: 1 } })));
+  const foreign = await readFile(file);
+  assert.equal(await ownsLatest(target.store, plan, node.id), false);
+  await rollbackImport(target.store, plan, { ...target.options, from: 'agents-md' });
+  assert.deepEqual(await readFile(file), foreign);
+  await writeFile(file, original);
+  const history = getHistoryPath(target.workspace, node.id); const stream = await readFile(history);
+  await writeFile(history, 'foreign malformed history\n');
+  assert.equal(await ownsCreation(target.store, plan, node.id), false); assert.equal(await ownsLatest(target.store, plan, node.id), false);
+  await writeFile(history, stream); await writeFile(file, 'foreign malformed item');
+  assert.equal(await ownsLatest(target.store, plan, node.id), false);
+  await writeFile(file, original); await target.client.run('delete', { id: node.id, options: { force: true } });
+  assert.equal(await ownsLatest(target.store, plan, node.id), false);
+});
 
 test('SDK compensation guards evaluate ownership inside the restore item lock', async t => {
   const { target, items, plan } = await pausedScenario(t);

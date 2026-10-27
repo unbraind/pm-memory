@@ -301,7 +301,8 @@ test('legacy field locality preserves native edits, source bookkeeping and unrel
   assert.equal(result.updated, 1); assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /description/);
   const actual = (await target.client.get(id, { full: true })).item;
   assert.equal(actual.body, 'Harness body B');
-  const bodyOnly = { ...before, body: actual.body, updated_at: actual.updated_at };
+  assert.deepEqual(JSON.parse(String(actual.memory_document)), { version: 1, format: 'legacy', harness: 'claude-code', path: 'alpha.md', original: Buffer.from(first.replace('Original body', 'Harness body B')).toString('base64') });
+  const bodyOnly = { ...before, body: actual.body, memory_document: actual.memory_document, updated_at: actual.updated_at };
   assert.deepEqual(actual, bodyOnly);
   const saved = await snapshot(target.workspace);
   await assert.rejects(importDir(file, { ...target.options, from: 'claude-code' }), error => error instanceof MemoryError && error.code === 'conflict');

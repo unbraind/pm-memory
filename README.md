@@ -296,6 +296,30 @@ manifest can still replay without adopting a native edit as portable state. No i
 bookkeeping, verification, utility, unknown fields or other native-only metadata is
 rewritten on existing records. An unchanged source round trip performs no item writes.
 Legacy adapters share this ownership split and the same recoverable SDK batch; implicit defaults and absent wiki links grant no deletion authority. Native identity and source bookkeeping remain unchanged when portable content is revised. Raw input whitespace is never compared with stored values to classify native edits.
+
+Unknown frontmatter and Markdown sections belong to the imported document. Raw,
+companion and canonical imports compare the complete UTF-8 document, including
+key ordering, nested values, comments, BOM, CRLF and whitespace. An unknown-key-only
+edit updates one record and survives the next export. The typed `HarnessDocument`
+snapshot lives in native `memory_document`; `memory_policy_body` retains exact
+policy body bytes when SDK normalization would otherwise remove them. Semantic
+comparisons still use the SDK normalizer. Canonical guidance files include retained
+frontmatter visibly; only their generated policy marker is excluded from the source
+comparison. Native semantic overrides remain native until the corresponding source
+field changes. Snapshot fingerprints in the portable baseline and ownership receipt
+prevent overwriting a newer native document; the receipt identifies the conflicting
+field and a fresh export authorizes a later edit. Older records without these optional
+snapshots retain their existing source-history fallback. Malformed foreign snapshots
+are skipped with a reason. Canonical exports explicitly report index artifacts and
+their document snapshots as lossy when those artifacts are outside the inventory.
+
+Compensation of a creation requires the complete independently planned SDK birth
+document. Both creation and update rollback verify the captured immutable history
+prefix, every subsequent owned transaction event and the current SDK document against
+its history. These checks run inside the SDK item lock before deleting or restoring
+anything. A later peer edit, copied transaction marker,
+unplanned metadata or an unverifiable history produces `superseded`; peer state is
+retained, including its support graph.
 Every exported record binds its originating tracker namespace, item id and SDK
 creation-history hash in `origin` (also retained in `baseline.origin`). Slugs and titles are display hints,
 never target selectors. The namespace is published once as package-owned

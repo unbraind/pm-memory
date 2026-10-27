@@ -43,8 +43,10 @@ async function assertRecovered(target: Awaited<ReturnType<typeof tracker>>) {
 }
 /** Interrupt a selected public boundary once. */
 function crashAt(boundary: string) {
-  return (step: string) => { if (step === boundary) throw new WorkspaceTransactionInterruptedError(); };
+  return (step: string) => { if (preparationBoundary(step) === boundary) throw new WorkspaceTransactionInterruptedError(); };
 }
+/** Target ids are allocated per attempt; match the operation across independent test trackers. */
+function preparationBoundary(step: string): string { return step.replace(/^(preview-(?:located|item|history)):.*$/, '$1:<target>'); }
 
 test('property: import(export(x)) == x for random guidance sets and both harnesses', async t => {
   let seed = 1363;
@@ -210,7 +212,7 @@ test('foreign adjacent files are skipped and CLI imports render compact TOON and
 
 test('preparation crashes at every schema and preview boundary converge on rerun', async t => {
   const source = await fixture(t); const probe = await tracker(t); const boundaries: string[] = [];
-  await importDir(source.path, { ...probe.options, from: 'agents-md', onStep: step => { boundaries.push(step); } });
+  await importDir(source.path, { ...probe.options, from: 'agents-md', onStep: step => { boundaries.push(preparationBoundary(step)); } });
   assert.ok(boundaries.length > 20);
   for (const boundary of boundaries) {
     const target = await tracker(t);
@@ -325,10 +327,10 @@ test('conflicting historical evidence refuses export and unrelated removed metad
 
 test('preparation boundaries serialize a competing import and retain its completed work', async t => {
   const source = await fixture(t); const probe = await tracker(t); const steps: string[] = [];
-  await importDir(source.path, { ...probe.options, from: 'agents-md', onStep: step => { steps.push(step); } });
+  await importDir(source.path, { ...probe.options, from: 'agents-md', onStep: step => { steps.push(preparationBoundary(step)); } });
   for (const boundary of new Set(steps)) {
     const target = await tracker(t); let peer: ReturnType<typeof importDir> | undefined;
-    const first = await importDir(source.path, { ...target.options, from: 'agents-md', onStep: step => { if (step === boundary) peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' }); } });
+    const first = await importDir(source.path, { ...target.options, from: 'agents-md', onStep: step => { if (preparationBoundary(step) === boundary) peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' }); } });
     assert.ok(peer); const second = await peer;
     assert.equal(first.imported + second.imported, 1);
     await assertRecovered(target);

@@ -10,6 +10,7 @@ import { digest, MemoryError } from './core.ts';
 import type { PortableOrigin } from './portable-origin.ts';
 import { birthDocument } from './portable-preview.ts';
 import { sourceDocument } from './portable-source.ts';
+import type { Source } from './portable-source.ts';
 
 const relationshipKinds = createRelationshipKindRegistry();
 
@@ -19,6 +20,14 @@ export const PORTABLE_FIELDS = ['title', 'description', 'body', 'kind', 'why', '
 export type PortableFields = Record<typeof PORTABLE_FIELDS[number], string>;
 /** Immutable export baseline distinguishes absence from an explicit portable edit. */
 export interface PortableBaseline {
+  /** Digest of the exact exported payload, excluding only the derived policy marker. */
+  bodyHash?: string;
+  /** Native complete-document ownership at export time, when represented. */
+  documentHash?: string;
+  /** Native raw policy-payload ownership at export time, when present. */
+  policyBodyHash?: string;
+  /** SDK-normalized source projection of the actual exported file, independent of native overrides. */
+  sourceFields?: PortableFields;
   /** Immutable originating subject and tracker namespace; aliases never select a target. */
   origin?: PortableOrigin;
   /** Original native identity distinguishes source edits from unrelated slug collisions. */
@@ -32,6 +41,10 @@ export interface PortableBaseline {
 }
 /** Durable ownership receipt carried by the SDK transaction, never native item fields. */
 export interface OwnedTarget {
+  /** Complete document state positively retained by this publication. */
+  documentHash?: string;
+  /** Exact policy-payload state this publication actually wrote or retained as owned. */
+  policyBodyHash?: string;
   /** Native target identity. */
   id: string;
   /** Requested portable field fingerprints; conflicts do not adopt native values. */
@@ -45,6 +58,14 @@ export interface OwnedTarget {
 }
 /** Native changes invalidate only the affected part of a prior portable receipt. */
 export interface PreviousOwnership {
+  /** Last positively owned complete document, independent of native field edits. */
+  documentHash?: string;
+  /** Last positively owned exact policy payload, independent of later semantic edits. */
+  policyBodyHash?: string;
+  /** A native document edit cannot be overwritten by a later harness revision. */
+  sourceEdited?: boolean;
+  /** Native changes to exact policy payload bytes must survive import. */
+  bodyEdited?: boolean;
   /** SDK birth values grant field authority without claiming a committed graph receipt. */
   creation?: boolean;
   /** Unrepresented or subsequently native-edited fields grant no portable authority. */
@@ -61,6 +82,11 @@ export function portableFields(row: Parameters<typeof canonicalProvenance>[0], b
   const document = canonicalProvenance(row, body, []);
   const values = { title: document.metadata.title, description: document.metadata.description, body: document.body, kind: document.metadata.memory_kind, why: document.metadata.memory_why, how: document.metadata.memory_how, pinned: document.metadata.memory_pinned, tags: document.metadata.tags };
   return Object.fromEntries(PORTABLE_FIELDS.map(key => [key, digest(JSON.stringify(values[key]))])) as PortableFields;
+}
+/** Both full policy payloads and legacy companions project only explicit source edits onto native fields. */
+export function projectSourceFields(row: PortableGuidance, source: Source, baseline: PortableFields): void {
+  const decoded = portableFields({ ...source, pinned: false, tags: [] }, source.body);
+  for (const field of source.represented) if (decoded[field] !== baseline[field]) Object.assign(row, { [field]: source[field] });
 }
 /** Reject malformed baselines rather than silently widening import ownership. */
 export function validFields(value: unknown): value is PortableFields {
@@ -81,7 +107,7 @@ export function validOwnedTarget(value: unknown): value is OwnedTarget {
   /** Foreign edge shapes never become deletion authority. */
   const edges = (values: unknown): values is Dependency[] => Array.isArray(values) && values.every(value => value !== null && typeof value === 'object' && !Array.isArray(value) && typeof value.id === 'string' && DEPENDENCY_KIND_VALUES.includes(value.kind));
   const source = target.source;
-  return typeof target.id === 'string' && validOwnedFields(target.fields) && edges(target.relationships) && edges(target.graph) && (source === undefined || (source !== null && typeof source === 'object' && !Array.isArray(source) && 'original' in source && typeof source.original === 'string'));
+  return typeof target.id === 'string' && validOwnedFields(target.fields) && edges(target.relationships) && edges(target.graph) && (target.documentHash === undefined || (typeof target.documentHash === 'string' && /^[a-f0-9]{64}$/.test(target.documentHash))) && (target.policyBodyHash === undefined || (typeof target.policyBodyHash === 'string' && /^[a-f0-9]{64}$/.test(target.policyBodyHash))) && (source === undefined || (source !== null && typeof source === 'object' && !Array.isArray(source) && 'original' in source && typeof source.original === 'string'));
 }
 /** Immutable creation metadata remains authoritative when native bookkeeping is edited. */
 export async function creationMetadata(store: Store, id: string): Promise<ReturnType<typeof replayHistoryToTarget>['metadata'] | undefined> {
@@ -203,8 +229,10 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
   const entries = await readHistoryEntries(getHistoryPath(store.workspace, item.id), item.id);
   const attempted = new Set<string>();
   const changed = new Set<string>(); const graphEdits = new Set<number>();
+  let sourceEdited = false;
+  let bodyEdited = false;
   /** Invalidate native-edited fields without discarding ownership of unrelated values. */
-  const retained = (target: Pick<OwnedTarget, 'fields'> & Partial<Pick<OwnedTarget, 'relationships' | 'source'>>): PreviousOwnership => {
+  const retained = (target: Pick<OwnedTarget, 'fields'> & Partial<Pick<OwnedTarget, 'relationships' | 'source' | 'policyBodyHash' | 'documentHash'>>): PreviousOwnership => {
     const nativeEdges = new Map<string, Dependency>();
     for (const index of graphEdits) {
       const before = (replayHistoryToTarget(entries, index - 1).metadata.dependencies ?? []) as Dependency[];
@@ -214,12 +242,14 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
         if (edgeHash(old) !== edgeHash(current)) nativeEdges.set(key, current ?? old!);
       }
     }
-    return { fields: Object.fromEntries(PORTABLE_FIELDS.filter(key => !changed.has(key) && target.fields[key] !== undefined).map(key => [key, target.fields[key]!])) as Partial<PortableFields>, relationships: target.relationships, nativeRelationships: [...nativeEdges.values()], ...(target.source === undefined ? {} : { source: target.source }) };
+    return { fields: Object.fromEntries(PORTABLE_FIELDS.filter(key => !changed.has(key) && target.fields[key] !== undefined).map(key => [key, target.fields[key]!])) as Partial<PortableFields>, relationships: target.relationships, nativeRelationships: [...nativeEdges.values()], sourceEdited, bodyEdited, documentHash: target.documentHash, policyBodyHash: target.policyBodyHash, ...(target.source === undefined ? {} : { source: target.source }) };
   };
   for (const [position, entry] of [...entries].reverse().entries()) {
     const match = /^bulk-item-transaction (memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})) /.exec(entry.message ?? '');
     if (match === null) {
       if (!entry.message?.startsWith('bulk-item-transaction memory-policy-') && entry.op !== 'create') for (const patch of entry.patch) {
+        if (patch.path === '/metadata/memory_document' || patch.path.startsWith('/metadata/memory_document/')) sourceEdited = true;
+        if (patch.path === '/metadata/memory_policy_body' || patch.path.startsWith('/metadata/memory_policy_body/')) bodyEdited = true;
         for (const key of PORTABLE_FIELDS) {
           const path = key === 'body' ? '/body' : `/metadata/${['kind', 'why', 'how', 'pinned'].includes(key) ? `memory_${key}` : key}`;
           if (patch.path === path || patch.path.startsWith(`${path}/`)) changed.add(key);

@@ -1,7 +1,40 @@
-import { basename } from 'node:path';
+import { basename, isAbsolute } from 'node:path';
 import { parse } from 'yaml';
 import { digest, kind, MemoryError, slug } from './core.ts';
-import type { Harness, MemoryKind } from './types.ts';
+import type { Harness, HarnessDocument, Memory, MemoryKind } from './types.ts';
+
+/** Permit only confined relative source and export names through one path contract. */
+export function safePath(value: string): string {
+  if (isAbsolute(value) || value.includes('\\') || value.split('/').some(part => part === '..' || part === '' || part === '.') || value.includes('\0')) throw new MemoryError('path', 'Unsafe source path refused', 'Use regular files under the supplied directory');
+  return value;
+}
+
+/** Read only our complete-byte envelope; foreign versions and malformed values stay unknown. */
+export function readDocument(value: unknown): HarnessDocument | undefined {
+  try {
+    const row: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+    if (row === null || typeof row !== 'object' || Array.isArray(row)) return undefined;
+    const document = row as HarnessDocument;
+    if (Object.keys(row).sort().join(',') !== 'format,harness,original,path,version' || document.version !== 1 || !['agents-md', 'claude-code', 'cursor'].includes(document.harness) || !['legacy', 'policy'].includes(document.format) || typeof document.path !== 'string' || typeof document.original !== 'string') return undefined;
+    safePath(document.path);
+    const bytes = Buffer.from(document.original, 'base64');
+    if (bytes.toString('base64') !== document.original || !Buffer.from(bytes.toString('utf8')).equals(bytes)) return undefined;
+    if (document.format === 'legacy') sourceDocument(document.path, bytes, document.harness);
+    return { version: 1, harness: document.harness, format: document.format, path: document.path, original: document.original };
+  } catch { return undefined; }
+}
+/** Encode every envelope field with stable wrapper ordering; source byte order stays untouched. */
+export function encodeDocument(document: object): string {
+  return JSON.stringify(Object.fromEntries(Object.entries(document).sort(([a], [b]) => a.localeCompare(b))));
+}
+/** Compare complete input documents, never a whitelist of recognized YAML or Markdown fields. */
+export function documentPatch(item: Pick<Memory, 'document'>, next: HarnessDocument, baseline: string | undefined, nativeEdit = false, expectedHash?: string): { options: Record<string, unknown>; conflict: boolean } {
+  const current = item.document ?? { ...next, original: baseline };
+  if (encodeDocument(current) === encodeDocument(next)) return { options: {}, conflict: false };
+  const expected = expectedHash ?? (baseline === undefined ? undefined : digest(encodeDocument({ ...next, original: baseline })));
+  if ((item.document !== undefined && expected !== undefined && digest(encodeDocument(item.document)) !== expected) || (nativeEdit && expected === undefined)) return { options: {}, conflict: true };
+  return { options: { memoryDocument: encodeDocument(next) }, conflict: false };
+}
 
 /** A parsed source document with its exact original bytes retained separately. */
 export interface Source {

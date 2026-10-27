@@ -6,6 +6,19 @@ export const KINDS = ['user', 'feedback', 'project', 'reference'] as const;
 export type MemoryKind = typeof KINDS[number];
 /** A supported memory import harness. */
 export type Harness = 'claude-code' | 'agents-md' | 'cursor';
+/** Exact editable document, independent of native semantic fields and birth bookkeeping. */
+export interface HarnessDocument {
+  /** Version of the complete-byte representation. */
+  version: 1;
+  /** Parser and exporter for the source bytes. */
+  harness: Harness;
+  /** Legacy stores the full file; policy stores exact body bytes framed by retained legacy metadata. */
+  format: 'legacy' | 'policy';
+  /** Confined source file name. */
+  path: string;
+  /** Every source byte, encoded without changing order, keys or whitespace. */
+  original: string;
+}
 /** A memory claim's current evidence state. */
 export type Verdict = 'verified' | 'stale' | 'unknown';
 /** Explicit tracker binding; no ancestor tracker discovery is performed. */
@@ -42,6 +55,10 @@ export interface RememberOptions extends MemoryOptions {
 }
 /** Complete projection of one validated Knowledge item. */
 export interface Memory {
+  /** Latest complete harness document, persisted through SDK item mutations. */
+  document?: HarnessDocument;
+  /** Exact policy payload bytes; a changed native body supersedes a stale representation. */
+  policyBody?: HarnessDocument;
   /** Native pm item identity. */
   id: string;
   /** Encoded source consent and text-free output lineage; absence is legacy unscoped data. */

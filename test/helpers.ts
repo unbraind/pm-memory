@@ -31,6 +31,13 @@ export async function tracker(t: TestContext) {
   const options = { workspace, author: 'memory-test' }; const store = new Store(options);
   return { root, workspace, client, options, store };
 }
+/** Keep native SDK tests outside ancestor Git discovery and restore only the variables we changed. */
+export function withoutGit(t: TestContext, root: string): void {
+  for (const [key, value] of Object.entries({ PATH: root, GIT_CEILING_DIRECTORIES: dirname(root) })) {
+    const prior = process.env[key]; process.env[key] = value;
+    t.after(() => { if (prior === undefined) delete process.env[key]; else process.env[key] = prior; });
+  }
+}
 /** Export one real policy directory and decode only its public wire inventory. */
 export async function exportedPolicy(source: Pick<Awaited<ReturnType<typeof tracker>>, 'root' | 'options'>, name = 'export') {
   const path = join(source.root, name); await exportDir(path, { ...source.options, to: 'agents-md' });

@@ -4,8 +4,9 @@ import { recoverInput, applyImport, expectedTargets, validateImportPlan, preview
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
-import type { GuidanceWindow, Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
-import { portableFields, validFields, ownershipPatch, previousOwnership, resolvedRelationships, creationMetadata, legacyBirth, recordedCreation } from './portable-ownership.ts';
+import type { GuidanceWindow, Harness, HarnessDocument, Memory, MemoryKind, MemoryOptions } from './types.ts';
+import { readDocument, documentPatch, encodeDocument, sourceDocument } from './portable-source.ts';
+import { portableFields, validFields, ownershipPatch, previousOwnership, resolvedRelationships, creationMetadata, legacyBirth, recordedCreation, projectSourceFields } from './portable-ownership.ts';
 import type { PortableBaseline, OwnedTarget, PortableFields } from './portable-ownership.ts';
 import { itemOrigin, validOrigin, originCatalog, selectOrigin, sameOrigin, creatorMatchesOrigin } from './portable-origin.ts';
 import type { PortableOrigin } from './portable-origin.ts';
@@ -20,6 +21,7 @@ export function foreignMemories<T extends { type: string; memory_slug?: unknown;
 /** Decode ownership and semantic values from one complete native SDK snapshot. */
 export async function ownedMemories(store: Store, corpus: Awaited<ReturnType<Store['client']['listAllComplete']>>['items']) {
   const foreign = foreignMemories(corpus);
+  for (const item of corpus) if (item.memory_slug !== undefined && ((item.memory_document !== undefined && readDocument(item.memory_document) === undefined) || (item.memory_policy_body !== undefined && readDocument(item.memory_policy_body)?.format !== 'policy')) && !foreign.some(row => row.id === item.id)) foreign.push(item);
   // A foreign native record cannot acquire memory ownership by changing only its current tags.
   for (const item of corpus) if (item.type === 'Knowledge' && item.memory_slug !== undefined && !foreign.some(row => row.id === item.id)) {
     const born = await creationMetadata(store, item.id);
@@ -32,6 +34,8 @@ export async function ownedMemories(store: Store, corpus: Awaited<ReturnType<Sto
 export type PortableRelationship = Omit<Dependency, 'id'> & { slug: string };
 /** Semantic memory projection that is independent of native ids and tracker bookkeeping. */
 export interface PortableGuidance {
+  /** Complete source bytes, including unrecognized frontmatter, carried across formats. */
+  document?: HarnessDocument;
   /** Immutable lineage remains bound even when older tools omit ownership baselines. */
   origin?: PortableOrigin;
   /** Immutable owned-field and relationship baseline; absent only in older exports. */
@@ -103,7 +107,7 @@ export interface PortableImportResult {
   skipped: { slug: string; reason: string }[];
 }
 /** Exact semantic field names that an export can explicitly report as unrepresentable. */
-export type PortableLossyField = keyof PortableFields | 'slug' | 'artifact' | 'relationships' | 'relationships.author_source';
+export type PortableLossyField = keyof PortableFields | 'slug' | 'artifact' | 'document' | 'relationships' | 'relationships.author_source';
 /** Export counts plus explicit receipts for references outside the active inventory. */
 export interface PortableExportResult {
   /** Exact semantic fields the complete export cannot reproduce through native SDK writes. */
@@ -119,6 +123,8 @@ export interface PortableExportResult {
 }
 /** Original legacy provenance retained by the shared policy transaction path. */
 export interface LegacyPortableSource {
+  /** Preserve a native source snapshot when only its projected native body changed. */
+  document?: HarnessDocument;
   /** Raw source bytes encoded as base64. */
   original: string;
   /** Confined source path. */
@@ -151,7 +157,10 @@ export function parsePolicy(value: unknown): PortablePolicyManifest {
   const guidance = manifest.guidance.map((value: unknown): PortableGuidance => {
     const hasIdentity = value !== null && typeof value === 'object' && 'origin' in value;
     const hasBaseline = value !== null && typeof value === 'object' && 'baseline' in value;
-    const row = shape(value, ['slug', 'title', 'description', 'kind', 'why', 'how', 'pinned', 'tags', 'path', 'updated', 'validity', 'renewals', 'snapshotHash', 'relationships', ...(hasBaseline ? ['baseline'] : []), ...(hasIdentity ? ['origin'] : [])]);
+    const hasDocument = value !== null && typeof value === 'object' && 'document' in value;
+    const row = shape(value, ['slug', 'title', 'description', 'kind', 'why', 'how', 'pinned', 'tags', 'path', 'updated', 'validity', 'renewals', 'snapshotHash', 'relationships', ...(hasBaseline ? ['baseline'] : []), ...(hasIdentity ? ['origin'] : []), ...(hasDocument ? ['document'] : [])]);
+    const document = hasDocument ? readDocument(row.document) : undefined;
+    if (hasDocument && document === undefined) invalid();
     for (const key of ['slug', 'title', 'description', 'why', 'how', 'path', 'updated']) if (typeof row[key] !== 'string') invalid();
     if (hasIdentity && !validOrigin(row.origin)) invalid();
     const key = slug(row.slug as string);
@@ -173,19 +182,21 @@ export function parsePolicy(value: unknown): PortablePolicyManifest {
       const hasId = row.baseline !== null && typeof row.baseline === 'object' && 'id' in row.baseline;
       const hasSlug = row.baseline !== null && typeof row.baseline === 'object' && 'slug' in row.baseline;
       const hasOrigin = row.baseline !== null && typeof row.baseline === 'object' && 'origin' in row.baseline;
-      const fields = shape(row.baseline, ['fields', 'relationships', ...(hasId ? ['id'] : []), ...(hasSlug ? ['slug'] : []), ...(hasOrigin ? ['origin'] : [])]);
+      const snapshots = row.baseline !== null && typeof row.baseline === 'object' ? ['bodyHash', 'documentHash', 'policyBodyHash', 'sourceFields'].filter(key => Object.hasOwn(row.baseline!, key)) : [];
+      const fields = shape(row.baseline, ['fields', 'relationships', ...(hasId ? ['id'] : []), ...(hasSlug ? ['slug'] : []), ...(hasOrigin ? ['origin'] : []), ...snapshots]);
+      for (const key of snapshots) if (key === 'sourceFields' ? !validFields(fields[key]) : typeof fields[key] !== 'string' || !/^[a-f0-9]{64}$/.test(fields[key])) invalid();
       if (!validFields(fields.fields) || !Array.isArray(fields.relationships)) invalid();
       if (hasId && (typeof fields.id !== 'string' || fields.id.length === 0 || /[\r\n/\\\0]/.test(fields.id))) invalid();
       if (hasSlug && fields.slug !== key) throw new MemoryError('format', 'Portable identities cannot be renamed by editing the manifest', 'Restore the exported slug and path; rename native guidance explicitly, then export again');
       if (hasOrigin && !validOrigin(fields.origin)) invalid();
-      baseline = { ...(hasId ? { id: fields.id as string } : {}), ...(hasSlug ? { slug: key } : {}), ...(hasOrigin ? { origin: fields.origin as NonNullable<PortableBaseline['origin']> } : {}), fields: fields.fields, relationships: parseRelationships(fields.relationships) };
+      baseline = { ...Object.fromEntries(snapshots.map(key => [key, fields[key]])), ...(hasId ? { id: fields.id as string } : {}), ...(hasSlug ? { slug: key } : {}), ...(hasOrigin ? { origin: fields.origin as NonNullable<PortableBaseline['origin']> } : {}), fields: fields.fields, relationships: parseRelationships(fields.relationships) };
     }
     if (hasIdentity && baseline?.origin !== undefined && !sameOrigin(row.origin as PortableOrigin, baseline.origin)) invalid();
     const renewals = row.renewals.map(window);
     for (const [index, entry] of renewals.entries()) if (entry.revision !== index + 1 || (index > 0 && entry.recordedAt < renewals[index - 1].recordedAt)) invalid();
     const validity = row.validity === null ? null : window(row.validity);
     if (!equal(validity, renewals.at(-1) ?? null)) invalid();
-    return { ...(hasIdentity ? { origin: row.origin as PortableOrigin } : {}), ...(baseline === undefined ? {} : { baseline }), relationships, snapshotHash: row.snapshotHash, slug: key, title: row.title as string, description: row.description as string, kind: kind(row.kind), why: row.why as string, how: row.how as string, pinned: row.pinned, tags: row.tags as string[], path: row.path, updated: row.updated as string, validity, renewals };
+    return { ...(document === undefined ? {} : { document }), ...(hasIdentity ? { origin: row.origin as PortableOrigin } : {}), ...(baseline === undefined ? {} : { baseline }), relationships, snapshotHash: row.snapshotHash, slug: key, title: row.title as string, description: row.description as string, kind: kind(row.kind), why: row.why as string, how: row.how as string, pinned: row.pinned, tags: row.tags as string[], path: row.path, updated: row.updated as string, validity, renewals };
   });
   if (new Set(guidance.map(row => row.slug)).size !== guidance.length) invalid();
   const origins = guidance.flatMap(row => { const origin = guidanceOrigin(row); return origin === undefined ? [] : [JSON.stringify([origin.tracker, origin.id, origin.creation])]; });
@@ -209,9 +220,11 @@ export async function policyRecord(store: Store, item: Memory, memories?: readon
   }
   const corpus = memories ?? await store.read();
   const relationships = portableRelationships(item, corpus);
-  const row: PortableGuidance = { relationships, snapshotHash: snapshotDigest(item, item.body, relationships), slug: item.slug, title: item.title, description: item.description, kind: item.kind, why: item.why, how: item.how, pinned: item.pinned, tags: item.tags, path: `memories/${item.slug}.md`, updated: item.updated, validity: item.validity ?? null, renewals: [...revisions.values()].sort((a, b) => a.revision - b.revision) };
+  const row: PortableGuidance = { ...(item.document === undefined ? {} : { document: item.document }), relationships, snapshotHash: snapshotDigest(item, item.body, relationships), slug: item.slug, title: item.title, description: item.description, kind: item.kind, why: item.why, how: item.how, pinned: item.pinned, tags: item.tags, path: `memories/${item.slug}.md`, updated: item.updated, validity: item.validity ?? null, renewals: [...revisions.values()].sort((a, b) => a.revision - b.revision) };
   row.origin = await itemOrigin(store, item.id, origins);
-  row.baseline = { id: item.id, slug: item.slug, origin: row.origin, fields: portableFields(row, item.body), relationships };
+  const payload = policyPayload(item);
+  const source = item.document?.format === 'legacy' && policyParts(item).prefix !== '' ? sourceDocument(item.document.path, Buffer.from(payload), item.document.harness) : undefined;
+  row.baseline = { ...(source === undefined ? {} : { sourceFields: portableFields({ ...source, pinned: false, tags: [] }, source.body) }), bodyHash: digest(payload), ...(item.document === undefined ? {} : { documentHash: digest(encodeDocument(item.document)) }), ...(item.policyBody === undefined ? {} : { policyBodyHash: digest(encodeDocument(item.policyBody)) }), id: item.id, slug: item.slug, origin: row.origin, fields: portableFields(row, item.body), relationships };
   return parsePolicy({ version: 1, format: 'pm-memory-policy', harness: 'agents-md', guidance: [row] }).guidance[0];
 }
 /** Retain local typed edges; excluded targets are reported in the export receipt. */
@@ -224,6 +237,21 @@ export function portableRelationships(item: Memory, memories: readonly Memory[])
 /** Normalize semantic provenance with the same SDK canonical document path used by storage. */
 export function canonicalProvenance(row: Pick<PortableGuidance, 'title' | 'description' | 'kind' | 'why' | 'how' | 'pinned' | 'tags'>, body: string, relationships: PortableRelationship[]) {
   return canonicalDocument({ metadata: { id: 'portable-provenance', title: row.title, description: row.description, type: 'Knowledge', status: 'open', priority: 2, tags: row.tags, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', memory_kind: row.kind, memory_why: row.why, memory_how: row.how, memory_pinned: row.pinned, dependencies: relationships.map(({ slug, ...edge }) => ({ id: slug, ...edge })) }, body });
+}
+/** One lossless framing path separates retained frontmatter from the current SDK-native body. */
+export function policyParts(item: Memory): { prefix: string; body: string } {
+  const cached = item.policyBody === undefined ? item.body : Buffer.from(item.policyBody.original, 'base64').toString('utf8');
+  let body = canonicalProvenance(item, cached, []).body === item.body ? cached : item.body;
+  if (item.document === undefined) return { prefix: '', body };
+  const bytes = Buffer.from(item.document.original, 'base64'); const original = bytes.toString('utf8');
+  if (item.document.format === 'policy') return { prefix: '', body: item.policyBody === undefined && canonicalProvenance(item, original, []).body === item.body ? original : body };
+  const source = sourceDocument(item.document.path, bytes, item.document.harness);
+  if (item.policyBody === undefined && canonicalProvenance(item, source.body, []).body === item.body) body = source.body;
+  return { prefix: original.slice(0, original.length - source.body.length), body };
+}
+/** Preserve all unrecognized frontmatter and body bytes, excluding only the derived marker. */
+export function policyPayload(item: Memory): string {
+  const parts = policyParts(item); return parts.prefix + parts.body;
 }
 /** Bind exported snapshots to SDK-canonical content and relationship topology. */
 export function snapshotDigest(row: Parameters<typeof canonicalProvenance>[0], body: string, relationships: PortableRelationship[]): string { return digest(JSON.stringify(canonicalProvenance(row, body, relationships))); }
@@ -252,17 +280,30 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
   try { value = JSON.parse(input.find(file => file.path === POLICY_MANIFEST)!.bytes.toString('utf8')); } catch { return invalid(); }
   const manifest = parsePolicy(value);
   if (manifest.harness !== options.from) invalid();
+  const provenance = new Map(legacy);
+  const payloads: string[] = [];
   const bodies = manifest.guidance.map(row => {
     const file = input.find(file => file.path === row.path);
     if (file === undefined) return invalid();
     const content = file.bytes.toString('utf8'); const prefix = policyBody(row, '').toString('utf8');
     if (!Buffer.from(content).equals(file.bytes) || !content.startsWith(prefix)) return invalid();
     privacy(content, options.allowEmail);
-    return content.slice(prefix.length);
+    const payload = content.slice(prefix.length); payloads.push(payload);
+    if (!provenance.has(row.slug) && row.document?.format === 'legacy') {
+      const before = sourceDocument(row.document.path, Buffer.from(row.document.original, 'base64'), row.document.harness);
+      if (before.body.length === Buffer.from(row.document.original, 'base64').toString('utf8').length) return payload;
+      const source = sourceDocument(row.document.path, Buffer.from(payload), row.document.harness);
+      projectSourceFields(row, source, row.baseline?.sourceFields ?? portableFields({ ...before, pinned: false, tags: [] }, before.body));
+      const edited = row.baseline?.bodyHash === undefined ? payload !== Buffer.from(row.document.original, 'base64').toString('utf8') : digest(payload) !== row.baseline.bodyHash;
+      provenance.set(row.slug, { harness: row.document.harness, path: row.document.path, original: source.original, artifact: false, document: edited ? { ...row.document, original: source.original } : row.document });
+      return source.body;
+    }
+    return payload;
   });
   privacy(JSON.stringify(manifest), options.allowEmail);
+  for (const row of manifest.guidance) if (row.document !== undefined) privacy(Buffer.from(row.document.original, 'base64').toString('utf8'), options.allowEmail);
   for (const row of manifest.guidance) if (row.relationships.some(edge => !manifest.guidance.some(target => target.slug === edge.slug))) invalid();
-  const inputHash = digest(JSON.stringify([manifest, bodies]));
+  const inputHash = digest(JSON.stringify([manifest, payloads, [...provenance]]));
   await options.onStep?.('validated');
   const store = new Store(options);
   return store.write(async () => {
@@ -304,12 +345,35 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
       const previous = selected.get(row.slug);
       const id = ids.get(row.slug)!;
       const body = bodies[index];
+      const wire = provenance.get(row.slug);
+      const document: HarnessDocument | undefined = wire === undefined ? row.document : wire.document ?? { version: 1, format: 'legacy', harness: wire.harness, path: wire.path, original: wire.original };
+      const sourceBody = document?.format === 'legacy' ? sourceDocument(document.path, Buffer.from(document.original, 'base64'), document.harness).body : document === undefined ? undefined : Buffer.from(document.original, 'base64').toString('utf8');
+      const changedPayload = previous === undefined
+        ? canonicalProvenance(row, body, []).body !== body && sourceBody !== body || sourceBody !== undefined && sourceBody !== body && canonicalProvenance(row, sourceBody, []).body === body
+        : (wire === undefined || previous.policyBody !== undefined) && policyParts(previous).body !== body;
+      const policyBody: HarnessDocument | undefined = changedPayload ? { version: 1, format: 'policy', harness: options.from, path: row.path, original: Buffer.from(body).toString('base64') } : undefined;
+      let policyBodyHash = previous === undefined && policyBody !== undefined ? digest(encodeDocument(policyBody)) : undefined;
+      let documentHash = previous === undefined && document !== undefined ? digest(encodeDocument(document)) : undefined;
       let update: ReturnType<typeof ownershipPatch> | undefined;
       if (previous !== undefined) {
         if (previous.slug !== row.slug) result.skipped.push({ slug: row.slug, reason: `Native identity retained as ${previous.slug}` });
         const prior = await policyRecord(store, previous, current, catalog);
         if (!equal(prior.validity, row.validity) || JSON.stringify(prior.renewals) !== JSON.stringify(row.renewals)) invalid();
-        update = ownershipPatch(previous, row, body, ids, baselineIds, await previousOwnership(store, previous, baselineIds));
+        const owned = await previousOwnership(store, previous, baselineIds);
+        if (previous.document !== undefined && owned?.documentHash === digest(encodeDocument(previous.document))) documentHash = owned.documentHash;
+        if (previous.policyBody !== undefined && owned?.policyBodyHash === digest(encodeDocument(previous.policyBody))) policyBodyHash = owned.policyBodyHash;
+        update = ownershipPatch(previous, row, body, ids, baselineIds, owned);
+        if (document !== undefined) {
+          const patch = documentPatch(previous, document, wire === undefined ? row.document?.original : row.document?.original ?? owned?.source?.original ?? previous.original, owned?.sourceEdited, documentHash ?? row.baseline?.documentHash);
+          Object.assign(update.options, patch.options); if (patch.conflict) update.conflicts.push('document');
+          if (patch.options.memoryDocument !== undefined) documentHash = digest(encodeDocument(document));
+        }
+        if (policyBody !== undefined && !update.conflicts.includes('body')) {
+          const expectedBody = policyBodyHash ?? row.baseline?.policyBodyHash;
+          const patch = documentPatch({ document: previous.policyBody }, policyBody, undefined, owned?.bodyEdited || (previous.policyBody !== undefined && expectedBody === undefined), expectedBody);
+          if (patch.conflict) { delete update.options.body; update.conflicts.push('body'); }
+          if (patch.options.memoryDocument !== undefined) { update.options.memoryPolicyBody = patch.options.memoryDocument; policyBodyHash = digest(encodeDocument(policyBody)); }
+        }
         if (update.conflicts.length > 0) {
           const reason = `Independently edited native content retained: ${update.conflicts.join(', ')}`;
           if (Object.keys(update.options).length === 0) { skipped.set(row.slug, reason); continue; }
@@ -318,12 +382,11 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
         if (Object.keys(update.options).length === 0) { decisions.set(row.slug, 'unchanged'); continue; }
         decisions.set(row.slug, 'updated');
       } else decisions.set(row.slug, 'imported');
-      const wire = legacy?.get(row.slug);
-      const fields = { slug: row.slug, kind: row.kind, why: row.why, how: row.how, pinned: row.pinned, source: wire === undefined ? 'portable:policy-v1' : `${wire.harness}:relative-file`, original: wire?.original ?? Buffer.from(JSON.stringify([row, body])).toString('base64'), path: wire?.path ?? row.path, edited: false, artifact: wire?.artifact ?? false, changed_at: row.updated, renewals: JSON.stringify(row.renewals), ...(guidanceOrigin(row) === undefined ? {} : { origin: JSON.stringify(guidanceOrigin(row)) }), ...(row.validity === null ? {} : { validity: JSON.stringify(row.validity) }) };
+      const fields = { ...(document === undefined ? {} : { document: encodeDocument(document) }), ...(policyBody === undefined ? {} : { policy_body: encodeDocument(policyBody) }), slug: row.slug, kind: row.kind, why: row.why, how: row.how, pinned: row.pinned, source: wire === undefined ? 'portable:policy-v1' : `${wire.harness}:relative-file`, original: wire?.original ?? Buffer.from(JSON.stringify([row, body])).toString('base64'), path: wire?.path ?? row.path, edited: false, artifact: wire?.artifact ?? false, changed_at: row.updated, renewals: JSON.stringify(row.renewals), ...(guidanceOrigin(row) === undefined ? {} : { origin: JSON.stringify(guidanceOrigin(row)) }), ...(row.validity === null ? {} : { validity: JSON.stringify(row.validity) }) };
       // Stable create ids and payloads let the SDK resume an interrupted batch without duplicates.
       const creating = previous === undefined;
       const relationships = resolvedRelationships(row.relationships, ids);
-      ownership.push({ ...(update?.ownership ?? { id, fields: portableFields(row, body), relationships, graph: relationships }), ...(wire === undefined ? {} : { source: { original: wire.original } }) });
+      ownership.push({ ...(update?.ownership ?? { id, fields: portableFields(row, body), relationships, graph: relationships }), ...(documentHash === undefined ? {} : { documentHash }), ...(policyBodyHash === undefined ? {} : { policyBodyHash }), ...(wire === undefined ? {} : { source: { original: wire.original } }) });
       mutations.push({ op: creating ? 'create' : 'update', id: previous?.id ?? id, ...(creating ? { unique: { key: 'memory_slug', value: row.slug } } : { match: { key: 'updated_at', value: corpus.find(item => item.id === previous.id)!.updated_at } }), options: creating ? { title: row.title, description: row.description, body, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, ...itemDocumentToMutationOptions(JSON.stringify({ tags: row.tags, dependencies: relationships }), 'create'), ...metadata(fields) } : update!.options });
     }
     closeSkips(manifest.guidance, skipped);

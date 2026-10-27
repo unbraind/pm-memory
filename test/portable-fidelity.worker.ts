@@ -20,7 +20,7 @@ function semantic(rows: Rows, receipt: PortableExportResult) {
   return all.flatMap(row => {
     if (row.memory_artifact === true && receipt.byte_preserved === 0) {
       const fields = receipt.lossy?.find(entry => entry.slug === row.memory_slug)?.fields;
-      assert.deepEqual(fields, ['slug', 'title', 'description', 'body', 'kind', 'why', 'how', 'pinned', 'tags', 'relationships', 'artifact'], 'Unreported native artifact omission');
+      assert.deepEqual(fields, ['slug', 'title', 'description', 'body', 'kind', 'why', 'how', 'pinned', 'tags', 'relationships', 'artifact', ...(row.memory_document === undefined ? [] : ['document'])], 'Unreported native artifact omission');
       return [];
     }
     const lossy = receipt.lossy?.find(entry => entry.slug === row.memory_slug)?.fields ?? [];

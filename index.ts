@@ -11,7 +11,7 @@ export { consolidate } from './src/consolidate.ts';
 /** Inspect typed refusals and full-packet host token accounting. */
 export { MemoryError, packetTokens } from './src/core.ts';
 /** Public typed harness, memory and receipt contracts. */
-export type { MemoryOptions, RememberOptions, MemoryKind, Harness, Memory, Packet, RecallRow, Verdict, Claim, ClaimResult, Proposal } from './src/types.ts';
+export type { MemoryOptions, RememberOptions, MemoryKind, Harness, HarnessDocument, Memory, Packet, RecallRow, Verdict, Claim, ClaimResult, Proposal } from './src/types.ts';
 /** Activate memory commands and registered Knowledge fields in any pm host. */
 export default defineExtension({ name: 'pm-memory', version: '2026.10.19', description: 'Shared long-term agent memory as typed pm context', activate: register });
 

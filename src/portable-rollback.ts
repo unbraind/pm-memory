@@ -1,4 +1,4 @@
-import { commitWorkspaceTransaction, runWithActiveExtensions, setActiveExtensionHooks, restore, deleteItem, getItemAt, getHistoryPath, readHistoryEntries, PmClient, certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
+import { commitWorkspaceTransaction, runWithActiveExtensions, setActiveExtensionHooks, restore, deleteItem, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, verifyHistoryEntries, readSettings, resolveItemTypeRegistry, locateItem, readLocatedItem, PmClient, certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { ImportPlan, ExpectedTarget } from './portable-plan.ts';
 import { type Store } from './store.ts';
@@ -9,16 +9,16 @@ import { creator, creatorMatchesOrigin } from './portable-origin.ts';
 
 /** Creation ownership requires the independently SDK-created full birth document to match the SDK birth. */
 export async function ownsCreation(store: Store, plan: ImportPlan, id: string): Promise<boolean> {
-  const mutation = plan.nodes?.find(row => row.id === id) ?? plan.mutations.find(row => row.id === id && row.op === 'create');
-  if (mutation === undefined) return false;
-  const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
-  if (entries[0]?.op !== 'create' || entries[0].author !== plan.author) return false;
-  if (typeof mutation.options!.message === 'string' && entries[0].message !== mutation.options!.message) return false;
-  const birth = creator(id, entries[0], undefined);
-  if (birth === undefined || birth.metadata.type !== mutation.options!.type || birth.metadata.memory_slug !== mutation.options!.memorySlug || birth.metadata.memory_source !== mutation.options!.memorySource || birth.metadata.memory_original !== mutation.options!.memoryOriginal) return false;
-  const origin = plan.expected.find(row => row.id === id)?.origin;
-  if (origin !== undefined && !creatorMatchesOrigin(birth, origin)) return false;
   try {
+    const mutation = plan.nodes?.find(row => row.id === id) ?? plan.mutations.find(row => row.id === id && row.op === 'create');
+    if (mutation === undefined) return false;
+    const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
+    if (entries[0]?.op !== 'create' || entries[0].author !== plan.author) return false;
+    if (typeof mutation.options!.message === 'string' && entries[0].message !== mutation.options!.message) return false;
+    const birth = creator(id, entries[0], undefined);
+    if (birth === undefined || birth.metadata.type !== mutation.options!.type || birth.metadata.memory_slug !== mutation.options!.memorySlug || birth.metadata.memory_source !== mutation.options!.memorySource || birth.metadata.memory_original !== mutation.options!.memoryOriginal) return false;
+    const origin = plan.expected.find(row => row.id === id)?.origin;
+    if (origin !== undefined && !creatorMatchesOrigin(birth, origin)) return false;
     const { document } = await getItemAt(id, '1', { pmRoot: store.workspace });
     await captureBirths(store, plan);
     if (!plan.births!.some(row => row.id === id && row.document === birthDocument(document) && row.message === entries[0].message)) return false;
@@ -29,13 +29,20 @@ export async function ownsCreation(store: Store, plan: ImportPlan, id: string): 
 
 /** Immutable SDK history, rather than mutable content, identifies an owned write. */
 export async function ownsLatest(store: Store, plan: ImportPlan, id: string): Promise<boolean> {
-  if (!plan.expected.some(target => target.id === id)) return false;
-  const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
-  const last = entries.at(-1);
-  if (last?.author !== plan.author) return false;
-  if (last.op === 'create') return entries.length === 1 && await ownsCreation(store, plan, id);
-  if ([plan.transactionId, ...(plan.ownedTransactions ?? [])].some(id => last.message?.startsWith(`bulk-item-transaction ${id} `) || last.message?.startsWith(`bulk-item-transaction ${id}-`))) return true;
-  return false;
+  try {
+    const expected = (plan.initial ?? plan.expected).find(target => target.id === id);
+    if (expected === undefined) return false;
+    const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
+    const last = entries.at(-1);
+    if (last?.author !== plan.author) return false;
+    const settings = await readSettings(store.workspace);
+    const located = await locateItem(store.workspace, id, settings.id_prefix, settings.item_format, resolveItemTypeRegistry(settings).type_to_folder);
+    if (located === null || !verifyHistoryEntries(entries, (await readLocatedItem(located)).document).ok) return false;
+    if (expected.version === null && !await ownsCreation(store, plan, id)) return false;
+    if (hashHistoryStream(entries.slice(0, expected.length)) !== expected.history) return false;
+    const tail = entries.slice(expected.length);
+    return tail.length > 0 && tail.every(entry => entry.author === plan.author && [plan.transactionId, ...(plan.ownedTransactions ?? [])].some(transaction => entry.message?.startsWith(`bulk-item-transaction ${transaction} `) || entry.message?.startsWith(`bulk-item-transaction ${transaction}-`)));
+  } catch { return false; }
 }
 /** Keep the transitive support graph of every current peer-owned record. */
 async function protectedByPeer(store: Store, plan: ImportPlan, id: string): Promise<boolean> {
@@ -59,7 +66,7 @@ export async function guardedCompensation<T>(store: Store, plan: ImportPlan, run
         if (expected !== undefined && expected.document !== birthDocument(context.after!)) return { allow: false, code: 'memory_import_birth_moved', message: 'SDK creation context changed after planning', remediation: 'Retry the portable import using the current schema and defaults; no unexpected creation was written' };
       }
       if (context.before === null || !['restore', 'delete'].includes(context.operation) || !plan.expected.some(row => row.id === context.before!.metadata.id)) return;
-      if (!await ownsLatest(store, plan, context.before.metadata.id)) return { allow: false, code: 'memory_import_peer_revision', message: 'A native revision owns this target', remediation: 'Retain the native revision and retry the portable import' };
+      if (!await ownsLatest(store, plan, context.before.metadata.id)) return { allow: false, code: 'memory_import_peer_revision', message: 'Compensation superseded by a native revision', remediation: 'Retain the native revision and retry the portable import' };
       if (context.operation === 'delete' && await protectedByPeer(store, plan, context.before.metadata.id)) return { allow: false, code: 'memory_import_peer_reference', message: 'A peer references this target', remediation: 'Retain the peer reference graph and retry the portable import' };
     };
     setActiveExtensionHooks({ beforeCommand: [], afterCommand: [], onWrite: [], onRead: [], onIndex: [], beforeMutation: [{ layer: 'project', name: 'pm-memory-compensation', run: guard }] });
