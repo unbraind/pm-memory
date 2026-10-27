@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { join } from 'node:path';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm, cp } from 'node:fs/promises';
 import { exportDir, importDir, remember, renew, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody } from '../src/portable.ts';
 import { tracker, snapshot, crashAtStep, assertSkippedUnchanged, exportedPolicy, editIntent, crashAfterCompensation, assertOriginRefused, importText } from './helpers.ts';
-import { WorkspaceTransactionInterruptedError, commitItemMutations, getHistoryPath, getItemPath, canonicalDocument, serializeItemDocument, resolveItemTypeRegistry, readSettings } from '@unbrained/pm-cli/sdk';
+import { WorkspaceTransactionInterruptedError, commitItemMutations, commitWorkspaceTransaction, sealHistoryRecord, appendHistoryEntry, type WorkspaceTransactionJsonValue, getHistoryPath, readHistoryEntries, getItemPath, canonicalDocument, serializeItemDocument, resolveItemTypeRegistry, readSettings } from '@unbrained/pm-cli/sdk';
 import type { ImportPlan } from '../src/portable-plan.ts';
 import { replanNodes } from '../src/portable-replan.ts';
-import { creationMetadata } from '../src/portable-ownership.ts';
+import { creationMetadata, recordedCreation } from '../src/portable-ownership.ts';
 
 /** Prepare one real bounded export for wire-validation and compatibility regressions. */
 async function policyScenario(t: Parameters<typeof tracker>[0]) {
@@ -480,4 +480,64 @@ test('legacy input cannot adopt an independently authored native memory with the
   await assert.rejects(importDir(file, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'conflict' && error.remedy.length > 0);
   assert.deepEqual((await target.client.get(native.id, { full: true })).item, before);
   assert.equal((await target.client.listAllComplete()).items.length, 1);
+});
+
+
+test('modern creation admission retains native edits until durable publication is proven', async t => {
+  const target = await tracker(t);
+  // Absence of a modern marker delegates to the existing legacy birth checks.
+  assert.equal(await recordedCreation(target.store, 'memory-test-absent'), true);
+  const producer = await tracker(t); const file = join(producer.root, 'alpha.md'); await writeFile(file, 'Alpha A');
+  await assert.rejects(importDir(file, { ...producer.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
+  const plan = JSON.parse(JSON.parse(await readFile(join(producer.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload) as ImportPlan;
+  const node = structuredClone(plan.nodes![0]); delete node.options!.memoryBirth; node.options!.message = String(node.options!.message).replace(/ memory-birth-v1:[a-f0-9]{64}$/, '');
+  await target.store.register();
+  await commitItemMutations({ pmRoot: target.workspace, author: plan.author, transactionId: `${plan.transactionId}-nodes`, mutations: [node] });
+  await commitWorkspaceTransaction({ pmRoot: target.workspace, author: plan.author, transactionId: `${plan.transactionId}-snapshot`, steps: [{ id: 'publication', inspect: async () => ({ state: 'pending' }), apply: async () => JSON.parse(JSON.stringify({ owner: 'pm-memory-policy-ownership:1', targets: plan.ownership })) as WorkspaceTransactionJsonValue, compensate: async () => {} }] });
+  const input = join(target.root, 'alpha.md'); await writeFile(input, 'Alpha A');
+  const item = (await target.client.listAllComplete()).items[0];
+  const entries = await readHistoryEntries(getHistoryPath(target.workspace, item.id), item.id);
+  const transactionId = /^bulk-item-transaction (\S+)-nodes /.exec(entries[0].message!)![1];
+  const journal = join(target.workspace, 'transactions', 'sdk', `${transactionId}-snapshot.json`);
+  const original = await readFile(journal);
+  assert.equal(await recordedCreation(target.store, item.id), true);
+  await rm(journal); // Only this disposable fixture's own publication receipt.
+  await target.client.update(item.id, { body: 'Peer native C' });
+  await target.client.update(item.id, { description: 'Peer metadata', message: `bulk-item-transaction ${transactionId} copied-marker update` });
+  await target.client.update(item.id, { priority: 1, message: `bulk-item-transaction memory-policy-${'e'.repeat(40)} foreign update` });
+  assert.equal(await recordedCreation(target.store, item.id), false);
+  const before = (await target.client.get(item.id, { full: true })).item;
+  await writeFile(input, 'Harness D'); const result = await importDir(input, { ...target.options, from: 'agents-md' });
+  assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /Foreign/);
+  assert.deepEqual((await target.client.get(item.id, { full: true })).item, before);
+  await writeFile(journal, original); assert.equal(await recordedCreation(target.store, item.id), true);
+  for (const options of [{ memoryBirth: 'unknown-version', message: 'Peer marker' }, { memoryBirth: 'portable-v1', message: 'Peer marker' }, { memoryBirth: 'portable-v1', message: String(node.options!.message) }]) {
+    const foreign = await target.client.create({ ...node.options, ...options });
+    assert.equal(await recordedCreation(target.store, foreign.item.id), false);
+  }
+  const current = await readHistoryEntries(getHistoryPath(target.workspace, item.id), item.id);
+  const unmarked = sealHistoryRecord({ ...current[0], message: undefined });
+  await rm(getHistoryPath(target.workspace, item.id));
+  for (const row of [unmarked, ...current.slice(1)]) await appendHistoryEntry(getHistoryPath(target.workspace, item.id), row);
+  assert.equal(await recordedCreation(target.store, item.id), true, 'Older histories without creation messages keep their legacy checks');
+  await writeFile(getHistoryPath(target.workspace, item.id), [{ ...entries[0], patch: [] }, ...entries.slice(1)].map(entry => JSON.stringify(entry)).join('\n') + '\n');
+  assert.equal(await recordedCreation(target.store, item.id), false, 'Malformed foreign history cannot grant birth authority');
+
+});
+
+
+test('birth evidence survives tracker clones without disposable transaction journals', async t => {
+  for (const from of ['agents-md', 'claude-code'] as const) {
+    const source = await tracker(t); const input = join(source.root, 'input'); await mkdir(input);
+    await writeFile(join(input, 'alpha.md'), 'Alpha A [[beta]]'); await writeFile(join(input, 'beta.md'), 'Beta A');
+    await importDir(input, { ...source.options, from });
+    const clone = await tracker(t); await rm(clone.workspace, { recursive: true });
+    await cp(source.workspace, clone.workspace, { recursive: true, filter: path => !['transactions', 'runtime', 'locks', 'search', 'checkpoints'].some(name => path === join(source.workspace, name)) });
+    const before = (await clone.client.listAllComplete({ includeBody: true })).items;
+    const output = join(clone.root, 'export'); const result = await exportDir(output, { ...clone.options, to: from });
+    assert.equal(before.length, 2); assert.equal(result.exported, 4); assert.equal(result.skipped?.length ?? 0, 0);
+    assert.equal((await importDir(output, { ...clone.options, from })).unchanged, 2);
+    assert.deepEqual((await clone.client.listAllComplete({ includeBody: true })).items, before);
+    assert.ok(before[0].dependencies?.length || before[1].dependencies?.length, 'SDK clone retained the represented relationship');
+  }
 });

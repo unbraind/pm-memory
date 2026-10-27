@@ -95,6 +95,7 @@ test('owned recovery plans require every revision and SDK guard in all frozen ph
   const plan = JSON.parse(JSON.parse(await readFile(intent, 'utf8')).payload) as ImportPlan;
   const invalid: unknown[] = [
     { ...plan, identityVersion: 2 }, { ...plan, expected: null }, { ...plan, nodesDone: 'yes' }, { ...plan, refusing: 'yes' }, { ...plan, attempt: 3 }, { ...plan, attempt: 'invalid' },
+    ...[null, [null], [3], [{}], [{ id: 3, document: '' }], [{ id: plan.expected[0].id, document: 3 }], [{ id: plan.expected[0].id, document: '', message: 3 }], [{ id: 'foreign', document: '' }]].map(births => ({ ...plan, births })),
     ...[null, [3], ['wrong']].map(ownedTransactions => ({ ...plan, ownedTransactions })),
     ...[null, [null], [3], [{}], [{ id: 'other', version: null }], [{ id: plan.expected[0].id, version: 3 }]].map(initial => ({ ...plan, initial })),
     ...[null, {}, { ...plan.expected[0], id: 3 }, { ...plan.expected[0], slug: null }, { ...plan.expected[0], version: 3 }, { ...plan.expected[0], length: -1 }, { ...plan.expected[0], length: 0.5 }, { ...plan.expected[0], history: null }, { ...plan.expected[0], origin: {} }].map(row => ({ ...plan, expected: [row] })),

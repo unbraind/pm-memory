@@ -39,6 +39,10 @@ export function validOrigin(value: unknown): value is PortableOrigin {
 }
 /** Compare only immutable namespace, subject and creation lineage. */
 export function sameOrigin(a: PortableOrigin, b: PortableOrigin): boolean { return a.tracker === b.tracker && a.id === b.id && a.creation === b.creation; }
+/** Legacy history identities remain stable when a namespace is initialized later. */
+export function creatorMatchesOrigin(actual: OriginCreator, expected: PortableOrigin): boolean {
+  return sameOrigin(actual.origin, expected) || (actual.metadata.memory_origin === undefined && expected.tracker === expected.creation && actual.id === expected.id && actual.origin.creation === expected.creation);
+}
 /** Read package namespace without initializing a tracker during a refused import. */
 export async function readTrackerOrigin(store: Store): Promise<string | undefined> {
   let value: unknown;
@@ -105,7 +109,7 @@ export async function originCatalog(store: Store, liveIds?: ReadonlySet<string>,
 }
 /** Resolve an exported origin before considering aliases; known deleted identities need explicit recreation. */
 export function selectOrigin(origin: PortableOrigin, current: readonly Memory[], catalog: Awaited<ReturnType<typeof originCatalog>>, create: boolean): Memory | undefined {
-  const matches = catalog.creators.filter(row => sameOrigin(row.origin, origin));
+  const matches = catalog.creators.filter(row => creatorMatchesOrigin(row, origin));
   const live = current.filter(item => matches.some(row => row.id === item.id));
   if (live.length > 1) throw new MemoryError('origin_missing', 'Origin has multiple live native copies', 'Export the intended native origin explicitly; aliases cannot resolve this ambiguity');
   if (live.length === 1) return live[0];

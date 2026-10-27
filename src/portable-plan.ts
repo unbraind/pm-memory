@@ -10,9 +10,9 @@ import type { Store } from './store.ts';
 import { guardedCompensation, rollbackImport, ownsCreation } from './portable-rollback.ts';
 import { relationshipPatch, validOwnedTarget } from './portable-ownership.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
-import { creator, readTrackerOrigin, sameOrigin, validOrigin } from './portable-origin.ts';
+import { creator, readTrackerOrigin, creatorMatchesOrigin, validOrigin } from './portable-origin.ts';
 import type { PortableOrigin } from './portable-origin.ts';
-import { previewOwnedItems } from './portable-preview.ts';
+import { previewOwnedItems, prepareImportNodes, captureBirths, sealBirths } from './portable-preview.ts';
 
 /** SDK-derived attempts and the earlier private content/history identity format. */
 const IMPORT_ID = /^memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})$/;
@@ -91,7 +91,7 @@ async function guardPlan(store: Store, plan: ImportPlan): Promise<void> {
     if (expected.version === null && item !== undefined && !owned) throw new PlanForeign('Foreign record occupies the reserved import id');
     if (expected.origin !== undefined && entries.length > 0) {
       const actual = creator(expected.id, entries[0], await readTrackerOrigin(store));
-      if (actual === undefined || !sameOrigin(actual.origin, expected.origin)) throw new PlanMoved('Immutable import origin changed');
+      if (actual === undefined || !creatorMatchesOrigin(actual, expected.origin)) throw new PlanMoved('Immutable import origin changed');
     }
     if (hashHistoryStream(entries.slice(0, expected.length)) !== expected.history || !(unchanged || owned)) throw new PlanMoved('Portable import target revision moved');
   }
@@ -116,6 +116,8 @@ export interface ImportPlan {
   ownership?: OwnedTarget[];
   /** Edge-free creation batch ensures a partial graph never references absent nodes. */
   nodes?: BulkItemMutation[];
+  /** Complete independent SDK birth documents, frozen before source writes. */
+  births?: { id: string; document: string; message?: string }[];
   /** True once all nodes exist and full data mutations carry SDK-read CAS revisions. */
   nodesDone?: boolean;
   /** Package-owned graph members needed to resolve portable relationship identities. */
@@ -134,7 +136,7 @@ export interface ImportPlan {
 /** Turn moved-state refusals into the public package error without exposing input data. */
 export function planError(error: unknown): never {
   if (error instanceof MemoryError || error instanceof WorkspaceTransactionInterruptedError) throw error;
-  if (error instanceof PlanMoved || (isPmCliExpectedError(error) && ['upsert_match_changed', 'upsert_key_conflict', 'item_already_exists'].includes(String(error.code)))) throw new MemoryError('conflict', 'Portable import target revision changed', 'Retry the portable import; newer native edits are retained and owned partial changes are compensated');
+  if (error instanceof PlanMoved || (isPmCliExpectedError(error) && ['upsert_match_changed', 'upsert_key_conflict', 'item_already_exists', 'memory_import_birth_moved'].includes(String(error.code)))) throw new MemoryError('conflict', 'Portable import target revision changed', 'Retry the portable import; newer native edits are retained and owned partial changes are compensated');
   throw new MemoryError('transaction', 'Portable import transaction failed', 'Retry the same input to complete recovery; preserve the owned intent and inspect pm health if recovery refuses');
 }
 /** Every path reads revisions, validates the old read set, then applies SDK CAS. */
@@ -213,6 +215,7 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
     plan = JSON.parse(value.payload) as ImportPlan;
     if (!IMPORT_ID.test(plan.transactionId) || typeof plan.input !== 'string' || typeof plan.author !== 'string' || !Array.isArray(plan.members) || !plan.members.every(id => typeof id === 'string')) throw new Error();
     if (plan.identityVersion !== undefined && plan.identityVersion !== 1) throw new Error();
+    if (plan.births !== undefined && (!Array.isArray(plan.births) || !plan.births.every(row => row !== null && typeof row === 'object' && typeof row.id === 'string' && typeof row.document === 'string' && (row.message === undefined || typeof row.message === 'string') && plan.expected.some(target => target.id === row.id)))) throw new Error();
     if (plan.nodesDone !== undefined && typeof plan.nodesDone !== 'boolean') throw new Error();
     if (plan.attempt !== undefined && (typeof plan.attempt !== 'string' || !/^[a-f0-9-]{36}$/.test(plan.attempt))) throw new Error();
     if (plan.refusing !== undefined && typeof plan.refusing !== 'boolean') throw new Error();
@@ -237,6 +240,7 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
   if ((typeof data === 'object' && data !== null && 'status' in data && data.status === 'compensated') || (typeof journal === 'object' && journal !== null && 'status' in journal && journal.status === 'compensated')) {
     const token = value.payload;
     try {
+      await captureBirths(store, plan);
       return await readGuardApply(store, plan, onStep, async expected => {
         const { snapshots: _snapshots, ...prior } = plan;
         const next = { ...prior, expected, ownedTransactions: [...(plan.ownedTransactions ?? []), plan.transactionId], ...await importIdentity(store, plan.input), mutations: plan.mutations.map(row => ({ ...row, match: { key: 'updated_at', value: expected.find(target => target.id === row.id)!.version } })) };
@@ -284,6 +288,7 @@ async function refuseImport(store: Store, plan: ImportPlan, options: PortableImp
 }
 /** Preview creations before updates so SDK validation resolves newly represented targets. */
 export async function previewImport(store: Store, plan: ImportPlan, onStep?: PortableImportOptions['onStep']): Promise<void> {
+  if (plan.mutations.some(row => row.op === 'create')) plan.nodes = prepareImportNodes(plan);
   const mutations = [...plan.mutations.filter(row => row.op === 'create'), ...plan.mutations.filter(row => row.op === 'update')];
   try { await previewOwnedItems(store, plan, mutations, onStep); } catch (error) { return planError(error); }
 }
@@ -294,10 +299,10 @@ export async function validateImportPlan(store: Store, plan: ImportPlan, onStep?
 /** Persist the frozen plan before the SDK's first write, then remove only that owned intent after commit. */
 async function runImport(store: Store, plan: ImportPlan, options: PortableImportOptions): Promise<PortableImportResult> {
   await mkdir(join(store.workspace, 'runtime'), { recursive: true });
-  if (plan.nodes === undefined && plan.mutations.some(row => row.op === 'create')) plan.nodes = plan.mutations.filter(row => row.op === 'create').map(row => {
-    const { dep: _dep, allowUnresolvedDeps: _unresolved, ...options } = row.options;
-    return { ...row, options: { ...options, message: `bulk-item-transaction ${plan.transactionId}-nodes ${row.id} create` } };
-  });
+  const freshNodes = plan.nodes === undefined && plan.mutations.some(row => row.op === 'create');
+  if (freshNodes) plan.nodes = prepareImportNodes(plan);
+  await captureBirths(store, plan);
+  if (freshNodes) sealBirths(plan);
   await savePlan(store, plan);
   await options.onStep?.('intent');
   /** Validate every target before writing, and let ordinary refusals compensate. */

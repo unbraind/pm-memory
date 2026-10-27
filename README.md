@@ -349,9 +349,19 @@ graph and reported as `omitted_links: [{slug, target, kind, reason}]` in the typ
 receipt. Neither export nor re-import treats these receipts as deletion instructions. Foreign
 records are excluded before decoding package metadata and reported as `skipped` entries.
 An occupied import ID grants no ownership by itself. Planning and compensation use
-the same immutable SDK birth check, including every planned scalar write normalized
-through the SDK. Extra package metadata remains foreign; copied source bookkeeping
-cannot authorize deleting a foreign record. Later edits still own only represented fields.
+the same full SDK birth check. An independent private tracker applies the intended
+node request through the SDK; its complete read-back document and immutable creation message are frozen in the intent
+before native writes. The observed target never supplies expected metadata. Only
+SDK-generated creation/update timestamps are excluded from that comparison. Extra
+priority, custom metadata or dependencies remain foreign even with a copied creation
+marker. The birth fingerprint also travels in immutable SDK creation history, so
+tracker clones retain it without disposable transaction journals. A native birth
+version makes missing or altered evidence a refusal rather than a legacy fallback. Edited retries
+keep foreign births skipped; older unsealed markers use their publication receipts. Older intents
+derive missing evidence through the same SDK path while retaining any frozen
+document. SDK item-lock hooks reject changed creation proposals before persistence. Later edits
+still own only represented fields. Legacy history fingerprints remain valid after
+namespace initialization; explicit tracker namespaces and birth identities stay strict.
 Native tag creates and updates use the SDK serializer, preserving comma-containing,
 quoted, whitespace and Unicode tags across both harnesses.
 Ownership and content use one certified SDK snapshot. Exports stage their complete directory and publish with

@@ -8,6 +8,7 @@ import type { Harness, Memory } from './types.ts';
 import type { Store } from './store.ts';
 import { digest, MemoryError } from './core.ts';
 import type { PortableOrigin } from './portable-origin.ts';
+import { birthDocument } from './portable-preview.ts';
 import { sourceDocument } from './portable-source.ts';
 
 const relationshipKinds = createRelationshipKindRegistry();
@@ -160,6 +161,43 @@ export function ownershipPatch(current: Memory, row: PortableGuidance, body: str
   Object.assign(options, relationshipPatch(current.relationships, graph));
   return { options, conflicts, ownership: { id: current.id, fields: incoming, relationships: desired, graph } };
 }
+/** Read one complete, committed package receipt; missing or foreign journals prove nothing. */
+async function committedReceipt(store: Store, transactionId: string, id: string): Promise<OwnedTarget | undefined> {
+  let value: unknown;
+  try { value = JSON.parse(await readFile(join(store.workspace, 'transactions', 'sdk', `${transactionId}-snapshot.json`), 'utf8')); } catch { return undefined; }
+  if (value === null || typeof value !== 'object') return undefined;
+  const journal = value as { status?: unknown; results?: Record<string, { owner?: unknown; targets?: OwnedTarget[] }> };
+  if (journal.status !== 'committed' || journal.results === undefined || journal.results === null || typeof journal.results !== 'object') return undefined;
+  for (const receipt of Object.values(journal.results)) {
+    if (receipt === null || typeof receipt !== 'object' || receipt.owner !== 'pm-memory-policy-ownership:1' || !Array.isArray(receipt.targets)) continue;
+    const target = receipt.targets.find(target => validOwnedTarget(target) && target.id === id);
+    if (target !== undefined) return target;
+  }
+  return undefined;
+}
+/** Verify complete birth evidence from immutable SDK history; older markers use publication receipts. */
+export async function recordedCreation(store: Store, id: string): Promise<boolean> {
+  try {
+    const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
+    if (entries.length === 0) return true;
+    const born = replayHistoryToTarget([entries[0]], 0);
+    const format = born.metadata.memory_birth;
+    if (format !== undefined && format !== 'portable-v1') return false;
+    if (!/^bulk-item-transaction memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})-nodes /.test(entries[0].message ?? '')) return format === undefined;
+    const seal = / memory-birth-v1:([a-f0-9]{64})$/.exec(entries[0].message!);
+    if (seal !== null) return digest(birthDocument((await getItemAt(id, '1', { pmRoot: store.workspace })).document)) === seal[1];
+    if (format !== undefined) return false;
+    const attempted = new Set<string>();
+    for (const entry of entries) {
+      const match = /^bulk-item-transaction (memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40}))(?:-nodes)? /.exec(entry.message ?? '');
+      if (match === null || attempted.has(match[1])) continue;
+      attempted.add(match[1]);
+      if (await committedReceipt(store, match[1], id) !== undefined) return true;
+    }
+    return false;
+  } catch { return false; }
+}
+
 /** Read only committed package receipts linked by immutable SDK history markers. */
 export async function previousOwnership(store: Store, item: Memory, ids: ReadonlyMap<string, string>): Promise<PreviousOwnership | undefined> {
   const entries = await readHistoryEntries(getHistoryPath(store.workspace, item.id), item.id);
@@ -192,16 +230,8 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
     }
     if (attempted.has(match[1])) continue;
     attempted.add(match[1]);
-    let value: unknown;
-    try { value = JSON.parse(await readFile(join(store.workspace, 'transactions', 'sdk', `${match[1]}-snapshot.json`), 'utf8')); } catch { continue; }
-    if (value === null || typeof value !== 'object') continue;
-    const journal = value as { status?: unknown; results?: Record<string, { owner?: unknown; targets?: OwnedTarget[] }> };
-    if (journal.status !== 'committed' || journal.results === undefined || journal.results === null || typeof journal.results !== 'object') continue;
-    for (const receipt of Object.values(journal.results)) {
-      if (receipt === null || typeof receipt !== 'object' || receipt.owner !== 'pm-memory-policy-ownership:1' || !Array.isArray(receipt.targets)) continue;
-      const target = receipt.targets.find(target => validOwnedTarget(target) && target.id === item.id);
-      if (target !== undefined) return retained(target);
-    }
+    const target = await committedReceipt(store, match[1], item.id);
+    if (target !== undefined) return retained(target);
   }
   const created = await creationMetadata(store, item.id);
   if (created?.memory_source === 'portable:policy-v1') {

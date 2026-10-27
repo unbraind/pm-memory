@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { restore, WorkspaceTransactionInterruptedError, getItemPath, serializeItemDocument, canonicalDocument, type WorkspaceTransactionTransitionContext } from '@unbrained/pm-cli/sdk';
+import { restore, WorkspaceTransactionInterruptedError, getItemPath, getHistoryPath, readHistoryEntries, commitItemMutations, serializeItemDocument, canonicalDocument, type WorkspaceTransactionTransitionContext } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, renew, MemoryError, POLICY_MANIFEST } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody, skipOccupiedIdentities } from '../src/portable.ts';
 import { replanNodes } from '../src/portable-replan.ts';
 import { digest } from '../src/core.ts';
 import { guardedCompensation, ownsLatest, ownsCreation } from '../src/portable-rollback.ts';
-import { importIdentity, validateImportPlan, type ImportPlan } from '../src/portable-plan.ts';
+import { importIdentity, validateImportPlan, pendingImport, applyImport, type ImportPlan } from '../src/portable-plan.ts';
 import { tracker, memoryDocuments, assertClosedGraph, crashAfterCompensation, crashAtStep, importSubset, explicitRecreation } from './helpers.ts';
 
 /** A real two-target import plus a bounded unchanged read-set dependency. */
@@ -58,9 +58,11 @@ test('SDK compensation guards evaluate ownership inside the restore item lock', 
   await assert.rejects(guardedCompensation(target.store, plan, () => restore(alpha.id, alpha.updated_at, { author: plan.author, force: true }, { pmRoot: target.workspace })));
   assert.equal((await target.client.get(alpha.id, { full: true })).item.body, 'Peer C owns this target');
   assert.equal(await ownsLatest(target.store, plan, 'memory-test-absent'), false);
-  const other = await target.client.create({ title: 'Unrelated native record', body: 'Native A' });
+  const unrelated = 'memory-test-unrelated-create';
+  await guardedCompensation(target.store, { ...plan, births: undefined }, () => commitItemMutations({ pmRoot: target.workspace, author: plan.author, transactionId: `${plan.transactionId}-unrelated`, mutations: [{ op: 'create', id: unrelated, unique: { key: 'title', value: 'Unrelated native record' }, options: { title: 'Unrelated native record', body: 'Native A', type: 'Task' } }] }));
+  const other = await target.client.get(unrelated, { full: true }); const otherVersion = other.item.updated_at; assert.ok(otherVersion);
   await target.client.update(other.item.id, { body: 'Native B' });
-  await guardedCompensation(target.store, plan, () => restore(other.item.id, other.item.updated_at, { author: plan.author, force: true }, { pmRoot: target.workspace }));
+  await guardedCompensation(target.store, plan, () => restore(other.item.id, otherVersion, { author: plan.author, force: true }, { pmRoot: target.workspace }));
   assert.equal((await target.client.get(other.item.id, { full: true })).item.body, 'Native A');
 });
 
@@ -319,6 +321,7 @@ test('copied creation bookkeeping never grants ownership over a foreign birth at
 
 test('creation authority requires every immutable birth discriminator and SDK-normalized represented field', async t => {
   const source = await tracker(t); await remember('Normalized birth\n', { ...source.options, slug: 'alpha', kind: 'reference' });
+  await remember('Independent beta', { ...source.options, slug: 'beta', kind: 'reference' });
   const path = join(source.root, 'wire'); await exportDir(path, { ...source.options, to: 'agents-md' });
   const pending = await tracker(t);
   await assert.rejects(importDir(path, { ...pending.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
@@ -327,7 +330,7 @@ test('creation authority requires every immutable birth discriminator and SDK-no
   assert.equal(await ownsCreation(pending.store, plan, mutation.id), false);
   assert.equal(await ownsCreation(pending.store, { ...plan, nodes: [], mutations: [] }, mutation.id), false);
   assert.equal(await ownsCreation(pending.store, { ...plan, ownership: undefined }, mutation.id), false);
-  const patches = [{}, { author: 'foreign-agent' }, { type: 'Task' }, { memorySlug: 'different' }, { memorySource: 'foreign:source' }, { memoryOriginal: 'different' }, { memoryOrigin: 'invalid' }, { memoryOrigin: JSON.stringify({ ...plan.expected[0].origin!, creation: 'a'.repeat(64) }) }, { body: 'Different native birth' }, { memoryKind: 'invalid-kind' }];
+  const patches = [{}, { message: 'copied-marker' }, { author: 'foreign-agent' }, { type: 'Task' }, { memorySlug: 'different' }, { memorySource: 'foreign:source' }, { memoryOriginal: 'different' }, { memoryOrigin: 'invalid' }, { memoryOrigin: JSON.stringify({ ...plan.expected[0].origin!, creation: 'a'.repeat(64) }) }, { body: 'Different native birth' }, { memoryKind: 'invalid-kind' }];
   for (const [index, patch] of patches.entries()) {
     const target = await tracker(t); await target.store.register();
     await target.client.create({ ...mutation.options, id: mutation.id, ...patch });
@@ -335,17 +338,40 @@ test('creation authority requires every immutable birth discriminator and SDK-no
     for (const current of [plan, { ...plan, nodes: undefined }]) assert.equal(await ownsCreation(target.store, current, mutation.id), index === 0, `birth discriminator ${index}`);
     assert.equal(await ownsLatest(target.store, plan, mutation.id), index === 0);
     if (index === 0) assert.equal(await ownsCreation(target.store, { ...plan, ownership: undefined }, mutation.id), true, 'Earlier receipt-less plans retain SDK birth proof');
+    if (index === 0) {
+      const oldProof = structuredClone(plan); for (const row of oldProof.births!) delete row.message;
+      assert.equal(await ownsCreation(target.store, oldProof, mutation.id), true, 'Older document-only evidence is regenerated independently');
+      for (const staged of [false, true]) {
+        const legacy = structuredClone(plan); delete legacy.births;
+        for (const row of [...legacy.mutations, ...legacy.nodes!]) { delete row.options!.message; delete row.options!.memoryBirth; }
+        if (!staged) delete legacy.nodes;
+        const older = await tracker(t); await older.store.register();
+        await commitItemMutations({ pmRoot: older.workspace, author: legacy.author, transactionId: staged ? `${legacy.transactionId}-nodes` : legacy.transactionId, mutations: staged ? legacy.nodes! : legacy.mutations });
+        assert.equal(await ownsCreation(older.store, legacy, mutation.id), true, 'SDK-generated legacy messages use the actual publication stage');
+      }
+    }
+
     if ('memoryOriginal' in patch) {
       const unproven = structuredClone(plan); delete unproven.ownership;
       unproven.nodes![0].options!.memoryOriginal = patch.memoryOriginal;
       unproven.mutations[0].options!.memoryOriginal = patch.memoryOriginal;
       assert.equal(await ownsCreation(target.store, unproven, mutation.id), false, 'Malformed legacy receipts cannot grant birth authority');
+      delete unproven.births;
+      assert.equal(await ownsCreation(target.store, unproven, mutation.id), false, 'Legacy intents cannot derive authority from invalid source metadata');
+    }
+    if ('body' in patch) {
+      const changedRequest = structuredClone(plan);
+      changedRequest.nodes![0].options!.body = patch.body; changedRequest.mutations[0].options!.body = patch.body;
+      for (const row of changedRequest.births!) delete row.message;
+      assert.equal(await ownsCreation(target.store, changedRequest, mutation.id), false, 'Evidence migration never replaces a frozen document with a new baseline');
     }
     if ('memoryKind' in patch) {
       const malformed = structuredClone(plan);
       malformed.nodes![0].options!.memoryKind = patch.memoryKind;
       malformed.mutations[0].options!.memoryKind = patch.memoryKind;
       assert.equal(await ownsCreation(target.store, malformed, mutation.id), false, 'Malformed matching SDK metadata remains foreign');
+      delete malformed.births;
+      assert.equal(await ownsCreation(target.store, malformed, mutation.id), false, 'Legacy intents retain package semantic validation');
     }
   }
 });
@@ -375,6 +401,14 @@ test('creation ownership covers every planned scalar write even when the legacy 
     try { await importDir(file, { ...target.options, from }); }
     catch (error) { assert.ok(error instanceof MemoryError && error.remedy.length > 0, `${from}/${key}: retry refuses through the typed contract`); }
     assert.deepEqual((await target.client.get(id, { full: true })).item, before, `${from}/${key}: retry preserves the full SDK record`);
+    const originalBytes = await readFile(file);
+    try {
+      await writeFile(file, `Later harness revision ${from} ${key}`);
+      const edited = await importDir(file, { ...target.options, from });
+      assert.deepEqual((await target.client.get(id, { full: true })).item, before, `${from}/${key}: edited retry cannot acquire the foreign birth`);
+      assert.ok('skipped' in edited); assert.ok(edited.skipped.some(row => row.reason.includes('Foreign')));
+    } finally { await writeFile(file, originalBytes); }
+
   }
 });
 
@@ -386,7 +420,7 @@ test('unplanned native metadata never grants compensation ownership over a peer 
   const outcome = await importDir(file, { ...target.options, from: 'agents-md', onStep: async step => {
     if (step === 'nodes') throw new Error('Exercise compensation after creation admission');
     if (step !== 'intent') return;
-    const mutation = await plannedCreation(target, shape === 'registered' ? 'nodes' : 'mutations'); id = mutation.id;
+    const mutation = await plannedCreation(target); id = mutation.id;
     const extra = shape === 'registered' ? { memoryReason: 'Peer native metadata outside the portable document' } : shape === 'native' ? { priority: 1 } : shape === 'custom' ? { foreignNote: 'Peer metadata' } : { dep: [`id=${task!},kind=related`] };
     const peer = { ...mutation.options, id, ...extra };
     await target.client.create(peer);
@@ -437,4 +471,65 @@ test('a peer-owned intent at refusal-recovery cleanup is retained and reported t
     if (event.transactionId.endsWith('-rollback') && event.transition === 'committed') { await writeFile(intent, foreign); injected = true; }
   } });
   await assertForeignIntent(result, injected, intent, foreign);
+});
+
+
+test('copied node markers with unplanned full-document data never authorize deletion or replay', async t => {
+  let cases = 0;
+  for (const from of ['agents-md', 'claude-code'] as const) for (const recovery of [false, true]) for (const shape of ['priority', 'custom', 'dependencies']) {
+    const target = await tracker(t); const input = join(target.root, 'alpha.md'); await writeFile(input, '# Alpha\nInstructions');
+    if (shape === 'custom') await target.client.schemaAddField('foreign_note', { type: 'string', required: false, requiredOnCreate: false, allowUnset: true, commands: ['create', 'update'], cliFlag: 'foreign-note', description: 'Foreign creation evidence' });
+    const task = shape === 'dependencies' ? (await target.client.create({ title: 'Peer dependency' })).item.id : undefined;
+    if (recovery) await assert.rejects(importDir(input, { ...target.options, from, onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
+    let injected = false; let before: unknown;
+    const result = await importDir(input, { ...target.options, from, onStep: async step => {
+      if (injected || step !== (recovery ? 'cas-read' : 'intent')) return;
+      injected = true; const node = await plannedCreation(target);
+      const extra = shape === 'priority' ? { priority: 1 } : shape === 'custom' ? { foreignNote: 'Peer evidence' } : { dep: [`id=${task!},kind=related`] };
+      // Copy the actual node request INCLUDING its author and transaction marker.
+      await target.client.create({ ...node.options, id: node.id, ...extra });
+      before = (await target.client.listAllComplete({ includeBody: true })).items;
+    } });
+    assert.ok(injected); assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /Foreign/);
+    assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before, `${from}/${recovery}/${shape}`);
+    await importDir(input, { ...target.options, from });
+    assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before, 'Retry preserves every peer value and edge');
+    await writeFile(input, 'A later harness revision must not acquire the foreign birth');
+    const editedRetry = await importDir(input, { ...target.options, from });
+    assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before, 'Edited retry cannot adopt the foreign item');
+    assert.ok('skipped' in editedRetry); assert.match(editedRetry.skipped[0].reason, /Foreign/);
+    cases++;
+  }
+  t.diagnostic(`Independent SDK read-back: ${cases} copied-marker adversaries; priority, custom metadata, dependency across both adapters and fresh/recovery paths`);
+});
+
+
+test('SDK item-lock birth preconditions reject changed proposals at every apply boundary', async t => {
+  for (const phase of ['fresh', 'interrupted', 'compensated']) for (const boundary of ['intent', 'cas-read', 'cas-guarded']) {
+    const producer = await tracker(t); const input = join(producer.root, 'proposals'); await mkdir(input);
+    await writeFile(join(input, 'alpha.md'), 'Alpha A'); await writeFile(join(input, 'beta.md'), 'Beta A');
+    await assert.rejects(importDir(input, { ...producer.options, from: 'agents-md', ...(phase === 'compensated' ? { onTransition: crashAfterCompensation } : { onStep: crashAtStep('intent') }) }), WorkspaceTransactionInterruptedError);
+    const plan = await pendingImport(producer.store); assert.ok(plan !== undefined && plan !== 'foreign');
+    const target = phase === 'fresh' ? await tracker(t) : producer;
+    const priorCreations = new Map(await Promise.all(plan.nodes!.map(async row => [row.id, (await readHistoryEntries(getHistoryPath(target.workspace, row.id), row.id)).filter(entry => entry.op === 'create').length] as const)));
+    let injected = false;
+    const outcome = await target.store.write(async () => {
+      await target.store.register();
+      return applyImport(target.store, plan, { ...target.options, from: 'agents-md', onStep: step => {
+        if (!injected && step === boundary) { injected = true; plan.nodes![0].options!.priority = 1; }
+      } });
+    }).then(receipt => ({ receipt }), (error: unknown) => ({ error }));
+    assert.ok(injected, `${phase}/${boundary}`);
+    if ('error' in outcome || outcome.receipt.imported === 0) {
+      assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, [], 'A refused proposal never writes unexpected birth metadata');
+      for (const [id, count] of priorCreations) assert.equal((await readHistoryEntries(getHistoryPath(target.workspace, id), id)).filter(entry => entry.op === 'create').length, count, 'The SDK refuses before appending any unexpected creation');
+      assert.ok('error' in outcome && outcome.error instanceof MemoryError && ['conflict', 'transaction'].includes(outcome.error.code));
+      assert.equal((await importDir(input, { ...target.options, from: 'agents-md' })).imported, 2);
+    } else assert.equal(outcome.receipt.imported, 2, 'An exhausted generation may replan its original input');
+    const rows = (await target.client.listAllComplete({ includeBody: true })).items;
+    assert.equal(rows.length, 2); assert.ok(rows.every(row => row.priority === 2));
+    assert.deepEqual(new Set(rows.map(row => row.body)), new Set(['Alpha A', 'Beta A']));
+    assert.equal((await importDir(input, { ...target.options, from: 'agents-md' })).unchanged, 2);
+  }
+  t.diagnostic('9 proposal interleavings: fresh, interrupted and compensated paths at intent/read/guard boundaries');
 });

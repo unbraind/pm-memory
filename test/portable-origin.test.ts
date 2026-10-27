@@ -4,10 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getHistoryPath, readHistoryEntries, writeFileAtomic, canonicalDocument, serializeItemDocument, getItemPath, resolveItemTypeRegistry, readSettings, WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
-import { ensureTrackerOrigin, readTrackerOrigin, TRACKER_ORIGIN_FILE, originCatalog, validOrigin, creator, selectOrigin, itemOrigin, originCursor } from '../src/portable-origin.ts';
+import { ensureTrackerOrigin, readTrackerOrigin, TRACKER_ORIGIN_FILE, originCatalog, validOrigin, creator, selectOrigin, itemOrigin, originCursor, creatorMatchesOrigin } from '../src/portable-origin.ts';
 import { MemoryError, remember, importDir, exportDir } from '../index.ts';
+import { policyBody, POLICY_MANIFEST } from '../src/portable.ts';
 import { previousOwnership } from '../src/portable-ownership.ts';
-import { tracker, snapshot, crashAtStep } from './helpers.ts';
+import { tracker, snapshot, crashAtStep, exportedPolicy } from './helpers.ts';
 
 /** Metadata refusals retain foreign bytes and provide an actionable typed result. */
 const refusal = (error: unknown) => error instanceof MemoryError && error.code === 'origin_missing' && error.remedy.length > 0;
@@ -111,5 +112,35 @@ test('current ownership tags cannot adopt provably foreign SDK creation identiti
     const output = join(target.root, 'export'); const result = await exportDir(output, { ...target.options, to: 'agents-md' });
     assert.equal(result.skipped?.[0].slug, born.id); assert.match(result.skipped[0].reason, /Foreign/);
     assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
+  }
+});
+
+
+test('legacy history identity survives namespace initialization on the first edited import', async t => {
+  for (const from of ['agents-md', 'claude-code'] as const) {
+    const target = await tracker(t); const input = join(target.root, 'alpha.md'); await writeFile(input, '# Alpha\nBody A');
+    await importDir(input, { ...target.options, from });
+    await rm(join(target.workspace, TRACKER_ORIGIN_FILE), { force: true });
+    const before = (await target.client.listAllComplete({ includeBody: true })).items[0];
+    const fallback = (await originCatalog(target.store)).creators[0];
+    assert.equal(fallback.origin.tracker, fallback.origin.creation);
+    await writeFile(input, '# Alpha\nBody B');
+    const result = await importDir(input, { ...target.options, from }); assert.equal(result.updated, 1);
+    const after = (await target.client.get(before.id, { full: true })).item;
+    assert.equal(after.body, '# Alpha\nBody B'); assert.equal(after.id, before.id);
+    assert.equal((await importDir(input, { ...target.options, from })).unchanged, 1);
+    const current = (await originCatalog(target.store)).creators[0];
+    assert.ok(creatorMatchesOrigin(current, fallback.origin));
+    assert.equal(creatorMatchesOrigin(current, { ...fallback.origin, id: 'wrong-item' }), false);
+    assert.equal(creatorMatchesOrigin(current, { ...fallback.origin, creation: 'a'.repeat(64) }), false);
+    assert.equal(creatorMatchesOrigin(current, { ...fallback.origin, tracker: randomUUID() }), false);
+    assert.equal(creatorMatchesOrigin({ ...current, metadata: { ...current.metadata, memory_origin: JSON.stringify(current.origin) } }, fallback.origin), false);
+    const { path, manifest } = await exportedPolicy(target);
+    const row = manifest.guidance[0]; row.origin = fallback.origin; row.baseline!.origin = fallback.origin;
+    await writeFile(join(path, POLICY_MANIFEST), JSON.stringify(manifest));
+    await writeFile(join(path, row.path), policyBody(row, 'Portable C'));
+    assert.equal((await importDir(path, { ...target.options, from: 'agents-md' })).updated, 1);
+    assert.equal((await target.client.get(before.id, { full: true })).item.body, 'Portable C');
+
   }
 });

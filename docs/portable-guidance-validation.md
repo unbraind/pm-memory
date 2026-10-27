@@ -9,7 +9,7 @@ extracted public tracker and an empty disposable directory. Set
 file before and after. The source must be read-only: native SDK list reads may
 otherwise create disposable runtime metadata caches.
 
-Measured again on 2026-10-27 after immutable-origin and legacy-fidelity fixes (the same public source and fingerprint):
+Measured again on 2026-10-27 after complete birth ownership and legacy namespace fixes (the same public source and fingerprint):
 
 | Measurement | Result |
 | --- | ---: |
@@ -37,3 +37,36 @@ sets, refusal before writes, missing manifests, every SDK create/update transact
 transition, every schema/preparation step and staged export publication. It also
 checks competing imports and exports on one non-git tracker, independent trackers
 publishing the same output, foreign records and ordinary SDK rollback.
+
+
+## Complete creation ownership
+
+Creation authority now comes from an independent SDK create/read in a private
+projection that excludes the planned target ids and histories. The owned intent
+retains the complete SDK document and creation message. SDK-generated creation
+and update times are normalized through the SDK; native priority, custom fields,
+relationships and all other stored values remain part of the comparison. A
+missing message in an older intent is regenerated without replacing its frozen
+document. The SDK item-lock mutation hook checks the proposed creation before
+persistence, including during recovery.
+
+New imports mark their native birth format and carry the document fingerprint in
+immutable SDK creation history. Copying the tracker without transaction journals
+therefore retains birth evidence. A copied marker with extra metadata fails that
+fingerprint and stays foreign on later edited retries. Earlier unsealed nodes
+use their committed publication receipts; ordinary legacy records keep their
+existing semantic birth checks.
+
+| Regression | Evidence |
+| --- | --- |
+| Copied node request plus priority, custom metadata or dependencies | 12 cases: both harnesses, fresh and interrupted imports; complete SDK state preserved through unchanged and edited retries |
+| Every planned scalar field | 20 fields / 40 foreign creations; SDK read-back is the oracle, including edited retries |
+| Namespace initialization after a legacy planning read | Both harnesses apply the first edit and retain immutable fingerprint identity in later policy imports |
+| Older intents and changed proposals | SDK-generated old messages, frozen-document migration, and 9 fresh/interrupted/compensated proposal interleavings |
+| Native tracker clone without transaction journals | Both harnesses retain two linked records and import their unchanged exports without changing SDK state |
+| Crash recovery | Existing 21 create and 14 update journal boundaries pass with the versioned birth evidence |
+
+Behavioral reverts run only in disposable copies. They reproduce peer deletion,
+foreign edited-retry adoption, first-import conflict, loss of frozen evidence,
+and missing clone evidence. The item comments retain the exact commands and
+per-revert failures. No production source is left reverted.

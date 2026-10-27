@@ -142,6 +142,48 @@ console.log('lossless accepted');
     assert.equal(JSON.parse(execute(consumer, [...prefix, 'memory', 'import', 'lossless-toon', '--from', 'claude-code', '--create', '--json'], executable, losslessEnv)).imported, 1);
     assert.match(execute(consumer, ['lossless.ts', 'origin-created-check', 'lossless-toon'], losslessRuntime, losslessEnv), /lossless accepted/);
     assert.equal(JSON.parse(execute(consumer, [...prefix, 'memory', 'import', 'lossless-toon', '--from', 'claude-code', '--json'], executable, losslessEnv)).unchanged, 2);
+    writeFileSync(join(consumer, 'ownership.ts'), `import assert from 'node:assert/strict';
+import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { PmClient } from '@unbrained/pm-cli/sdk';
+import { importDir } from 'pm-memory';
+for (const from of ['agents-md', 'claude-code']) {
+  const root = join(process.cwd(), 'ownership-' + from); await mkdir(root);
+  const workspace = join(root, 'tracker'); const options = { workspace, author: 'memory-consumer', from };
+  const client = new PmClient({ pmRoot: workspace, author: options.author, noExtensions: true });
+  await client.init('ownership', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+  const input = join(root, 'alpha.md'); await writeFile(input, 'Alpha A'); await importDir(input, options);
+  await rm(join(workspace, 'memory-origin.json')); await writeFile(input, 'Alpha B');
+  assert.equal((await importDir(input, options)).updated, 1);
+  assert.equal((await client.listAllComplete({ includeBody: true })).items[0].body, 'Alpha B');
+  assert.equal((await importDir(input, options)).unchanged, 1);
+  for (const shape of ['priority', 'custom', 'dependencies']) {
+    const destination = join(root, shape); const native = new PmClient({ pmRoot: destination, author: options.author, noExtensions: true });
+    await native.init('foreign', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+    if (shape === 'custom') await native.schemaAddField('foreign_note', { type: 'string', required: false, requiredOnCreate: false, allowUnset: true, commands: ['create', 'update'], cliFlag: 'foreign-note', description: 'Foreign creation evidence' });
+    const task = shape === 'dependencies' ? (await native.create({ title: 'Peer task' })).item.id : undefined;
+    let before;
+    const result = await importDir(input, { ...options, workspace: destination, onStep: async step => {
+      if (step !== 'intent') return;
+      const record = JSON.parse(await readFile(join(destination, 'runtime', 'memory-policy-import.json'), 'utf8'));
+      const node = JSON.parse(record.payload).nodes[0];
+      const extra = shape === 'priority' ? { priority: 1 } : shape === 'custom' ? { foreignNote: 'Peer value' } : { dep: ['id=' + task + ',kind=related'] };
+      await native.create({ ...node.options, id: node.id, ...extra });
+      before = (await native.listAllComplete({ includeBody: true })).items;
+    } });
+    assert.match(result.skipped[0].reason, /Foreign/);
+    assert.deepEqual((await native.listAllComplete({ includeBody: true })).items, before);
+    await importDir(input, { ...options, workspace: destination });
+    assert.deepEqual((await native.listAllComplete({ includeBody: true })).items, before);
+    await writeFile(input, 'Later harness revision ' + shape);
+    const edited = await importDir(input, { ...options, workspace: destination });
+    assert.match(edited.skipped[0].reason, /Foreign/);
+    assert.deepEqual((await native.listAllComplete({ includeBody: true })).items, before);
+  }
+}
+console.log('birth and namespace ownership accepted');
+`);
+    assert.match(execute(consumer, ['ownership.ts'], losslessRuntime, hostEnv), /birth and namespace ownership accepted/);
     const remembered = JSON.parse(execute(consumer, [...prefix, 'memory', 'remember', 'Packed host remembers context', '--kind', 'user', '--slug', 'packed', '--pin', '--json'], executable, hostEnv)) as { slug: string; updated: boolean };
     assert.equal(remembered.slug, 'packed'); assert.equal(remembered.updated, false);
     const packet = JSON.parse(execute(consumer, [...prefix, 'memory', 'recall', 'host context', '--budget', '200', '--json'], executable, hostEnv)) as { recall: string; estimated_tokens: number; memories: { slug: string }[] };
