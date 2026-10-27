@@ -13,6 +13,31 @@ import { tracker, snapshot, crashAtStep, exportedPolicy } from './helpers.ts';
 /** Metadata refusals retain foreign bytes and provide an actionable typed result. */
 const refusal = (error: unknown) => error instanceof MemoryError && error.code === 'origin_missing' && error.remedy.length > 0;
 
+test('raw planning retains a foreign SDK birth stream replaced after source admission', async t => {
+  for (const from of ['agents-md', 'claude-code'] as const) {
+    const target = await tracker(t); const file = join(target.root, 'alpha.md');
+    await writeFile(file, 'Original body'); await importDir(file, { ...target.options, from });
+    const before = (await target.client.listAllComplete({ includeBody: true })).items;
+    const id = before[0].id; const peer = await tracker(t); await peer.store.register();
+    await peer.client.run('create', { options: { id, title: 'Foreign birth', type: 'Knowledge', body: 'Peer body', memorySlug: 'alpha', memoryKind: 'reference', memorySource: `${from}:relative-file`, memoryPath: 'alpha.md', memoryOriginal: Buffer.from('---\nname: [\n---\nPeer body').toString('base64') } });
+    const foreign = await readFile(getHistoryPath(peer.workspace, id)); let injected = false;
+    await writeFile(file, 'Harness edit');
+    const result = await importDir(file, { ...target.options, from, onStep: async step => {
+      if (step !== 'read') return;
+      injected = true;
+      // Only this disposable fixture is replaced; the foreign bytes come from the real SDK.
+      await writeFile(getHistoryPath(target.workspace, id), foreign);
+    } });
+    assert.ok(injected); assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /Foreign legacy/);
+    assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
+    assert.deepEqual(await readFile(getHistoryPath(target.workspace, id)), foreign);
+    const retry = await importDir(file, { ...target.options, from });
+    assert.ok('skipped' in retry); assert.ok(retry.skipped.length > 0);
+    assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
+    assert.deepEqual(await readFile(getHistoryPath(target.workspace, id)), foreign);
+  }
+});
+
 test('origin publication converges after every crash and peer publication boundary on one non-git tracker', async t => {
   const source = await tracker(t); const file = join(source.workspace, TRACKER_ORIGIN_FILE);
   assert.equal(await readTrackerOrigin(source.store), undefined);
