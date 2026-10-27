@@ -397,8 +397,7 @@ function exportedReferences(bytes: Buffer, memories: readonly Memory[], targets:
   }));
 }
 /** Canonical raw bodies and explicit ownership avoid changing native state through projection. */
-async function policyOutputs(store: Store, active: readonly Memory[], to: Exclude<Harness, 'cursor'>, origins?: Awaited<ReturnType<typeof originCatalog>>): Promise<Map<string, Buffer>> {
-  await ensureTrackerOrigin(store); const catalog = origins ?? await originCatalog(store);
+async function policyOutputs(store: Store, active: readonly Memory[], to: Exclude<Harness, 'cursor'>, catalog: Awaited<ReturnType<typeof originCatalog>>): Promise<Map<string, Buffer>> {
   const guidance = await Promise.all(active.map(item => policyRecord(store, item, active, catalog)));
   const manifest: PortablePolicyManifest = parsePolicy({ version: 1, format: 'pm-memory-policy', harness: to, guidance });
   const outputs = new Map<string, Buffer>([[POLICY_MANIFEST, Buffer.from(JSON.stringify(manifest, null, 2) + '\n')]]);
@@ -450,7 +449,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     }
     const originals = new Map(memories.filter(item => item.status !== 'canceled').map(item => [item.id, item.path !== '' && !item.edited && !nativeGraphEdits.has(item.id) && item.source === `${options.to}:relative-file` ? sourceDocument(safePath(item.path), Buffer.from(item.original, 'base64'), options.to) : undefined]));
     const decodedKeys = [...originals.values()].flatMap(source => source === undefined ? [] : [source.slug]);
-    if (new Set(decodedKeys).size !== decodedKeys.length) throw new MemoryError('conflict', 'Exported names normalize to duplicate slugs', 'Rename the conflicting legacy source names before exporting');
+    if (new Set(decodedKeys).size !== decodedKeys.length) throw new MemoryError('conflict', 'Export names collide: normalized duplicate slugs', 'Rename the conflicting legacy source names before exporting');
     const indexName = options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md';
     const names = new Set([indexName.toLowerCase()]);
     const records: LegacyOriginRecord[] = [];
@@ -481,7 +480,6 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       : emitted.every(row => row.name === indexName || original.includes(outputs.get(row.name)!)));
     if (!losslessIndex) return commit(await policyOutputs(store, active, options.to, catalog), 0);
     const targets = new Map(emitted.map(({ item, name }) => [item.id, sourceDocument(name, outputs.get(name)!, options.to)]));
-    if (new Set([...targets.values()].map(source => source.slug)).size !== targets.size) throw new MemoryError('conflict', 'Exported names normalize to duplicate slugs', 'Rename the conflicting memory slug or source path before exporting');
     for (const bytes of outputs.values()) if (!exportedReferences(bytes, memories, targets).equals(bytes)) return commit(await policyOutputs(store, active, options.to, catalog), 0);
     const payload = JSON.stringify(records);
     const companion: LegacyOriginManifest = { version: 1, format: 'pm-memory-origins', harness: options.to, payload, checksum: digest(payload) };
