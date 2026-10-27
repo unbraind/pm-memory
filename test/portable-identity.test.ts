@@ -21,11 +21,17 @@ async function graph(target: Awaited<ReturnType<typeof tracker>>) {
   return rows.filter(row => row.memory_artifact !== true).map(row => ({ slug: row.memory_slug, body: row.body, links: (row.dependencies ?? []).map(edge => ({ kind: edge.kind, slug: rows.find(item => item.id === edge.id)?.memory_slug })).sort((a, b) => String(a.slug).localeCompare(String(b.slug))) })).sort((a, b) => String(a.slug).localeCompare(String(b.slug)));
 }
 
-test('immutable origin wins over an identical same-slug replacement', async t => {
+/** Export an origin, rename it and create an indistinguishable display-name replacement. */
+async function renamedOrigin(t: Parameters<typeof tracker>[0]) {
   const source = await tracker(t); const original = await remember('Original guidance', { ...source.options, slug: 'alpha', kind: 'reference' });
   const output = join(source.root, 'export'); await exportDir(output, { ...source.options, to: 'agents-md' });
   await source.client.run('update', { id: original.id, options: { memorySlug: 'renamed' } });
   const replacement = await remember('Original guidance', { ...source.options, slug: 'alpha', kind: 'reference', forceNew: true });
+  return { source, original, replacement, output };
+}
+
+test('immutable origin wins over an identical same-slug replacement', async t => {
+  const { source, original, replacement, output } = await renamedOrigin(t);
   const untouched = (await source.client.get(replacement.id, { full: true })).item;
   await bodyEdit(output, 'Harness revision'); await importDir(output, { ...source.options, from: 'agents-md' });
   assert.equal((await source.client.get(original.id, { full: true })).item.body, 'Harness revision');
@@ -160,10 +166,7 @@ test('unbound older manifests require explicit creation and never adopt a same-n
 });
 
 test('pre-identity recovery plans compensate and reselect immutable origins', async t => {
-  const source = await tracker(t); const original = await remember('Original guidance', { ...source.options, slug: 'alpha', kind: 'reference' });
-  const directory = join(source.root, 'export'); await exportDir(directory, { ...source.options, to: 'agents-md' });
-  await source.client.run('update', { id: original.id, options: { memorySlug: 'renamed' } });
-  const replacement = await remember('Original guidance', { ...source.options, slug: 'alpha', kind: 'reference', forceNew: true });
+  const { source, original, replacement, output: directory } = await renamedOrigin(t);
   await bodyEdit(directory, 'Harness revision');
   await assert.rejects(importDir(directory, { ...source.options, from: 'agents-md', onStep: step => { if (step === 'intent') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
   const intent = join(source.workspace, 'runtime', 'memory-policy-import.json');
