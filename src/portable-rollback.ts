@@ -1,27 +1,40 @@
-import { commitWorkspaceTransaction, runWithActiveExtensions, setActiveExtensionHooks, restore, deleteItem, getItemAt, getHistoryPath, readHistoryEntries, PmClient, certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
+import { commitWorkspaceTransaction, runWithActiveExtensions, setActiveExtensionHooks, restore, deleteItem, getItemAt, getHistoryPath, readHistoryEntries, canonicalDocument, PmClient, certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { ImportPlan, ExpectedTarget } from './portable-plan.ts';
-import type { Store } from './store.ts';
+import { MEMORY_FIELDS, metadata, type Store } from './store.ts';
 import type { PortableImportOptions } from './portable.ts';
-import { portableFields } from './portable-ownership.ts';
+import { portableFields, previousOwnership } from './portable-ownership.ts';
 import { creator, sameOrigin } from './portable-origin.ts';
 
-/** A bare creation belongs to this plan only when its immutable SDK birth matches the represented intent. */
+/** Creation ownership requires the entire planned write set and its represented receipt to match the SDK birth. */
 export async function ownsCreation(store: Store, plan: ImportPlan, id: string): Promise<boolean> {
   const mutation = plan.nodes?.find(row => row.id === id) ?? plan.mutations.find(row => row.id === id && row.op === 'create');
   const target = plan.ownership?.find(row => row.id === id);
-  if (mutation === undefined || target === undefined) return false;
+  if (mutation === undefined) return false;
   const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
   if (entries[0]?.op !== 'create' || entries[0].author !== plan.author) return false;
+  if (typeof mutation.options!.message === 'string' && entries[0].message !== mutation.options!.message) return false;
   const birth = creator(id, entries[0], undefined);
   if (birth === undefined || birth.metadata.type !== mutation.options!.type || birth.metadata.memory_slug !== mutation.options!.memorySlug || birth.metadata.memory_source !== mutation.options!.memorySource || birth.metadata.memory_original !== mutation.options!.memoryOriginal) return false;
   const origin = plan.expected.find(row => row.id === id)?.origin;
   if (origin !== undefined && !sameOrigin(birth.origin, origin)) return false;
   try {
     const { document } = await getItemAt(id, '1', { pmRoot: store.workspace });
+    // Creation writes defaults too. A legacy ownership receipt intentionally omits
+    // those fields, so it cannot by itself prove ownership of the whole creation.
+    const projected = { ...document.metadata };
+    for (const key of ['title', 'description', 'type']) if (Object.hasOwn(mutation.options!, key)) Object.assign(projected, { [key]: mutation.options![key] });
+    for (const field of MEMORY_FIELDS) {
+      const option = Object.keys(metadata({ [field.name.slice('memory_'.length)]: '' }))[0];
+      if (Object.hasOwn(mutation.options!, option)) Object.assign(projected, { [field.name]: mutation.options![option] });
+      else if (Object.hasOwn(document.metadata, field.name)) return false;
+    }
+    const expected = canonicalDocument({ metadata: projected, body: mutation.options!.body as string });
+    if (JSON.stringify(canonicalDocument(document)) !== JSON.stringify(expected)) return false;
     const [memory] = await store.read(new Set([id]), [{ ...document.metadata, body: document.body }]);
     const fields = portableFields(memory, memory.body);
-    return Object.entries(target.fields).every(([key, value]) => fields[key as keyof typeof fields] === value);
+    const receipt = target ?? await previousOwnership(store, memory, new Map());
+    return receipt !== undefined && Object.entries(receipt.fields).every(([key, value]) => fields[key as keyof typeof fields] === value);
   } catch { return false; }
 }
 
@@ -31,8 +44,9 @@ export async function ownsLatest(store: Store, plan: ImportPlan, id: string): Pr
   const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
   const last = entries.at(-1);
   if (last?.author !== plan.author) return false;
+  if (last.op === 'create') return entries.length === 1 && await ownsCreation(store, plan, id);
   if ([plan.transactionId, ...(plan.ownedTransactions ?? [])].some(id => last.message?.startsWith(`bulk-item-transaction ${id} `) || last.message?.startsWith(`bulk-item-transaction ${id}-`))) return true;
-  return last.op === 'create' && entries.length === 1 && await ownsCreation(store, plan, id);
+  return false;
 }
 /** Keep the transitive support graph of every current peer-owned record. */
 async function protectedByPeer(store: Store, plan: ImportPlan, id: string): Promise<boolean> {

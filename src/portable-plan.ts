@@ -83,7 +83,7 @@ async function guardPlan(store: Store, plan: ImportPlan): Promise<void> {
     const unchanged = tail.length === 0 && (item === undefined ? null : String(item.updated_at)) === expected.version;
     const creationOwned = mutation?.op === 'create' && expected.version === null && await ownsCreation(store, plan, expected.id);
     const owned = tail.length > 0 && tail.every(entry => {
-      if (mutation?.op === 'create' && expected.version === null && entry.op === 'create' && entry.author === plan.author) {
+      if (mutation?.op === 'create' && expected.version === null && entry.op === 'create') {
         return creationOwned;
       }
       return entry.message?.startsWith(`bulk-item-transaction ${plan.transactionId} `) || entry.message?.startsWith(`bulk-item-transaction ${plan.transactionId}-snapshot `) || (entry.op === 'delete' && entry.author === plan.author && entry.message === `Compensate interrupted bulk transaction ${plan.transactionId}-nodes`);
@@ -296,7 +296,7 @@ async function runImport(store: Store, plan: ImportPlan, options: PortableImport
   await mkdir(join(store.workspace, 'runtime'), { recursive: true });
   if (plan.nodes === undefined && plan.mutations.some(row => row.op === 'create')) plan.nodes = plan.mutations.filter(row => row.op === 'create').map(row => {
     const { dep: _dep, allowUnresolvedDeps: _unresolved, ...options } = row.options;
-    return { ...row, options };
+    return { ...row, options: { ...options, message: `bulk-item-transaction ${plan.transactionId}-nodes ${row.id} create` } };
   });
   await savePlan(store, plan);
   await options.onStep?.('intent');

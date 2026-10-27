@@ -324,7 +324,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
       const creating = previous === undefined;
       const relationships = resolvedRelationships(row.relationships, ids);
       ownership.push({ ...(update?.ownership ?? { id, fields: portableFields(row, body), relationships, graph: relationships }), ...(wire === undefined ? {} : { source: { original: wire.original } }) });
-      mutations.push({ op: creating ? 'create' : 'update', id: previous?.id ?? id, ...(creating ? { unique: { key: 'memory_slug', value: row.slug } } : { match: { key: 'updated_at', value: corpus.find(item => item.id === previous.id)!.updated_at } }), options: creating ? { title: row.title, description: row.description, body, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, tags: row.tags.join(','), ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: relationships }), 'create'), ...metadata(fields) } : update!.options });
+      mutations.push({ op: creating ? 'create' : 'update', id: previous?.id ?? id, ...(creating ? { unique: { key: 'memory_slug', value: row.slug } } : { match: { key: 'updated_at', value: corpus.find(item => item.id === previous.id)!.updated_at } }), options: creating ? { title: row.title, description: row.description, body, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, ...itemDocumentToMutationOptions(JSON.stringify({ tags: row.tags, dependencies: relationships }), 'create'), ...metadata(fields) } : update!.options });
     }
     closeSkips(manifest.guidance, skipped);
     for (const [slug, reason] of skipped) result.skipped.push({ slug, reason });

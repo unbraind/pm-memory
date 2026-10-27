@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { parseMutationReceipt } from '@unbrained/pm-cli/sdk';
+import { parseMutationReceipt, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { Memory, MemoryOptions, Packet, RememberOptions, RecallRow, GuidanceOptions } from './types.ts';
 import { accounted, budget, digest, kind, MemoryError, pack, privacy, similarity, slug, text, words } from './core.ts';
 import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors, INCOMPLETE_EMBEDDINGS } from './embeddings.ts';
@@ -39,11 +39,11 @@ export async function remember(fact: string, options: RememberOptions): Promise<
     if (!unchanged || previous.pinned !== pinned) Object.assign(fields, { verdict: 'unknown', verified_at: '', edited: true });
     let id: string;
     if (previous === undefined) {
-      const created = await store.client.run('create', { options: { title, body: fact, type: 'Knowledge', tags: (options.tags ?? []).join(','), allowDuplicate: true, ...metadata(fields) } });
+      const created = await store.client.run('create', { options: { title, body: fact, type: 'Knowledge', ...itemDocumentToMutationOptions(JSON.stringify({ tags: options.tags ?? [] }), 'create'), allowDuplicate: true, ...metadata(fields) } });
       id = parseMutationReceipt(created).id;
     } else {
       await store.history(previous.id);
-      await store.client.update(previous.id, { title, body: fact, ...(previous.status === 'canceled' ? { status: 'open' } : {}), ...(options.tags === undefined ? {} : { tags: options.tags.join(',') }), message: 'Revise durable agent memory' });
+      await store.client.update(previous.id, { title, body: fact, ...(previous.status === 'canceled' ? { status: 'open' } : {}), ...(options.tags === undefined ? {} : itemDocumentToMutationOptions(JSON.stringify({ tags: options.tags }), 'update')), message: 'Revise durable agent memory' });
       await store.fields(previous.id, fields); id = previous.id;
     }
     for (const target of targets) await store.link(id, target);

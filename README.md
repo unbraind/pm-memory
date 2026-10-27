@@ -349,8 +349,11 @@ graph and reported as `omitted_links: [{slug, target, kind, reason}]` in the typ
 receipt. Neither export nor re-import treats these receipts as deletion instructions. Foreign
 records are excluded before decoding package metadata and reported as `skipped` entries.
 An occupied import ID grants no ownership by itself. Planning and compensation use
-the same immutable SDK birth check, including represented content normalized through
-the SDK; copied source bookkeeping cannot authorize deleting a foreign record.
+the same immutable SDK birth check, including every planned scalar write normalized
+through the SDK. Extra package metadata remains foreign; copied source bookkeeping
+cannot authorize deleting a foreign record. Later edits still own only represented fields.
+Native tag creates and updates use the SDK serializer, preserving comma-containing,
+quoted, whitespace and Unicode tags across both harnesses.
 Ownership and content use one certified SDK snapshot. Exports stage their complete directory and publish with
 a rename; matching peer publication succeeds, differing publication refuses without
 overwriting it.

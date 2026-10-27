@@ -137,7 +137,7 @@ export function ownershipPatch(current: Memory, row: PortableGuidance, body: str
     if (incoming[key] === native[key]) continue;
     if (prior?.fields[key] === native[key] || (incoming[key] !== baseline[key] && native[key] === baseline[key])) {
       const name = ['kind', 'why', 'how', 'pinned'].includes(key) ? `memory${key[0].toUpperCase()}${key.slice(1)}` : key;
-      options[name] = key === 'body' ? body : key === 'tags' ? row.tags.join(',') : row[key];
+      options[name] = key === 'body' ? body : key === 'tags' ? itemDocumentToMutationOptions(JSON.stringify({ tags: row.tags }), 'update').tags : row[key];
     } else conflicts.push(key);
   }
   const desired = inheritEdges(resolvedRelationships(row.relationships, ids), current.relationships, true);
