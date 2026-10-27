@@ -1,0 +1,18 @@
+id: pm-memory-sdk-transaction-reader
+title: Adopt public SDK transaction receipt inspection when available
+description: "The pinned SDK exposes commitItemMutations and commitWorkspaceTransaction but no public transaction receipt read, inspect, abandon or re-plan API. Upstream unbraind/pm-cli#1597 tracks this surface. The portable-guidance adapter currently reads only its owned SDK receipt journals; no acceptance criterion is blocked. Adopt the public API when it becomes available within the supported host range."
+type: Task
+status: open
+priority: 3
+tags[3]: "gh:unbraind/pm-cli#1597",sdk-gap,"upstream:pm-cli#1597"
+created_at: "2026-10-27T06:21:15.119Z"
+updated_at: "2026-10-27T06:25:02.297Z"
+author: codex-agent
+acceptance_criteria: "Replace owned SDK journal reads with public transaction inspection without weakening crash recovery, CAS, foreign preservation or replay tests"
+parent: pm-memory-0kwy
+files[4]{path,scope}:
+  src/portable-ownership.ts,project
+  src/portable-plan.ts,project
+  src/portable-replan.ts,project
+  src/portable-rollback.ts,project
+body: ""

@@ -94,10 +94,10 @@ test('owned recovery plans require every revision and SDK guard in all frozen ph
   const { target, path, intent } = await interruptedScenario(t);
   const plan = JSON.parse(JSON.parse(await readFile(intent, 'utf8')).payload) as ImportPlan;
   const invalid: unknown[] = [
-    { ...plan, expected: null }, { ...plan, nodesDone: 'yes' }, { ...plan, refusing: 'yes' }, { ...plan, attempt: 3 }, { ...plan, attempt: 'invalid' },
+    { ...plan, identityVersion: 2 }, { ...plan, expected: null }, { ...plan, nodesDone: 'yes' }, { ...plan, refusing: 'yes' }, { ...plan, attempt: 3 }, { ...plan, attempt: 'invalid' },
     ...[null, [3], ['wrong']].map(ownedTransactions => ({ ...plan, ownedTransactions })),
     ...[null, [null], [3], [{}], [{ id: 'other', version: null }], [{ id: plan.expected[0].id, version: 3 }]].map(initial => ({ ...plan, initial })),
-    ...[null, {}, { ...plan.expected[0], id: 3 }, { ...plan.expected[0], slug: null }, { ...plan.expected[0], version: 3 }, { ...plan.expected[0], length: -1 }, { ...plan.expected[0], length: 0.5 }, { ...plan.expected[0], history: null }].map(row => ({ ...plan, expected: [row] })),
+    ...[null, {}, { ...plan.expected[0], id: 3 }, { ...plan.expected[0], slug: null }, { ...plan.expected[0], version: 3 }, { ...plan.expected[0], length: -1 }, { ...plan.expected[0], length: 0.5 }, { ...plan.expected[0], history: null }, { ...plan.expected[0], origin: {} }].map(row => ({ ...plan, expected: [row] })),
     ...[null, [], { op: 'close' }, { op: 'create', id: 3 }, { op: 'create', id: 'x', options: null }, { op: 'create', id: 'x', options: 3 },
       { ...plan.mutations[0], unique: null }, { ...plan.mutations[0], unique: [] }, { ...plan.mutations[0], unique: { key: 'wrong', value: 'policy' } }, { ...plan.mutations[0], unique: { key: 'memory_slug', value: 3 } },
       { ...plan.mutations[0], id: 'absent' }, { ...plan.mutations[0], op: 'update', match: { key: 'wrong', value: 'version' } },

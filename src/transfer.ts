@@ -182,7 +182,7 @@ export function parseLegacyOrigins(value: unknown, from: Harness): LegacyOriginR
   if (Object.keys(envelope).sort().join(',') !== 'checksum,format,harness,payload,version' || envelope.version !== 1 || envelope.format !== 'pm-memory-origins' || envelope.harness !== from || typeof envelope.payload !== 'string' || digest(envelope.payload) !== envelope.checksum) return refuse();
   let values: unknown; try { values = JSON.parse(envelope.payload); } catch { return refuse(); }
   if (!Array.isArray(values)) return refuse();
-  const guidance = parsePolicy({ version: 1, format: 'pm-memory-policy', harness: from, guidance: values.map(row => row?.guidance) }).guidance;
+  const guidance = parsePolicy({ version: 1, format: 'pm-memory-policy', harness: from, guidance: values.map((row: unknown) => (row as Record<string, unknown> | null)?.guidance) }).guidance;
   const records = values.map((value: unknown, index): LegacyOriginRecord => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return refuse();
     const row = value as LegacyOriginRecord;

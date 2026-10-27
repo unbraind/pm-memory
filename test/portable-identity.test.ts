@@ -4,7 +4,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { exportDir, importDir, remember, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
-import { tracker, importText } from './helpers.ts';
+import { WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
+import { expectedTargets } from '../src/portable-plan.ts';
+import { policyBody } from '../src/portable.ts';
+import { tracker, importText, snapshot, editIntent } from './helpers.ts';
 
 /** Change only editable harness text, retaining the exact exported policy marker. */
 async function bodyEdit(directory: string, body: string) {
@@ -135,4 +138,46 @@ test('existing origin updates ignore unrelated foreign aliases and report their 
   assert.deepEqual((await source.client.listAllComplete({ includeBody: true })).items.find(row => row.id === before.id), before);
   assert.ok('skipped' in result); assert.ok(result.skipped.some(row => row.slug === before.id && row.reason.includes('Foreign')));
   assert.ok(foreign);
+});
+
+test('unbound older manifests require explicit creation and never adopt a same-name native record', async t => {
+  const source = await tracker(t); const alpha = await remember('Original guidance', { ...source.options, slug: 'alpha', kind: 'reference' });
+  const directory = join(source.root, 'old-bundle'); await exportDir(directory, { ...source.options, to: 'agents-md' });
+  const manifest = JSON.parse(await readFile(join(directory, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+  const row = manifest.guidance[0]; delete row.origin; delete row.baseline!.origin;
+  await writeFile(join(directory, POLICY_MANIFEST), JSON.stringify(manifest));
+  await writeFile(join(directory, row.path), policyBody(row, 'Original guidance'));
+  const fresh = await tracker(t); const before = await snapshot(fresh.workspace);
+  await assert.rejects(importDir(directory, { ...fresh.options, from: 'agents-md' }), missingOrigin);
+  assert.deepEqual(await snapshot(fresh.workspace), before);
+  const original = (await source.client.get(alpha.id, { full: true })).item;
+  await assert.rejects(importDir(directory, { ...source.options, from: 'agents-md', createMissingOrigins: true }), missingOrigin);
+  assert.deepEqual((await source.client.get(alpha.id, { full: true })).item, original);
+  assert.equal((await importDir(directory, { ...fresh.options, from: 'agents-md', createMissingOrigins: true })).imported, 1);
+  await assert.rejects(importDir(directory, { ...fresh.options, from: 'agents-md' }), missingOrigin);
+  const rebound = join(fresh.root, 'bound'); await exportDir(rebound, { ...fresh.options, to: 'agents-md' });
+  assert.equal((await importDir(rebound, { ...fresh.options, from: 'agents-md' })).unchanged, 1);
+});
+
+test('pre-identity recovery plans compensate and reselect immutable origins', async t => {
+  const source = await tracker(t); const original = await remember('Original guidance', { ...source.options, slug: 'alpha', kind: 'reference' });
+  const directory = join(source.root, 'export'); await exportDir(directory, { ...source.options, to: 'agents-md' });
+  await source.client.run('update', { id: original.id, options: { memorySlug: 'renamed' } });
+  const replacement = await remember('Original guidance', { ...source.options, slug: 'alpha', kind: 'reference', forceNew: true });
+  await bodyEdit(directory, 'Harness revision');
+  await assert.rejects(importDir(directory, { ...source.options, from: 'agents-md', onStep: step => { if (step === 'intent') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+  const intent = join(source.workspace, 'runtime', 'memory-policy-import.json');
+  const expected = await source.store.write(() => expectedTargets(source.store, [{ id: replacement.id, slug: 'alpha' }]));
+  const older = await editIntent(intent, plan => {
+    delete plan.identityVersion;
+    plan.expected = expected; plan.initial = expected; plan.members = [replacement.id];
+    plan.ownership = plan.ownership!.map(row => ({ ...row, id: replacement.id }));
+    plan.mutations = plan.mutations.map(row => ({ ...row, id: replacement.id, match: { key: 'updated_at', value: expected[0].version } }));
+    return plan;
+  });
+  let actual = '';
+  await importDir(directory, { ...source.options, from: 'agents-md', onStep: async step => { if (step === 'intent') actual = JSON.parse(JSON.parse(await readFile(intent, 'utf8')).payload).transactionId; } });
+  assert.notEqual(actual, older.transactionId);
+  assert.equal((await source.client.get(original.id, { full: true })).item.body, 'Harness revision');
+  assert.equal((await source.client.get(replacement.id, { full: true })).item.body, 'Original guidance');
 });

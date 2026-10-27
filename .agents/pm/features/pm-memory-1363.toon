@@ -7,13 +7,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T22:03:10.834Z"
-updated_at: "2026-10-27T05:38:00.928Z"
+updated_at: "2026-10-27T06:41:55.765Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: Bounded guidance can round trip without becoming unbounded or silently losing evidence; imported windows are validated before writes.
 parent: pm-memory-0kwy
-comments[72]{created_at,author,text}:
+comments[75]{created_at,author,text}:
   "2026-10-25T01:04:43.613Z",codex-agent,"Claimed portable policy-window work. Design inspection: existing transfer refuses bounded guidance and sequential imports can partially publish. Investigating SDK transactions and existing lease/history surfaces before selecting an atomic import contract. Will preserve window evidence and renewal ancestry, reject broadened or removed bounds, and validate in non-git trackers with crash and competing-writer boundaries."
   "2026-10-25T01:15:25.678Z",codex-agent,"Implemented versioned policy inventory plus editable body files, exact window and renewal validation, full-batch SDK preview/commit, deterministic recovery ids, foreign-record skips, and staged export publication. Targeted suite: 24 passed before the final update/rollback and independent-export tests were added. Randomized sets cover both harnesses, mixed bounded/unbounded guidance, kinds, tags and renewal counts. Existing unbounded byte-preserving transfers remain supported. CI now invokes the explicit npm release:check gate as well as the existing Bun gate; local full release gates are intentionally deferred to CI on this saturated host."
   "2026-10-25T01:17:54.916Z",codex-agent,"Read-only public-copy validation passed: 17 public items, 6 nonempty bodies, 232693 projected input bytes; 17 derived scenario guidance records, 34 renewal records retained per harness, 19 exported files per harness, all 17 unchanged on identical retries, zero lost windows/evidence, edited bodies needs-renewal. Every source file was permission-protected and its aggregate fingerprint remained unchanged. Evidence: docs/portable-guidance-validation.md. The first unrestricted read created only SDK runtime metadata caches, so the measured run used an independently extracted read-only copy."
@@ -86,6 +86,9 @@ comments[72]{created_at,author,text}:
   "2026-10-27T05:17:30.552Z",codex-agent,"Class audit revert proof (creation baseline): remove only the SDK getItemAt birth-field fallback from previousOwnership. node --test --test-concurrency=1 --test-name-pattern=\"agents-md legacy\" test/portable-identity.test.ts executed 1 regression and failed 1: recreate B from exported A, rename it, then import C retained B incorrectly. Restored code reads normalized SDK birth values while preserving intervening native edits and unknown graph ownership."
   "2026-10-27T05:17:38.055Z",codex-agent,"Class audit revert proof (lossy receipts): remove artifact loss reporting in exportDir only. PM_MEMORY_FIDELITY_START=2 PM_MEMORY_FIDELITY_COUNT=1 node --test --test-concurrency=1 test/portable-fidelity.worker.ts executed 1 regression and failed 1, MASTER_SEED=325262599 SEQUENCE=2 SEED=1339166841. The independent SDK oracle rejects an omitted native artifact unless every lost semantic field is reported explicitly."
   "2026-10-27T05:17:45.911Z",codex-agent,"Class audit revert proof (missing origin): remove only the known-missing-origin guard from selectOrigin. node --test --test-concurrency=1 --test-name-pattern=\"agents-md policy\" test/portable-identity.test.ts executed 1 regression and failed 1 because an implicit recreation succeeded. Restored code refuses with origin_missing until explicit --create. All seven behavioral mutants were restored after each test; source tests import TypeScript directly, so no dist rebuild was needed."
+  "2026-10-27T05:58:10.984Z",codex-agent,"Final class-audit revert proofs: removing only immutable birth-owner checks from ownedMemories makes the current-ownership-tags regression fail 0/1; using current source tags instead of immutable creation metadata in previousOwnership makes the agents-md policy rename/delete/recreate regression fail 0/1; disabling inventory-alias shadowing in importDir makes malformed-foreign-intake skip closure fail 0/1. Every mutant restored its source after the trial. Positive pinned pm runner: 19/19 protocol regressions. Expanded fidelity sample: 16/16 sequences across both raw source harnesses and all eight scenarios; master 325262599. Public read-only copy rerun: 17 items, 6 bodies, 232693 projected bytes, 34 renewals and 19 files per harness, 17 unchanged on each retry, zero bounds/evidence loss; source SHA-256 remains 652fd875763b57b52c1fb7af1a98e8d655511188a9129f5b8c7fa56a73c22fb7. Merged origin/main through b76e8f8, retaining the SDK pin and release approval controls. Pushed code head 8846e27; CI release gates are queued at https://github.com/unbraind/pm-memory/actions/runs/40457742411 . No merge or publication requested."
+  "2026-10-27T06:21:20.669Z",codex-agent,"SDK capability verification: inspected installed sdk/workspace-transaction.d.ts, sdk/item-transaction.d.ts, sdk/history-read.d.ts and SDK public exports. Batch/workspace commits, SDK getItemAt, normalizers, settings, events and leases cover the implementation. Public transaction receipt inspection/abandon/re-plan remains absent and is tracked upstream by https://github.com/unbraind/pm-cli/issues/1597 . Follow-up pm-memory-sdk-transaction-reader carries sdk-gap, upstream:pm-cli#1597 and the exact gh issue tag. No acceptance criterion is left unmet; SDK transactions remain the coordinator rather than a separate package transaction engine."
+  "2026-10-27T06:41:55.730Z",codex-agent,"Compatibility boundary proofs: removing only the pre-identity-plan migration guard from pendingImport fails the pre-identity recovery regression 0/1, reproducing an obsolete frozen plan selecting the identical replacement. The restored path compensates and plans a new transaction against the immutable original. Removing only the missing-binding refusal from importPolicy fails the unbound-older-manifest regression 0/1; explicit creation and re-export succeed without same-name adoption. Both source mutations were restored. Positive focused plan/guard tests pass 2/2; unbound migration passes 1/1; metadata-preservation fidelity sample passes 4/4 sequences. These bring the round to twelve recorded behavioral revert proofs."
 files[47]{path,scope}:
   .github/workflows/ci.yml,project
   index.ts,project
@@ -134,7 +137,7 @@ files[47]{path,scope}:
   test/round2.test.ts,project
   test/transfer.test.ts,project
   test/validate-guidance.ts,project
-tests[14]:
+tests[15]:
   - command: node --test test/portable.test.ts test/transfer.test.ts test/guidance.test.ts
     scope: project
     provenance:
@@ -243,6 +246,15 @@ tests[14]:
       created_at: "2026-10-27T05:38:00.521Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
+  - command: node --test --test-concurrency=2 test/portable-fidelity.test.ts
+    scope: project
+    timeout_seconds: 14400
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T05:58:05.580Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+    note: "500 independent SDK-read sequences, master 0x13631d07; full execution belongs to the CI release gates on this shared host"
 docs[4]{path,scope}:
   docs/portable-guidance-validation.md,project
   examples/portable-guidance.ts,project

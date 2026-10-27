@@ -95,9 +95,9 @@ test('malformed foreign intake bytes close dependent skips without throwing or w
 });
 
 test('current ownership tags cannot adopt provably foreign SDK creation identities', async t => {
-  for (const shape of ['task', 'no-slug', 'no-source', 'foreign-source']) {
+  for (const shape of ['task', 'task-source', 'no-slug', 'no-source', 'foreign-source']) {
     const target = await tracker(t); await target.store.register();
-    await target.client.run('create', { options: { title: 'Foreign birth', body: 'Foreign body', ...(shape === 'task' ? {} : { type: 'Knowledge', memoryKind: 'reference', ...(shape === 'no-source' ? {} : { memorySource: shape === 'foreign-source' ? 'foreign:tool' : 'native:item' }), ...(shape === 'no-slug' ? {} : { memorySlug: 'foreign' }) }) } });
+    await target.client.run('create', { options: { title: 'Foreign birth', body: 'Foreign body', ...(shape.startsWith('task') ? (shape === 'task-source' ? { memorySource: 'agents-md:relative-file', memorySlug: 'foreign' } : {}) : { type: 'Knowledge', memoryKind: 'reference', ...(shape === 'no-source' ? {} : { memorySource: shape === 'foreign-source' ? 'foreign:tool' : 'native:item' }), ...(shape === 'no-slug' ? {} : { memorySlug: 'foreign' }) }) } });
     const born = (await target.client.listAllComplete()).items[0];
     await target.client.run('delete', { id: born.id, options: { force: true } });
     const document = canonicalDocument({ metadata: { ...born, type: 'Knowledge', memory_slug: 'foreign', memory_source: 'native:item', memory_kind: shape === 'foreign-source' ? 'unsupported' : 'reference' }, body: 'Foreign body' });
