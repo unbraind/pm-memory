@@ -1,8 +1,29 @@
-import { commitWorkspaceTransaction, runWithActiveExtensions, setActiveExtensionHooks, restore, deleteItem, getHistoryPath, readHistoryEntries, replayHistoryToTarget, PmClient, certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
+import { commitWorkspaceTransaction, runWithActiveExtensions, setActiveExtensionHooks, restore, deleteItem, getItemAt, getHistoryPath, readHistoryEntries, PmClient, certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { ImportPlan, ExpectedTarget } from './portable-plan.ts';
 import type { Store } from './store.ts';
 import type { PortableImportOptions } from './portable.ts';
+import { portableFields } from './portable-ownership.ts';
+import { creator, sameOrigin } from './portable-origin.ts';
+
+/** A bare creation belongs to this plan only when its immutable SDK birth matches the represented intent. */
+export async function ownsCreation(store: Store, plan: ImportPlan, id: string): Promise<boolean> {
+  const mutation = plan.nodes?.find(row => row.id === id) ?? plan.mutations.find(row => row.id === id && row.op === 'create');
+  const target = plan.ownership?.find(row => row.id === id);
+  if (mutation === undefined || target === undefined) return false;
+  const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
+  if (entries[0]?.op !== 'create' || entries[0].author !== plan.author) return false;
+  const birth = creator(id, entries[0], undefined);
+  if (birth === undefined || birth.metadata.type !== mutation.options!.type || birth.metadata.memory_slug !== mutation.options!.memorySlug || birth.metadata.memory_source !== mutation.options!.memorySource || birth.metadata.memory_original !== mutation.options!.memoryOriginal) return false;
+  const origin = plan.expected.find(row => row.id === id)?.origin;
+  if (origin !== undefined && !sameOrigin(birth.origin, origin)) return false;
+  try {
+    const { document } = await getItemAt(id, '1', { pmRoot: store.workspace });
+    const [memory] = await store.read(new Set([id]), [{ ...document.metadata, body: document.body }]);
+    const fields = portableFields(memory, memory.body);
+    return Object.entries(target.fields).every(([key, value]) => fields[key as keyof typeof fields] === value);
+  } catch { return false; }
+}
 
 /** Immutable SDK history, rather than mutable content, identifies an owned write. */
 export async function ownsLatest(store: Store, plan: ImportPlan, id: string): Promise<boolean> {
@@ -11,10 +32,7 @@ export async function ownsLatest(store: Store, plan: ImportPlan, id: string): Pr
   const last = entries.at(-1);
   if (last?.author !== plan.author) return false;
   if ([plan.transactionId, ...(plan.ownedTransactions ?? [])].some(id => last.message?.startsWith(`bulk-item-transaction ${id} `) || last.message?.startsWith(`bulk-item-transaction ${id}-`))) return true;
-  const mutation = plan.nodes?.find(row => row.id === id) ?? plan.mutations.find(row => row.id === id && row.op === 'create');
-  if (last.op !== 'create' || mutation === undefined || entries.length !== 1) return false;
-  const created = replayHistoryToTarget(entries, 0).metadata;
-  return created.memory_source === mutation.options!.memorySource && created.memory_original === mutation.options!.memoryOriginal;
+  return last.op === 'create' && entries.length === 1 && await ownsCreation(store, plan, id);
 }
 /** Keep the transitive support graph of every current peer-owned record. */
 async function protectedByPeer(store: Store, plan: ImportPlan, id: string): Promise<boolean> {

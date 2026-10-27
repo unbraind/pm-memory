@@ -348,6 +348,9 @@ to canceled, artifact or missing/non-memory targets are omitted from the portabl
 graph and reported as `omitted_links: [{slug, target, kind, reason}]` in the typed export
 receipt. Neither export nor re-import treats these receipts as deletion instructions. Foreign
 records are excluded before decoding package metadata and reported as `skipped` entries.
+An occupied import ID grants no ownership by itself. Planning and compensation use
+the same immutable SDK birth check, including represented content normalized through
+the SDK; copied source bookkeeping cannot authorize deleting a foreign record.
 Ownership and content use one certified SDK snapshot. Exports stage their complete directory and publish with
 a rename; matching peer publication succeeds, differing publication refuses without
 overwriting it.

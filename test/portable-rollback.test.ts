@@ -8,7 +8,7 @@ import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody, skipOccupiedIdentities } from '../src/portable.ts';
 import { replanNodes } from '../src/portable-replan.ts';
 import { digest } from '../src/core.ts';
-import { guardedCompensation, ownsLatest } from '../src/portable-rollback.ts';
+import { guardedCompensation, ownsLatest, ownsCreation } from '../src/portable-rollback.ts';
 import { importIdentity, validateImportPlan, type ImportPlan } from '../src/portable-plan.ts';
 import { tracker, memoryDocuments, assertClosedGraph, crashAfterCompensation, crashAtStep, importSubset, explicitRecreation } from './helpers.ts';
 
@@ -276,6 +276,60 @@ test('foreign serialized records without package history are retained at reserve
   } });
   assert.ok('skipped' in result); assert.ok(result.skipped.every(row => row.reason.includes('Foreign')));
   assert.equal((await target.client.get(id, { full: true })).item.body, 'Foreign body');
+});
+
+test('copied creation bookkeeping never grants ownership over a foreign birth at any CAS boundary', async t => {
+  const source = await tracker(t); await remember('Owned instructions', { ...source.options, slug: 'alpha', kind: 'reference' });
+  const path = join(source.root, 'policy'); await exportDir(path, { ...source.options, to: 'agents-md' });
+  const raw = join(source.root, 'alpha.md'); await writeFile(raw, 'Owned instructions');
+  for (const input of [path, raw]) for (const recovery of [false, true]) for (const boundary of ['intent', 'cas-read', 'cas-guarded']) for (const type of ['Task', 'Knowledge']) {
+    const target = await tracker(t); let injected = false; let id = '';
+    if (recovery) await assert.rejects(importDir(input, { ...target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
+    const inject = async (step: string) => {
+      if (step !== boundary || injected) return;
+      let text: string;
+      try { text = await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8'); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+      const envelope = JSON.parse(text) as { payload: string };
+      const plan = JSON.parse(envelope.payload) as ImportPlan;
+      const mutation = plan.mutations[0]; id = mutation.id;
+      if (injected) return;
+      injected = true;
+      await target.client.create({ ...mutation.options, id, type, body: 'Peer native body' });
+    };
+    // Recovery validates before publishing intent again, so its equivalent intent boundary is cas-read.
+    const hook = recovery && boundary === 'intent' ? async (step: string) => inject(step === 'cas-read' ? 'intent' : step) : inject;
+    const outcome = await importDir(input, { ...target.options, from: 'agents-md', onStep: hook }).then(receipt => ({ receipt }), (error: unknown) => ({ error }));
+    assert.equal(injected, true, `${input === raw ? 'raw' : 'policy'} ${recovery} ${boundary} ${type}`);
+    const rows = (await target.client.listAllComplete({ includeBody: true })).items;
+    assert.ok(rows.some(row => row.id === id && row.type === type && row.body === 'Peer native body'), 'SDK read-back must retain the foreign creation');
+    assert.ok('receipt' in outcome, 'Foreign births must be skipped without throwing');
+    assert.ok('skipped' in outcome.receipt); assert.ok(outcome.receipt.skipped.every(row => row.reason.includes('Foreign')));
+    const before = (await target.client.get(id, { full: true })).item;
+    assert.equal(before.type, type); assert.equal(before.body, 'Peer native body');
+    await importDir(input, { ...target.options, from: 'agents-md' });
+    assert.deepEqual((await target.client.get(id, { full: true })).item, before);
+  }
+});
+
+test('creation authority requires every immutable birth discriminator and SDK-normalized represented field', async t => {
+  const source = await tracker(t); await remember('Normalized birth\n', { ...source.options, slug: 'alpha', kind: 'reference' });
+  const path = join(source.root, 'wire'); await exportDir(path, { ...source.options, to: 'agents-md' });
+  const pending = await tracker(t);
+  await assert.rejects(importDir(path, { ...pending.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
+  const plan = JSON.parse(JSON.parse(await readFile(join(pending.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload) as ImportPlan;
+  const mutation = plan.mutations[0];
+  assert.equal(await ownsCreation(pending.store, plan, mutation.id), false);
+  assert.equal(await ownsCreation(pending.store, { ...plan, nodes: [], mutations: [] }, mutation.id), false);
+  assert.equal(await ownsCreation(pending.store, { ...plan, ownership: undefined }, mutation.id), false);
+  const patches = [{}, { author: 'foreign-agent' }, { type: 'Task' }, { memorySlug: 'different' }, { memorySource: 'foreign:source' }, { memoryOriginal: 'different' }, { memoryOrigin: 'invalid' }, { memoryOrigin: JSON.stringify({ ...plan.expected[0].origin!, creation: 'a'.repeat(64) }) }, { body: 'Different native birth' }, { memoryKind: 'invalid-kind' }];
+  for (const [index, patch] of patches.entries()) {
+    const target = await tracker(t); await target.store.register();
+    await target.client.create({ ...mutation.options, id: mutation.id, ...patch });
+    // Exercise both a node-stage plan and a legacy pre-node representation.
+    for (const current of [plan, { ...plan, nodes: undefined }]) assert.equal(await ownsCreation(target.store, current, mutation.id), index === 0, `birth discriminator ${index}`);
+    assert.equal(await ownsLatest(target.store, plan, mutation.id), index === 0);
+  }
 });
 
 test('a peer edit between rollback inspection and application is retained', async t => {

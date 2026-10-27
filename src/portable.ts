@@ -5,7 +5,7 @@ import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
 import type { GuidanceWindow, Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
-import { portableFields, validFields, ownershipPatch, previousOwnership, resolvedRelationships, creationMetadata } from './portable-ownership.ts';
+import { portableFields, validFields, ownershipPatch, previousOwnership, resolvedRelationships, creationMetadata, legacyBirth } from './portable-ownership.ts';
 import type { PortableBaseline, OwnedTarget, PortableFields } from './portable-ownership.ts';
 import { itemOrigin, validOrigin, originCatalog, selectOrigin, sameOrigin } from './portable-origin.ts';
 import type { PortableOrigin } from './portable-origin.ts';
@@ -23,7 +23,7 @@ export async function ownedMemories(store: Store, corpus: Awaited<ReturnType<Sto
   // A foreign native record cannot acquire memory ownership by changing only its current tags.
   for (const item of corpus) if (item.type === 'Knowledge' && item.memory_slug !== undefined && !foreign.some(row => row.id === item.id)) {
     const born = await creationMetadata(store, item.id);
-    if (born !== undefined && (born.type !== 'Knowledge' || typeof born.memory_slug !== 'string' || typeof born.memory_source !== 'string' || !OWNED_SOURCES.includes(born.memory_source))) foreign.push(item);
+    if (born !== undefined && (born.type !== 'Knowledge' || typeof born.memory_slug !== 'string' || typeof born.memory_source !== 'string' || !OWNED_SOURCES.includes(born.memory_source) || (born.memory_source.endsWith(':relative-file') && await legacyBirth(store, item.id, born) === undefined))) foreign.push(item);
   }
   const allowed = new Set(corpus.filter(item => !foreign.some(record => record.id === item.id)).map(item => item.id));
   return { foreign, memories: await store.read(allowed, corpus) };

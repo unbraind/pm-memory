@@ -2,19 +2,20 @@ import { lstat, readdir, readFile, mkdir, writeFile, mkdtemp, rename, rm, access
 import { constants } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { parse } from 'yaml';
 import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
-import { digest, kind, MemoryError, privacy, slug } from './core.ts';
+import { digest, MemoryError, privacy } from './core.ts';
 import { metadata, Store } from './store.ts';
 import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, ownedMemories, closeSkips, parsePolicy, guidanceOrigin } from './portable.ts';
 import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship, LegacyPortableSource } from './portable.ts';
-import type { Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
+import type { Harness, Memory, MemoryOptions } from './types.ts';
 import { ownershipPatch, portableFields, previousOwnership, creationMetadata, PORTABLE_FIELDS, validFields } from './portable-ownership.ts';
 import type { OwnedTarget, PortableFields } from './portable-ownership.ts';
 import { applyImport, expectedTargets, importIdentity, validateImportPlan, recoverInput, previewImport } from './portable-plan.ts';
 import { originCatalog, selectOrigin, sameOrigin, ensureTrackerOrigin } from './portable-origin.ts';
 import type { PortableOrigin } from './portable-origin.ts';
+import { sourceDocument, stemOf } from './portable-source.ts';
+import type { Source } from './portable-source.ts';
 
 /** Keep this immutable companion with byte-preserved legacy files through harness edits. */
 export const LEGACY_ORIGINS = 'pm-memory-origins.json';
@@ -45,33 +46,6 @@ export interface LegacyOriginRecord {
   artifact: boolean;
 }
 
-/** A parsed source document with its exact original bytes retained separately. */
-interface Source {
-  /** Semantic metadata explicitly present in this legacy file. Body is always represented. */
-  represented: ('title' | 'description' | 'kind' | 'why' | 'how')[];
-  /** Safe relative export name. */
-  path: string;
-  /** Native memory key. */
-  slug: string;
-  /** Human-facing title. */
-  title: string;
-  /** Compact frontmatter retrieval hook. */
-  description: string;
-  /** Semantic body without the YAML envelope. */
-  body: string;
-  /** Semantic class. */
-  kind: MemoryKind;
-  /** Indexes retain their bytes but do not pollute retrieval. */
-  artifact: boolean;
-  /** Exact source. */
-  original: string;
-  /** Optional rationale. */
-  why: string;
-  /** Optional application guidance. */
-  how: string;
-  /** Wiki-link targets, resolved after all imports exist. */
-  links: string[];
-}
 /** Refuse unsupported import/export harness names before filesystem access. */
 export function harness(value: unknown, exporting = false): Harness {
   if (!['claude-code', 'agents-md', ...(exporting ? [] : ['cursor'])].includes(String(value))) throw new MemoryError('format', 'Unsupported memory format', 'Use claude-code or agents-md; cursor is import-only');
@@ -90,40 +64,6 @@ async function sources(path: string, prefix = ''): Promise<{ path: string; bytes
   const result: { path: string; bytes: Buffer }[] = [];
   for (const entry of (await readdir(path)).sort()) result.push(...await sources(join(path, entry), prefix ? `${prefix}/${entry}` : entry));
   return result;
-}
-/** Normalize relative source paths identically for generated slugs and wiki aliases. */
-function stemOf(path: string): string { return path.replace(/\.[^./]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, ''); }
-/** Parse frontmatter with the YAML parser while preserving its original byte representation. */
-function sourceDocument(path: string, bytes: Buffer, from: Harness): Source {
-  const original = bytes.toString('base64');
-  const content = bytes.toString('utf8');
-  if (!Buffer.from(content).equals(bytes)) throw new MemoryError('format', 'Non-UTF-8 memory refused', 'Convert the source to UTF-8 before importing');
-  const front = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
-  let metadata: Record<string, unknown> = {};
-  if (front !== null) {
-    let parsed: unknown;
-    try {
-      const yaml = front[1].replace(/^(name|description): ([^"'|>\n].*: .+)$/gm, (_line, key: string, value: string) => `${key}: ${JSON.stringify(value)}`);
-      parsed = parse(yaml);
-    } catch { throw new MemoryError('format', 'Invalid memory frontmatter', 'Repair the YAML frontmatter before importing'); }
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new MemoryError('format', 'Invalid memory frontmatter mapping', 'Use a YAML mapping');
-    metadata = parsed as Record<string, unknown>;
-  }
-  const nested = metadata.metadata;
-  const classification = typeof nested === 'object' && nested !== null && 'type' in nested ? nested.type : metadata.type;
-  const body = content.slice(front?.[0].length ?? 0);
-  const stem = stemOf(path);
-  const key = /^[a-z0-9][a-z0-9_-]{0,119}$/.test(stem) ? stem : `import-${digest(path).slice(0, 16)}`;
-  const heading = body.split(/\r?\n/).find(line => line.trim() !== '');
-  const named = typeof metadata.name === 'string' && metadata.name.trim() !== '';
-  const title = named ? metadata.name as string : heading?.replace(/^#+\s*/, '') ?? key;
-  const why = /\*\*Why:\*\*\s*([^\r\n]*)/i.exec(body); const how = /\*\*How to apply:\*\*\s*([^\r\n]*)/i.exec(body);
-  const represented: Source['represented'] = [];
-  if (named || heading !== undefined) represented.push('title');
-  if (typeof metadata.description === 'string') represented.push('description');
-  if (classification !== undefined) represented.push('kind');
-  if (why !== null) represented.push('why'); if (how !== null) represented.push('how');
-  return { represented, path, slug: slug(typeof metadata.name === 'string' && /^[a-z0-9][a-z0-9_-]{0,119}$/.test(metadata.name) ? metadata.name : key), description: typeof metadata.description === 'string' ? metadata.description : '', title: title.slice(0, 160).toWellFormed(), body, kind: classification === undefined ? 'reference' : kind(classification), artifact: from === 'claude-code' && basename(path).toUpperCase() === 'MEMORY.MD', original, why: why?.[1] ?? '', how: how?.[1] ?? '', links: [...body.matchAll(/\[\[([a-z0-9_-]+)\]\]/g)].map(match => match[1]) };
 }
 /** Original bytes must reproduce all portable fields, including implicit legacy defaults. */
 function sameContent(item: Memory, source: Source): boolean {

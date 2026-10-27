@@ -4,10 +4,11 @@ import { getHistoryPath, getItemAt, readHistoryEntries, replayHistoryToTarget, i
 import type { Dependency } from '@unbrained/pm-cli/sdk';
 import { canonicalProvenance } from './portable.ts';
 import type { PortableGuidance, PortableRelationship } from './portable.ts';
-import type { Memory } from './types.ts';
+import type { Harness, Memory } from './types.ts';
 import type { Store } from './store.ts';
 import { digest, MemoryError } from './core.ts';
 import type { PortableOrigin } from './portable-origin.ts';
+import { sourceDocument } from './portable-source.ts';
 
 const relationshipKinds = createRelationshipKindRegistry();
 
@@ -86,6 +87,17 @@ export async function creationMetadata(store: Store, id: string): Promise<Return
   try {
     const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
     return entries.length === 0 ? undefined : replayHistoryToTarget(entries, 0).metadata;
+  } catch { return undefined; }
+}
+/** Admit matching SDK birth bodies and grant authority only to agreeing, represented source fields. */
+export async function legacyBirth(store: Store, id: string, created: NonNullable<Awaited<ReturnType<typeof creationMetadata>>>): Promise<Pick<PreviousOwnership, 'fields' | 'source'> | undefined> {
+  try {
+    const source = sourceDocument(String(created.memory_path), Buffer.from(String(created.memory_original), 'base64'), String(created.memory_source).split(':')[0] as Harness);
+    const { document } = await getItemAt(id, '1', { pmRoot: store.workspace });
+    const [born] = await store.read(new Set([id]), [{ ...document.metadata, body: document.body }]);
+    const actual = portableFields(born, born.body); const decoded = portableFields({ ...source, pinned: false, tags: [] }, source.body);
+    if (actual.body !== decoded.body) return undefined;
+    return { fields: Object.fromEntries(['body' as const, ...source.represented].filter(field => actual[field] === decoded[field]).map(field => [field, actual[field]])), source: { original: source.original } };
   } catch { return undefined; }
 }
 /** Resolve portable identities without adopting references absent from the inventory. */
@@ -199,9 +211,8 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
     } catch { return undefined; }
   }
   if (typeof created?.memory_source === 'string' && created.memory_source.endsWith(':relative-file')) {
-    const { document } = await getItemAt(item.id, '1', { pmRoot: store.workspace });
-    const born = (await store.read(new Set([item.id]), [{ ...document.metadata, body: document.body }]))[0];
-    if (born !== undefined) return { ...retained({ fields: portableFields(born, born.body), source: { original: born.original } }), creation: true };
+    const born = await legacyBirth(store, item.id, created);
+    if (born !== undefined) return { ...retained(born), creation: true };
   }
   return undefined;
 }

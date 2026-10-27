@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { exportDir, importDir, remember, MemoryError } from '../index.ts';
+import { exportDir, importDir, remember, renew, MemoryError } from '../index.ts';
 import { parsePolicy } from '../src/portable.ts';
-import { previousOwnership, resolvedRelationships } from '../src/portable-ownership.ts';
+import { previousOwnership, resolvedRelationships, legacyBirth, creationMetadata } from '../src/portable-ownership.ts';
 import { expectedTargets, importIdentity, validateImportPlan, type ImportPlan } from '../src/portable-plan.ts';
 import { tracker, snapshot, exportedPolicy, importText } from './helpers.ts';
 
@@ -81,4 +81,63 @@ test('indexed legacy frontmatter and mixed unresolved references select faithful
   const alpha = rows.find(row => row.memory_slug === 'alpha')!; const beta = rows.find(row => row.memory_slug === 'beta')!;
   assert.equal(typeof alpha.body, 'string'); assert.match(alpha.body as string, /\[\[unknown\]\]/);
   assert.equal(alpha.dependencies!.length, 1); assert.equal(alpha.dependencies![0].id, beta.id);
+});
+
+test('raw intake refuses bounded and differently born copies and explicitly recreates deleted origins', async t => {
+  const target = await tracker(t);
+  const file = await importText(target, 'alpha.md', 'Alpha instructions');
+  const original = (await target.client.listAllComplete()).items[0];
+  const { manifest } = await exportedPolicy(target); const origin = manifest.guidance[0].origin!;
+  await target.store.fields(original.id, { pinned: true });
+  await renew('alpha', { ...target.options, from: '2026-01-01T00:00:00.000Z', until: '2027-01-01T00:00:00.000Z', evidence: 'Bounded raw intake' });
+  const before = await snapshot(target.workspace);
+  await assert.rejects(importDir(file, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'validity');
+  assert.deepEqual(await snapshot(target.workspace), before);
+  await target.client.run('delete', { id: original.id, options: { force: true } });
+  await target.client.run('create', { options: { title: 'Different birth', body: 'Native copy', type: 'Knowledge', memorySlug: 'copy', memoryKind: 'reference', memorySource: 'native:item', memoryOrigin: JSON.stringify(origin) } });
+  const copy = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'copy')!;
+  const copied = await snapshot(target.workspace);
+  await assert.rejects(importDir(file, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'conflict');
+  assert.deepEqual(await snapshot(target.workspace), copied);
+  await target.client.run('delete', { id: copy.id, options: { force: true } });
+  await assert.rejects(importDir(file, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'origin_missing');
+  assert.equal((await importDir(file, { ...target.options, from: 'agents-md', createMissingOrigins: true })).imported, 1);
+  const recreated = (await target.client.listAllComplete({ includeBody: true })).items[0];
+  assert.notEqual(recreated.id, original.id); assert.equal(recreated.body, 'Alpha instructions');
+  assert.deepEqual(JSON.parse(String(recreated.memory_origin)), origin);
+});
+
+test('legacy birth authority preserves foreign records on import retry and export while admitting native defaults', async t => {
+  const target = await tracker(t); await target.store.register();
+  const file = join(target.root, 'alpha.md'); await writeFile(file, 'Alpha instructions');
+  const options = { title: 'Alpha instructions', body: 'Peer native body', type: 'Knowledge', memorySlug: 'alpha', memoryKind: 'reference', memorySource: 'agents-md:relative-file', memoryPath: 'alpha.md', memoryOriginal: Buffer.from('Alpha instructions').toString('base64') };
+  await target.client.run('create', { options });
+  const row = (await target.client.listAllComplete({ includeBody: true })).items[0]; const before = await snapshot(target.workspace);
+  for (let retry = 0; retry < 2; retry++) {
+    const receipt = await importDir(file, { ...target.options, from: 'agents-md' });
+    assert.deepEqual(await snapshot(target.workspace), before);
+    assert.ok('skipped' in receipt); assert.ok(receipt.skipped.some(row => row.reason.includes('Foreign')));
+  }
+  const exported = await exportDir(join(target.root, 'out'), { ...target.options, to: 'agents-md' });
+  assert.ok(exported.skipped?.some(item => item.slug === row.id));
+  assert.deepEqual(await snapshot(target.workspace), before);
+  assert.equal(await legacyBirth(target.store, row.id, (await creationMetadata(target.store, row.id))!), undefined);
+  const memory = (await target.store.read())[0]; assert.equal(await previousOwnership(target.store, memory, new Map()), undefined);
+  for (const patch of [{ memorySlug: 'different' }, { memorySlug: 'malformed', memoryOriginal: Buffer.from('---\n[\n---\n').toString('base64') }]) {
+    await target.client.run('create', { options: { ...options, ...patch } });
+    const item = (await target.client.listAllComplete()).items.find(item => item.memory_slug === patch.memorySlug)!;
+    assert.equal(await legacyBirth(target.store, item.id, (await creationMetadata(target.store, item.id))!), undefined);
+  }
+  const allowed = await tracker(t); await allowed.store.register();
+  // Earlier raw records and project-native defaults remain readable: absent source fields grant no authority.
+  await allowed.client.run('create', { options: { ...options, body: 'Alpha instructions\r\n', memoryPinned: true, memoryWhy: 'Native default', description: 'Native retrieval hint', tags: 'native-default', priority: 1 } });
+  const native = (await allowed.client.listAllComplete({ includeBody: true })).items[0];
+  assert.ok(await legacyBirth(allowed.store, native.id, (await creationMetadata(allowed.store, native.id))!));
+  const nativeBefore = (await allowed.client.get(native.id, { full: true })).item;
+  const unchanged = await importDir(file, { ...allowed.options, from: 'agents-md' }); assert.equal(unchanged.unchanged, 1);
+  assert.deepEqual((await allowed.client.get(native.id, { full: true })).item, nativeBefore);
+  await allowed.client.run('create', { options: { ...options, memorySlug: 'historical-alias', title: 'Native title at birth', body: 'Alpha instructions' } });
+  const historical = (await allowed.client.listAllComplete()).items.find(item => item.memory_slug === 'historical-alias')!;
+  const authority = await legacyBirth(allowed.store, historical.id, (await creationMetadata(allowed.store, historical.id))!);
+  assert.ok(authority?.fields.body); assert.equal(authority.fields.title, undefined, 'Source metadata cannot claim a differing native birth field');
 });

@@ -1,13 +1,13 @@
 import { mkdir, readFile, rm, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { writeFileAtomic, commitItemMutations, commitWorkspaceTransaction, deriveMutationTransactionId, getHistoryPath, readHistoryEntries, hashHistoryStream, certifyCompleteListResult, WorkspaceTransactionInterruptedError, PmClient, isPmCliExpectedError, replayHistoryToTarget } from '@unbrained/pm-cli/sdk';
+import { writeFileAtomic, commitItemMutations, commitWorkspaceTransaction, deriveMutationTransactionId, getHistoryPath, readHistoryEntries, hashHistoryStream, certifyCompleteListResult, WorkspaceTransactionInterruptedError, PmClient, isPmCliExpectedError } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import { replanNodes } from './portable-replan.ts';
 import { digest, MemoryError } from './core.ts';
 import type { PortableImportResult, PortableImportOptions } from './portable.ts';
 import type { Store } from './store.ts';
-import { guardedCompensation, rollbackImport } from './portable-rollback.ts';
+import { guardedCompensation, rollbackImport, ownsCreation } from './portable-rollback.ts';
 import { relationshipPatch, validOwnedTarget } from './portable-ownership.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
 import { creator, readTrackerOrigin, sameOrigin, validOrigin } from './portable-origin.ts';
@@ -54,7 +54,7 @@ export async function expectedTargets(store: Store, targets: readonly Pick<Expec
     return { ...target, version: item === undefined ? null : String(item.updated_at), length: entries.length, history: hashHistoryStream(entries) };
   }));
 }
-/** Halt SDK replay without compensation when a newer native revision must win. */
+/** Ordinary refusal triggers SDK compensation while retaining newer native revisions. */
 class PlanMoved extends Error {}
 /** A newly reserved identity occupied by a foreign record produces a skip receipt. */
 class PlanForeign extends PlanMoved {}
@@ -81,10 +81,10 @@ async function guardPlan(store: Store, plan: ImportPlan): Promise<void> {
     const mutation = plan.mutations.find(row => row.id === expected.id);
     if (mutation?.op === 'update' && (mutation.match?.key !== 'updated_at' || mutation.match.value !== expected.version)) throw new PlanMoved('Planned SDK CAS revision differs from its captured expectation');
     const unchanged = tail.length === 0 && (item === undefined ? null : String(item.updated_at)) === expected.version;
-    const owned = tail.length > 0 && tail.every((entry, index) => {
+    const creationOwned = mutation?.op === 'create' && expected.version === null && await ownsCreation(store, plan, expected.id);
+    const owned = tail.length > 0 && tail.every(entry => {
       if (mutation?.op === 'create' && expected.version === null && entry.op === 'create' && entry.author === plan.author) {
-        const created = replayHistoryToTarget(entries, expected.length + index).metadata;
-        return created.memory_original === mutation.options.memoryOriginal && created.memory_source === mutation.options.memorySource;
+        return creationOwned;
       }
       return entry.message?.startsWith(`bulk-item-transaction ${plan.transactionId} `) || entry.message?.startsWith(`bulk-item-transaction ${plan.transactionId}-snapshot `) || (entry.op === 'delete' && entry.author === plan.author && entry.message === `Compensate interrupted bulk transaction ${plan.transactionId}-nodes`);
     });
