@@ -37,7 +37,7 @@ async function edit(directory: string, row: PortableGuidance, action: Record<str
     if (key in action) Object.assign(row, { [field]: field === 'tags' ? String(action[key]).split(',') : action[key] });
   }
   const file = join(directory, row.path); const previous = await readFile(file, 'utf8');
-  const hash = createHash('sha256').update(JSON.stringify([row.validity, row.renewals, row.pinned, row.baseline])).digest('hex');
+  const hash = createHash('sha256').update(JSON.stringify([row.validity, row.renewals, row.pinned, row.baseline, row.origin])).digest('hex');
   const body = typeof action.body === 'string' ? action.body : previous.slice(previous.indexOf('\n') + 1);
   await writeFile(file, `<!-- pm-memory-policy:v1 ${row.slug}; policy ${hash}; keep ${POLICY_MANIFEST} -->\n${body}`);
   await writeFile(join(directory, POLICY_MANIFEST), JSON.stringify(manifest));
@@ -71,7 +71,7 @@ test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, 
     const bootstrap = join(target.root, 'portable-origin');
     await exportDir(bootstrap, { ...target.options, to: 'agents-md' });
     await target.client.run('delete', { id: alpha.id, options: { force: true } });
-    await importDir(bootstrap, { ...target.options, from: 'agents-md' });
+    await importDir(bootstrap, { ...target.options, from: 'agents-md', createMissingOrigins: true });
     await rm(bootstrap, { recursive: true });
   }
   const alphaId = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!.id;

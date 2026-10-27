@@ -193,7 +193,8 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         for (const item of (await client.listAllComplete()).items) await client.run('delete', { id: item.id, options: { force: true } });
         model.splice(0); ids.clear(); await check();
         operation = `reimport ${label}`;
-        assert.equal((await importDir(saved.path, { ...options, from: to })).imported, 3);
+        await assert.rejects(importDir(saved.path, { ...options, from: to }), (error: unknown) => error instanceof MemoryError && error.code === 'origin_missing');
+        assert.equal((await importDir(saved.path, { ...options, from: to, createMissingOrigins: true })).imported, 3);
         model.splice(0, model.length, ...structuredClone(saved.desired)); for (const row of model) baseline.set(row.slug, structuredClone(row)); nativeEdits.clear();
         for (const item of (await client.listAllComplete()).items) ids.set(String(item.memory_slug), item.id);
         await check();

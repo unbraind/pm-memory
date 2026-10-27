@@ -9,7 +9,7 @@ extracted public tracker and an empty disposable directory. Set
 file before and after. The source must be read-only: native SDK list reads may
 otherwise create disposable runtime metadata caches.
 
-Measured on 2026-10-25:
+Measured again on 2026-10-27 after immutable-origin and legacy-fidelity fixes (the same public source and fingerprint):
 
 | Measurement | Result |
 | --- | ---: |
@@ -27,7 +27,7 @@ Measured on 2026-10-25:
 | Harness body edit, each harness | needs-renewal |
 | Source fingerprint changed | no |
 
-Source SHA-256 (sorted relative file names and their SHA-256 digests):
+Source SHA-256 (sorted relative file names and their SHA-256 digests, encoded as compact JSON pairs):
 `652fd875763b57b52c1fb7af1a98e8d655511188a9129f5b8c7fa56a73c22fb7`.
 The annotations are validation scenarios over real public titles/bodies, not
 claims that those project items were actually reviewed under these windows.

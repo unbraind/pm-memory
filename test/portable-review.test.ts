@@ -6,7 +6,7 @@ import { importDir, exportDir, remember, renew, get, POLICY_MANIFEST, MemoryErro
 import type { PortablePolicyManifest } from '../index.ts';
 import { WorkspaceTransactionInterruptedError, canonicalDocument } from '@unbrained/pm-cli/sdk';
 import { policyBody } from '../src/portable.ts';
-import { tracker, snapshot, assertClosedGraph, memoryDocuments, crashAfterCompensation, crashAtStep as crashStep, exportedPolicy } from './helpers.ts';
+import { tracker, snapshot, assertClosedGraph, memoryDocuments, crashAfterCompensation, crashAtStep as crashStep, exportedPolicy, importSubset } from './helpers.ts';
 
 /** Export an actual mixed tracker and expose its harness-editable body. */
 async function scenario(t: Parameters<typeof tracker>[0]) {
@@ -31,6 +31,11 @@ async function revisionTarget(t: Parameters<typeof tracker>[0], source: Awaited<
   await importDir(source.path, { ...target.options, from: 'agents-md' });
   await writeFile(join(source.path, row.path), policyBody(row, body));
   return target;
+}
+/** Seed a genuine imported origin while leaving its related records for a later mixed batch. */
+async function seedAlpha(source: Awaited<ReturnType<typeof scenario>>, target: Awaited<ReturnType<typeof tracker>>) {
+  await importSubset(source.path, target, ['alpha']);
+  return (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!;
 }
 /** A moved native target may produce a typed refusal or a truthful planner skip. */
 async function preservesNative(run: ReturnType<typeof importDir>, slug: string): Promise<void> {
@@ -120,7 +125,7 @@ test('foreign target skips close transitively over the whole plan and imports re
   await remember('Memory gamma', { ...source.options, slug: 'gamma', kind: 'reference', links: [source.second.id] });
   const path = join(source.root, 'closure'); await exportDir(path, { ...source.options, to: 'agents-md' });
   const target = await tracker(t);
-  const alpha = await remember('Memory alpha', { ...target.options, slug: 'alpha', kind: 'project' });
+  const alpha = await seedAlpha(source, target);
   await target.store.fields(alpha.id, { source: 'foreign:tool' });
   for (let attempt = 0; attempt < 2; attempt++) {
     const result = await importDir(path, { ...target.options, from: 'agents-md' }); assert.ok('skipped' in result);
@@ -173,7 +178,7 @@ test('interrupted new graph nodes never dangle when a foreign owner or native ed
 test('compensated mixed graphs remap reserved node IDs and never delete a newer peer edit', async t => {
   for (const peer of [false, true]) {
     const source = await scenario(t); const target = await tracker(t);
-    const alpha = await remember('Memory alpha', { ...target.options, slug: 'alpha', kind: 'project' });
+    const alpha = await seedAlpha(source, target);
     const policy = (await source.store.read()).find(row => row.slug === 'policy')!;
     await source.store.link(policy.id, source.second.id);
     const path = join(source.root, 'mixed-recovery'); await exportDir(path, { ...source.options, to: 'agents-md' });
@@ -215,7 +220,8 @@ test('deleted imported memories can be recreated after A or A B without reusing 
     }
     for (const item of (await target.client.listAllComplete()).items) await target.client.run('delete', { id: item.id, options: { force: true } });
     await writeFile(join(source.path, row.path), policyBody(row, 'A'));
-    assert.equal((await importDir(source.path, { ...target.options, from: 'agents-md' })).imported, 3);
+    await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md' }), (error: unknown) => error instanceof MemoryError && error.code === 'origin_missing');
+    assert.equal((await importDir(source.path, { ...target.options, from: 'agents-md', createMissingOrigins: true })).imported, 3);
     assert.equal((await get('alpha', target.options)).body, 'A');
     assert.equal((await importDir(source.path, { ...target.options, from: 'agents-md' })).unchanged, 3);
     assertClosedGraph((await target.client.listAllComplete()).items);

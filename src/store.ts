@@ -6,13 +6,14 @@ import type { Memory, MemoryOptions } from './types.ts';
 import { kind, MemoryError, slug } from './core.ts';
 import { readWindow } from './guidance.ts';
 import { writerLock } from './writer-lock.ts';
+import { ensureTrackerOrigin } from './portable-origin.ts';
 
 /** Complete native SDK rows can be decoded from the same snapshot used for ownership. */
 type MemoryCorpus = Awaited<ReturnType<PmClient['listAllComplete']>>['items'];
 
 /** All memory metadata uses registered SDK fields, including lossless source artifacts. */
 export const MEMORY_FIELDS: SchemaFieldDefinition[] = [
-  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility', 'consent', 'renewals', 'import_snapshot'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
+  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility', 'consent', 'renewals', 'import_snapshot', 'origin'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
   ...['pinned', 'edited', 'artifact'].map(name => ({ name: `memory_${name}`, type: 'boolean' as const, optional: true })),
   { name: 'memory_recalls', type: 'number', optional: true },
 ];
@@ -81,6 +82,7 @@ export class Store {
       if (found === undefined) await this.client.schemaAddField(field.name, { type: field.type, description: 'Typed agent memory metadata' });
       await onStep?.(`schema-field:${field.name}`);
     }
+    await ensureTrackerOrigin(this, onStep);
   }
   /** Read a certified full corpus and refuse duplicated or invalid memory identities. */
   async read(only?: ReadonlySet<string>, observed?: Readonly<MemoryCorpus>): Promise<Memory[]> {

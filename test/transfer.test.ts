@@ -39,9 +39,11 @@ test('Claude Code import is idempotent and exports every original file byte-iden
   assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unchanged, 5);
   assert.deepEqual(await snapshot(options.workspace), before);
   const exported = join(root, 'export');
-  assert.deepEqual(await exportDir(exported, { ...options, to: 'claude-code' }), { exported: 5, byte_preserved: 5 });
+  const { lossy, ...counts } = await exportDir(exported, { ...options, to: 'claude-code' });
+  assert.deepEqual(counts, { exported: 6, byte_preserved: 5 });
+  assert.deepEqual(lossy?.map(({ slug, fields }) => ({ slug, fields })), ['build', 'review'].map(slug => ({ slug, fields: ['relationships.author_source'] })));
   for (const name of Object.keys(FIXTURE)) assert.ok((await readFile(join(exported, name))).equals(await readFile(join(source, name))));
-  assert.equal((await exportDir(exported, { ...options, to: 'claude-code' })).exported, 5);
+  assert.equal((await exportDir(exported, { ...options, to: 'claude-code' })).exported, 6);
   await writeFile(join(source, 'review.md'), FIXTURE['review.md'] + '\nNew guidance.\n');
   assert.equal((await importDir(source, { ...options, from: 'claude-code' })).updated, 1);
   await assert.rejects(exportDir(exported, { ...options, to: 'claude-code' }), /overwrite/);

@@ -7,12 +7,43 @@ import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDoc
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { metadata, Store } from './store.ts';
-import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, ownedMemories, closeSkips } from './portable.ts';
-import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship } from './portable.ts';
+import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, ownedMemories, closeSkips, parsePolicy, guidanceOrigin } from './portable.ts';
+import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship, LegacyPortableSource } from './portable.ts';
 import type { Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
-import { ownershipPatch, portableFields, previousOwnership, creationMetadata, PORTABLE_FIELDS } from './portable-ownership.ts';
-import type { OwnedTarget } from './portable-ownership.ts';
+import { ownershipPatch, portableFields, previousOwnership, creationMetadata, PORTABLE_FIELDS, validFields } from './portable-ownership.ts';
+import type { OwnedTarget, PortableFields } from './portable-ownership.ts';
 import { applyImport, expectedTargets, importIdentity, validateImportPlan, recoverInput, previewImport } from './portable-plan.ts';
+import { originCatalog, selectOrigin, sameOrigin, ensureTrackerOrigin } from './portable-origin.ts';
+import type { PortableOrigin } from './portable-origin.ts';
+
+/** Keep this immutable companion with byte-preserved legacy files through harness edits. */
+export const LEGACY_ORIGINS = 'pm-memory-origins.json';
+/** Typed wire envelope; the checksummed snapshot payload is machine-owned. */
+export interface LegacyOriginManifest {
+  /** Exact companion format version. */
+  version: 1;
+  /** Stable companion discriminator. */
+  format: 'pm-memory-origins';
+  /** Harness interpreting the raw body files. */
+  harness: Exclude<Harness, 'cursor'>;
+  /** Immutable JSON snapshot records; edit the adjacent guidance files instead. */
+  payload: string;
+  /** Integrity digest of the immutable payload. */
+  checksum: string;
+}
+/** Native semantics and immutable identity accompanying one original legacy file. */
+export interface LegacyOriginRecord {
+  /** Confined raw file name. */
+  file: string;
+  /** SDK-native portable snapshot, including retained relationships and origin. */
+  guidance: PortableGuidance;
+  /** SDK-normalized decoding baseline for supported harness field edits. */
+  decoded: PortableFields;
+  /** Original raw wiki references; absent text never grants deletion authority. */
+  links: string[];
+  /** Native index disposition. */
+  artifact: boolean;
+}
 
 /** A parsed source document with its exact original bytes retained separately. */
 interface Source {
@@ -97,13 +128,18 @@ function sourceDocument(path: string, bytes: Buffer, from: Harness): Source {
 /** Original bytes must reproduce all portable fields, including implicit legacy defaults. */
 function sameContent(item: Memory, source: Source): boolean {
   const native = portableFields(item, item.body); const decoded = portableFields({ ...source, pinned: false, tags: [] }, source.body);
-  return PORTABLE_FIELDS.every(field => native[field] === decoded[field]);
+  return item.slug === source.slug && PORTABLE_FIELDS.every(field => native[field] === decoded[field]);
+}
+/** Resolve only unique wire aliases over an already origin-bound inventory. */
+function referenceTarget(reference: string, memories: readonly Pick<Memory, 'id' | 'slug' | 'path'>[]) {
+  const exact = memories.filter(item => item.slug === reference);
+  const choices = exact.length > 0 ? exact : memories.filter(item => stemOf(item.path) === reference);
+  return choices.length === 1 ? choices[0] : undefined;
 }
 /** Legacy wiki references own additions; absent text cannot prove deletion ownership. */
 function sourceRelationships(source: Source, memories: readonly Pick<Memory, 'id' | 'slug' | 'path'>[]): PortableRelationship[] {
   return source.links.flatMap(reference => {
-    const aliases = memories.filter(item => stemOf(item.path) === reference);
-    const target = memories.find(item => item.slug === reference) ?? (aliases.length === 1 ? aliases[0] : undefined);
+    const target = referenceTarget(reference, memories);
     return target === undefined || target.slug === source.slug ? [] : [{ slug: target.slug, kind: 'related' as const }];
   });
 }
@@ -119,28 +155,78 @@ function sourceReceipt(target: OwnedTarget, source: Source): OwnedTarget {
 }
 /** Creation history identifies a legacy source even after native-only identity edits. */
 function legacyOrigin(value: Awaited<ReturnType<typeof creationMetadata>>, source: Source, from: Harness): boolean {
-  return value?.memory_source === `${from}:relative-file` && value.memory_path === source.path && value.memory_slug === source.slug;
+  return value?.memory_source === `${from}:relative-file` && value.memory_path === source.path;
 }
-/** Import regular harness files idempotently, resolving wiki references into native links. */
-export async function importDir(path: string, options: PortableImportOptions): Promise<{ imported: number; updated: number; unchanged: number; unresolved_links: number } | PortableImportResult> {
-  harness(options.from);
-  const input = await sources(path);
-  if (input.some(file => file.path === POLICY_MANIFEST)) return importPolicy(input, options);
-  if (input.some(file => file.bytes.includes('pm-memory-policy:v1'))) throw new MemoryError('validity', 'Portable policy manifest is missing', 'Keep pm-memory-policy.json with every exported body file and import the complete directory');
+/** Validate all represented raw bytes, including unknown frontmatter, before target writes. */
+function sourcePrivacy(input: readonly { path: string; bytes: Buffer }[], allowEmail?: boolean): void {
   const offenses: string[] = [];
   for (const source of input) {
     const content = source.bytes.toString('utf8');
-    try { privacy(content, options.allowEmail); }
+    try { privacy(content, allowEmail); }
     catch (error) {
       const before = offenses.length;
       for (const [index, line] of content.split(/\r?\n/).entries()) {
-        try { privacy(line, options.allowEmail); }
+        try { privacy(line, allowEmail); }
         catch (error) { offenses.push(`${source.path}:line ${index + 1} (${(error as MemoryError).message})`); }
       }
       if (offenses.length === before) offenses.push(`${source.path}:multiline (${(error as MemoryError).message})`);
     }
   }
   if (offenses.length > 0) throw new MemoryError('privacy', `Import refused: ${offenses.join('; ')}`, 'Edit each listed file to remove credentials or addresses; --allow-email permits email addresses only');
+}
+/** Validate an immutable legacy snapshot before reading any target state. */
+export function parseLegacyOrigins(value: unknown, from: Harness): LegacyOriginRecord[] {
+  const refuse = (): never => { throw new MemoryError('format', 'Invalid legacy origin companion', 'Restore pm-memory-origins.json and edit only its adjacent guidance files'); };
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return refuse();
+  const envelope = value as LegacyOriginManifest;
+  if (Object.keys(envelope).sort().join(',') !== 'checksum,format,harness,payload,version' || envelope.version !== 1 || envelope.format !== 'pm-memory-origins' || envelope.harness !== from || typeof envelope.payload !== 'string' || digest(envelope.payload) !== envelope.checksum) return refuse();
+  let values: unknown; try { values = JSON.parse(envelope.payload); } catch { return refuse(); }
+  if (!Array.isArray(values)) return refuse();
+  const guidance = parsePolicy({ version: 1, format: 'pm-memory-policy', harness: from, guidance: values.map(row => row?.guidance) }).guidance;
+  const records = values.map((value: unknown, index): LegacyOriginRecord => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return refuse();
+    const row = value as LegacyOriginRecord;
+    if (Object.keys(row).sort().join(',') !== 'artifact,decoded,file,guidance,links' || typeof row.file !== 'string' || !validFields(row.decoded) || !Array.isArray(row.links) || !row.links.every(link => typeof link === 'string') || typeof row.artifact !== 'boolean' || guidanceOrigin(guidance[index]) === undefined || guidance[index].validity !== null) return refuse();
+    return { file: safePath(row.file), guidance: guidance[index], decoded: row.decoded, links: row.links, artifact: row.artifact };
+  });
+  if (new Set(records.map(row => row.file)).size !== records.length) return refuse();
+  return records;
+}
+/** Project supported raw harness edits onto the native snapshot, then reuse policy validation/CAS. */
+async function importBoundLegacy(input: readonly { path: string; bytes: Buffer }[], options: PortableImportOptions): Promise<PortableImportResult> {
+  let value: unknown; try { value = JSON.parse(input.find(file => file.path === LEGACY_ORIGINS)!.bytes.toString('utf8')); } catch { throw new MemoryError('format', 'Unreadable legacy origin companion', 'Restore pm-memory-origins.json before importing'); }
+  const records = parseLegacyOrigins(value, options.from);
+  sourcePrivacy(input.filter(file => records.some(record => record.file === file.path)), options.allowEmail);
+  const files: { path: string; bytes: Buffer }[] = []; const provenance = new Map<string, LegacyPortableSource>();
+  let unresolved = 0;
+  const references = records.map(record => ({ id: record.guidance.slug, slug: record.guidance.slug, path: record.file }));
+  for (const record of records) {
+    const file = input.find(file => file.path === record.file);
+    if (file === undefined) throw new MemoryError('origin_missing', 'An origin-bound legacy file is missing', 'Restore the complete exported inventory; absence does not delete a native origin');
+    const source = sourceDocument(file.path, file.bytes, options.from); const row = structuredClone(record.guidance);
+    const decoded = portableFields({ ...source, pinned: false, tags: [] }, source.body);
+    for (const field of source.represented) if (decoded[field] !== record.decoded[field]) Object.assign(row, { [field]: source[field] });
+    const added = source.links.filter(link => !record.links.includes(link));
+    const additions = sourceRelationships({ ...source, slug: row.slug, links: added }, references);
+    for (const edge of additions) if (!row.relationships.some(prior => prior.slug === edge.slug && prior.kind === edge.kind)) row.relationships.push(edge);
+    for (const link of added) if (referenceTarget(link, references) === undefined) unresolved++;
+    files.push({ path: row.path, bytes: policyBody(row, source.body) });
+    provenance.set(row.slug, { original: source.original, path: file.path, artifact: record.artifact, harness: options.from });
+    record.guidance = row;
+  }
+  files.push({ path: POLICY_MANIFEST, bytes: Buffer.from(JSON.stringify({ version: 1, format: 'pm-memory-policy', harness: options.from, guidance: records.map(record => record.guidance) })) });
+  const result = await importPolicy(files, options, provenance); result.unresolved_links += unresolved;
+  for (const file of input) if (file.path !== LEGACY_ORIGINS && !records.some(record => record.file === file.path)) result.skipped.push({ slug: file.path, reason: 'Foreign file absent from the immutable origin inventory' });
+  return result;
+}
+/** Import regular harness files idempotently, resolving wiki references into native links. */
+export async function importDir(path: string, options: PortableImportOptions): Promise<{ imported: number; updated: number; unchanged: number; unresolved_links: number } | PortableImportResult> {
+  harness(options.from);
+  const input = await sources(path);
+  if (input.some(file => file.path === POLICY_MANIFEST)) return importPolicy(input, options);
+  if (input.some(file => file.path === LEGACY_ORIGINS)) return importBoundLegacy(input, options);
+  if (input.some(file => file.bytes.includes('pm-memory-policy:v1'))) throw new MemoryError('validity', 'Portable policy manifest is missing', 'Keep pm-memory-policy.json with every exported body file and import the complete directory');
+  sourcePrivacy(input, options.allowEmail);
   const parsed = input.map(source => sourceDocument(source.path, source.bytes, options.from));
   if (new Set(parsed.map(source => source.slug)).size !== parsed.length) throw new MemoryError('duplicate', 'Import names normalize to duplicate slugs', 'Rename the colliding source files');
   const store = new Store(options);
@@ -153,23 +239,37 @@ export async function importDir(path: string, options: PortableImportOptions): P
     await options.onStep?.('read');
     const settings = await readSettings(store.workspace); const identity = await importIdentity(store, inputHash);
     const origins = new Map(await Promise.all([...initial, ...foreign].map(async item => [item.id, await creationMetadata(store, item.id)] as const)));
+    const catalog = await originCatalog(store, new Set(corpus.map(item => item.id)));
     const selected = new Map<string, Memory>(); const skipped = new Map<string, string>();
+    const intakeOrigins = new Map<string, PortableOrigin>(); const births = new Map<string, Source>();
     for (const source of parsed) {
-      const named = initial.find(item => item.slug === source.slug);
-      const candidates = named === undefined ? initial.filter(item => legacyOrigin(origins.get(item.id), source, options.from)) : [named];
-      if (candidates.length > 1) throw new MemoryError('conflict', 'Ambiguous native legacy origin', 'Export current guidance and choose one native identity before importing');
-      if (candidates.length === 1) {
-        const candidate = candidates[0]; const origin = origins.get(candidate.id);
-        if (candidate.source === `${options.from}:relative-file` && (origin === undefined || typeof origin.memory_original !== 'string')) skipped.set(source.slug, 'Foreign legacy record has no immutable source provenance');
-        else selected.set(source.slug, candidate);
+      const creators = catalog.creators.filter(row => !row.compensated && legacyOrigin(row.metadata, source, options.from));
+      const unproven = initial.some(item => {
+        if (!((item.source === `${options.from}:relative-file` && item.slug === source.slug) || creators.some(row => row.id === item.id))) return false;
+        const original = origins.get(item.id)?.memory_original; if (typeof original !== 'string') return true;
+        try { births.set(item.id, sourceDocument(source.path, Buffer.from(original, 'base64'), options.from)); return false; } catch { return true; }
+      });
+      if (unproven) { skipped.set(source.slug, 'Foreign legacy record has no immutable source provenance'); continue; }
+      const distinct = creators.filter((row, index) => creators.findIndex(other => sameOrigin(other.origin, row.origin)) === index);
+      if (distinct.length > 1) throw new MemoryError('conflict', 'Ambiguous immutable legacy intake origin', 'Import the complete exported companion manifest to select an origin');
+      if (distinct.length === 1) {
+        const origin = distinct[0].origin; intakeOrigins.set(source.slug, origin);
+        if (creators.some(row => corpus.some(item => item.id === row.id) && !initial.some(item => item.id === row.id))) { skipped.set(source.slug, 'Foreign record owns the immutable intake origin'); continue; }
+        const target = selectOrigin(origin, initial, catalog, options.createMissingOrigins === true);
+        if (target !== undefined) selected.set(source.slug, target);
       }
+      if (!selected.has(source.slug) && initial.some(item => item.slug === source.slug)) throw new MemoryError('conflict', 'Legacy alias belongs to a different immutable origin', 'Import the complete exported metadata or rename the unrelated native alias');
     }
     const ids = new Map(parsed.map(source => [source.slug, selected.get(source.slug)?.id ?? `${settings.id_prefix}${digest(`${identity.transactionId}:${source.slug}`).slice(0, 24)}`]));
-    const references = [...initial.map(item => ({ id: item.id, slug: item.slug, path: item.path })), ...parsed.filter(source => !initial.some(item => item.slug === source.slug)).map(source => ({ id: ids.get(source.slug)!, slug: source.slug, path: source.path }))];
-    const baselineIds = new Map([...initial.map(item => [item.slug, item.id] as const), ...ids]);
-    for (const source of parsed) if (foreign.some(item => item.memory_slug === source.slug || legacyOrigin(origins.get(item.id), source, options.from))) skipped.set(source.slug, 'Foreign record has no package-owned source');
+    // Explicit inventory aliases shadow external history hints, including skipped inventory rows.
+    const aliases = new Set(parsed.flatMap(source => [source.slug, stemOf(source.path)]));
+    // Only creation-time intake aliases bind targets outside this raw input. Current native names grant no authority.
+    const external = catalog.creators.flatMap(row => initial.some(item => item.id === row.id) && row.metadata.memory_source === `${options.from}:relative-file` && typeof row.metadata.memory_original === 'string' && typeof row.metadata.memory_path === 'string' && !aliases.has(String(row.metadata.memory_slug)) && !aliases.has(stemOf(row.metadata.memory_path)) ? [{ id: row.id, slug: String(row.metadata.memory_slug), path: row.metadata.memory_path }] : []);
+    const references = [...new Map([...external, ...parsed.map(source => ({ id: ids.get(source.slug)!, slug: source.slug, path: source.path }))].map(row => [row.id, row])).values()];
+    const baselineIds = new Map([...references.map(item => [item.slug, item.id] as const), ...ids]);
+    for (const source of parsed) if (!selected.has(source.slug) && foreign.some(item => item.memory_slug === source.slug || legacyOrigin(origins.get(item.id), source, options.from))) skipped.set(source.slug, 'Foreign record has no package-owned source');
     closeSkips(parsed.map(source => ({ slug: source.slug, relationships: sourceRelationships(source, references) })), skipped);
-    const result = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [...foreign.filter(item => !parsed.some(source => source.slug === item.memory_slug)).map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })), ...[...skipped].map(([slug, reason]) => ({ slug, reason }))] };
+    const result = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [...foreign.filter(item => !parsed.some(source => source.slug === item.memory_slug && skipped.has(source.slug))).map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })), ...[...skipped].map(([slug, reason]) => ({ slug, reason }))] };
     const mutations: BulkItemMutation[] = []; const ownership: OwnedTarget[] = [];
     for (const source of parsed) {
       if (skipped.has(source.slug)) continue;
@@ -178,14 +278,14 @@ export async function importDir(path: string, options: PortableImportOptions): P
       if (previous?.validity !== undefined) throw new MemoryError('validity', 'Import would remove the portable policy window', 'Keep pm-memory-policy.json with every exported body file and import the complete directory');
       if (previous !== undefined && !legacyOrigin(origin, source, options.from)) throw new MemoryError('conflict', 'Import would overwrite an independently edited memory', 'Export or rename the source before retrying');
       const relationships = sourceRelationships(source, references);
-      for (const reference of source.links) if (!references.some(item => item.slug === reference) && references.filter(item => stemOf(item.path) === reference).length !== 1) result.unresolved_links++;
+      for (const reference of source.links) if (referenceTarget(reference, references) === undefined) result.unresolved_links++;
       if (previous === undefined) {
         const graph = relationships.map(({ slug, ...edge }) => ({ ...edge, id: baselineIds.get(slug)! }));
-        const fields = { slug: source.slug, kind: source.kind, why: source.why, how: source.how, pinned: false, source: `${options.from}:relative-file`, recalls: 0, verdict: 'unknown', verified_at: '', original: source.original, path: source.path, edited: false, artifact: source.artifact, changed_at: new Date().toISOString() };
+        const fields = { slug: source.slug, kind: source.kind, why: source.why, how: source.how, pinned: false, source: `${options.from}:relative-file`, recalls: 0, verdict: 'unknown', verified_at: '', original: source.original, path: source.path, edited: false, artifact: source.artifact, changed_at: new Date().toISOString(), ...(intakeOrigins.has(source.slug) ? { origin: JSON.stringify(intakeOrigins.get(source.slug)) } : {}) };
         mutations.push({ op: 'create', id, unique: { key: 'memory_slug', value: source.slug }, options: { title: source.title, body: source.body, description: source.description, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: graph }), 'create'), ...metadata(fields) } });
         ownership.push(sourceReceipt({ id, fields: portableFields({ ...source, pinned: false, tags: [] }, source.body), relationships: graph, graph }, source)); result.imported++;
       } else {
-        const before = sourceDocument(source.path, Buffer.from(String(origin!.memory_original), 'base64'), options.from);
+        const before = births.get(previous.id)!;
         const prior = await previousOwnership(store, previous, baselineIds);
         const row = sourceOwnership(source, before, previous, references);
         const patch = ownershipPatch(previous, row, source.body, baselineIds, baselineIds, prior, false);
@@ -199,10 +299,10 @@ export async function importDir(path: string, options: PortableImportOptions): P
       }
     }
     if (mutations.length === 0) { const { skipped: refusals, ...counts } = result; return refusals.length === 0 ? counts : result; }
-    const readSet = new Map(parsed.filter(source => !skipped.has(source.slug)).map(source => [ids.get(source.slug)!, source.slug]));
+    const readSet = new Map(parsed.filter(source => !skipped.has(source.slug)).map(source => [ids.get(source.slug)!, selected.get(source.slug)?.slug ?? source.slug]));
     for (const target of ownership) for (const edge of target.relationships) if (!readSet.has(edge.id)) readSet.set(edge.id, initial.find(item => item.id === edge.id)!.slug);
-    const expected = await expectedTargets(store, [...readSet].map(([id, slug]) => ({ id, slug })), corpus);
-    const plan = { ...identity, input: inputHash, author: resolveAuthorIdentity(options.author, settings.author_default).author, mutations, ownership, expected, initial: expected, members: expected.map(row => row.id), result };
+    const expected = await expectedTargets(store, [...readSet].map(([id, slug]) => ({ id, slug, origin: catalog.creators.find(row => row.id === id)?.origin })), corpus);
+    const plan = { identityVersion: 1 as const, ...identity, input: inputHash, author: resolveAuthorIdentity(options.author, settings.author_default).author, mutations, ownership, expected, initial: expected, members: expected.map(row => row.id), result };
     await validateImportPlan(store, plan, options.onStep); await store.register(options.onStep);
     await previewImport(store, plan);
     await options.onStep?.('previewed');
@@ -297,9 +397,10 @@ function exportedReferences(bytes: Buffer, memories: readonly Memory[], targets:
   }));
 }
 /** Canonical raw bodies and explicit ownership avoid changing native state through projection. */
-async function policyOutputs(store: Store, active: readonly Memory[], to: Exclude<Harness, 'cursor'>): Promise<Map<string, Buffer>> {
-  const guidance = await Promise.all(active.map(item => policyRecord(store, item, active)));
-  const manifest: PortablePolicyManifest = { version: 1, format: 'pm-memory-policy', harness: to, guidance };
+async function policyOutputs(store: Store, active: readonly Memory[], to: Exclude<Harness, 'cursor'>, origins?: Awaited<ReturnType<typeof originCatalog>>): Promise<Map<string, Buffer>> {
+  await ensureTrackerOrigin(store); const catalog = origins ?? await originCatalog(store);
+  const guidance = await Promise.all(active.map(item => policyRecord(store, item, active, catalog)));
+  const manifest: PortablePolicyManifest = parsePolicy({ version: 1, format: 'pm-memory-policy', harness: to, guidance });
   const outputs = new Map<string, Buffer>([[POLICY_MANIFEST, Buffer.from(JSON.stringify(manifest, null, 2) + '\n')]]);
   for (const [index, row] of guidance.entries()) outputs.set(row.path, policyBody(row, active[index].body));
   const index = guidance.map(row => `- [${row.slug}](${row.path})${row.validity === null ? '' : ` [${row.validity.from}, ${row.validity.until}); retain policy manifest and renewal evidence`}`).join('\n');
@@ -317,11 +418,12 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     const nativeGraphEdits = new Set<string>(); const unreceipted = new Set<string>();
     const memories = await Promise.all(owned.memories.map(async item => {
       const previous = item.source.endsWith(':relative-file') ? await previousOwnership(store, item, ids) : undefined;
-      if (previous === undefined) unreceipted.add(item.id);
+      if (previous === undefined || previous.creation) unreceipted.add(item.id);
       if ((previous?.nativeRelationships?.length ?? 0) > 0) nativeGraphEdits.add(item.id);
       const source = previous?.source;
       return source === undefined ? item : { ...item, original: source.original };
     }));
+    await ensureTrackerOrigin(store); const catalog = await originCatalog(store);
     const foreignReceipt = foreign.length === 0 ? {} : { skipped: foreign.map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };
     if (memories.some(item => item.consent !== undefined && item.status !== 'canceled' && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
     const active = memories.filter(item => item.status !== 'canceled' && !item.artifact).sort((a, b) => a.slug.localeCompare(b.slug));
@@ -330,42 +432,60 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
         const target = memories.find(target => target.id === edge.id);
         return [{ slug: item.slug, target: edge.id, kind: edge.kind, reason: target === undefined ? 'missing' as const : target.status === 'canceled' ? 'canceled' as const : 'artifact' as const }];
     }));
+    const lossy: NonNullable<PortableExportResult['lossy']> = active.flatMap(item => {
+      const fields: NonNullable<PortableExportResult['lossy']>[number]['fields'] = [];
+      if (omitted_links.some(edge => edge.slug === item.slug)) fields.push('relationships');
+      if (item.relationships.some(edge => edge.author_source !== undefined && edge.author_source !== 'asserted')) fields.push('relationships.author_source');
+      return fields.length === 0 ? [] : [{ slug: item.slug, fields, reason: 'External targets are unknown in this inventory; SDK-authored relationship provenance is reasserted on fresh creation' }];
+    });
     /** Publication and receipts have one lease-fenced path for both wire encodings. */
     const commit = async (outputs: Map<string, Buffer>, byte_preserved: number): Promise<PortableExportResult> => {
       await store.fence(() => publish(resolve(path), outputs, options.onStep));
-      return { exported: outputs.size, byte_preserved, ...foreignReceipt, ...(omitted_links.length === 0 ? {} : { omitted_links }) };
+      const artifacts: NonNullable<PortableExportResult['lossy']> = outputs.has(POLICY_MANIFEST) ? memories.filter(item => item.artifact && item.status !== 'canceled').map(item => ({ slug: item.slug, fields: ['slug', ...PORTABLE_FIELDS, 'relationships', 'artifact'], reason: 'Native index artifact is regenerated; its record is outside this policy inventory' })) : [];
+      const losses = [...lossy, ...artifacts];
+      return { exported: outputs.size, byte_preserved, ...foreignReceipt, ...(losses.length === 0 ? {} : { lossy: losses }), ...(omitted_links.length === 0 ? {} : { omitted_links }) };
     };
     if (memories.length === 0 || memories.some(item => item.validity !== undefined || item.source === 'native:item' || item.source === 'portable:policy-v1')) {
-      return commit(await policyOutputs(store, active, options.to), 0);
+      return commit(await policyOutputs(store, active, options.to, catalog), 0);
     }
+    const originals = new Map(memories.filter(item => item.status !== 'canceled').map(item => [item.id, item.path !== '' && !item.edited && !nativeGraphEdits.has(item.id) && item.source === `${options.to}:relative-file` ? sourceDocument(safePath(item.path), Buffer.from(item.original, 'base64'), options.to) : undefined]));
+    const decodedKeys = [...originals.values()].flatMap(source => source === undefined ? [] : [source.slug]);
+    if (new Set(decodedKeys).size !== decodedKeys.length) throw new MemoryError('conflict', 'Exported names normalize to duplicate slugs', 'Rename the conflicting legacy source names before exporting');
     const indexName = options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md';
     const names = new Set([indexName.toLowerCase()]);
+    const records: LegacyOriginRecord[] = [];
     const outputs = new Map<string, Buffer>(); const emitted: { item: Memory; name: string }[] = []; const preserved = new Set<string>();
     for (const item of memories) {
       if (item.status === 'canceled') continue;
       await store.history(item.id);
       let name: string; let bytes: Buffer;
-      const source = item.path !== '' && !item.edited && !nativeGraphEdits.has(item.id) && item.source === `${options.to}:relative-file` ? sourceDocument(item.path, Buffer.from(item.original, 'base64'), options.to) : undefined;
+      const source = originals.get(item.id);
       const unprovenGraph = source !== undefined && unreceipted.has(item.id) && (item.relationships.length > 0 || source.links.length > 0);
       if (source !== undefined && !unprovenGraph && sameContent(item, source)) {
         name = safePath(item.path); bytes = Buffer.from(item.original, 'base64'); preserved.add(name);
-      } else if (!item.artifact) return commit(await policyOutputs(store, active, options.to), 0);
+      } else if (!item.artifact) return commit(await policyOutputs(store, active, options.to, catalog), 0);
       else continue;
+      if (name.toLowerCase() === LEGACY_ORIGINS) return commit(await policyOutputs(store, active, options.to, catalog), 0);
       const folded = name.toLowerCase();
       const originalIndex = name === indexName && item.path === name && !item.edited;
       if (outputs.has(name) || (names.has(folded) && !originalIndex)) throw new MemoryError('conflict', 'Export names collide', 'Rename the conflicting memory slug or source path, including reserved index names');
       names.add(folded);
       outputs.set(name, bytes);
+      const decoded = sourceDocument(name, bytes, options.to);
+      records.push({ file: name, guidance: await policyRecord(store, item, memories, catalog), decoded: portableFields({ ...decoded, pinned: false, tags: [] }, decoded.body), links: decoded.links, artifact: item.artifact });
       if (!item.artifact) emitted.push({ item, name });
     }
     const original = outputs.get(indexName);
     const losslessIndex = original !== undefined && (options.to === 'claude-code'
       ? currentIndex(original, emitted.map(row => row.name))
       : emitted.every(row => row.name === indexName || original.includes(outputs.get(row.name)!)));
-    if (!losslessIndex) return commit(await policyOutputs(store, active, options.to), 0);
+    if (!losslessIndex) return commit(await policyOutputs(store, active, options.to, catalog), 0);
     const targets = new Map(emitted.map(({ item, name }) => [item.id, sourceDocument(name, outputs.get(name)!, options.to)]));
     if (new Set([...targets.values()].map(source => source.slug)).size !== targets.size) throw new MemoryError('conflict', 'Exported names normalize to duplicate slugs', 'Rename the conflicting memory slug or source path before exporting');
-    for (const bytes of outputs.values()) if (!exportedReferences(bytes, memories, targets).equals(bytes)) return commit(await policyOutputs(store, active, options.to), 0);
+    for (const bytes of outputs.values()) if (!exportedReferences(bytes, memories, targets).equals(bytes)) return commit(await policyOutputs(store, active, options.to, catalog), 0);
+    const payload = JSON.stringify(records);
+    const companion: LegacyOriginManifest = { version: 1, format: 'pm-memory-origins', harness: options.to, payload, checksum: digest(payload) };
+    outputs.set(LEGACY_ORIGINS, Buffer.from(JSON.stringify(companion, null, 2) + '\n'));
     return commit(outputs, preserved.size);
   });
 }

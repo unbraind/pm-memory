@@ -10,7 +10,7 @@ import { replanNodes } from '../src/portable-replan.ts';
 import { digest } from '../src/core.ts';
 import { guardedCompensation, ownsLatest } from '../src/portable-rollback.ts';
 import { importIdentity, validateImportPlan, type ImportPlan } from '../src/portable-plan.ts';
-import { tracker, memoryDocuments, assertClosedGraph, crashAfterCompensation, crashAtStep } from './helpers.ts';
+import { tracker, memoryDocuments, assertClosedGraph, crashAfterCompensation, crashAtStep, importSubset, explicitRecreation } from './helpers.ts';
 
 /** A real two-target import plus a bounded unchanged read-set dependency. */
 async function rollbackScenario(t: Parameters<typeof tracker>[0]) {
@@ -86,7 +86,7 @@ test('committed attempts are skipped by allocation and by stale-intent recovery 
   const next = await target.store.write(() => importIdentity(target.store, plan.input, plan.attempt));
   assert.notEqual(next.transactionId, plan.transactionId); assert.notEqual(next.attempt, plan.attempt);
   for (const item of (await target.client.listAllComplete()).items) await target.client.run('delete', { id: item.id, options: { force: true } });
-  assert.equal((await importDir(path, { ...target.options, from: 'agents-md' })).imported, 3);
+  assert.equal((await explicitRecreation(path, { ...target.options, from: 'agents-md' })).imported, 3);
   const blocked = await tracker(t); await mkdir(join(blocked.workspace, 'transactions'), { recursive: true });
   await writeFile(join(blocked.workspace, 'transactions', 'sdk'), 'Foreign non-directory');
   await assert.rejects(importIdentity(blocked.store, plan.input), error => error instanceof MemoryError && error.code === 'transaction');
@@ -208,7 +208,8 @@ test('occupied identity selection uses complete SDK inventories and preserves fo
 
 test('mixed graph node compensation remaps every edge and reads older intent expectations safely', async t => {
   const { source } = await rollbackScenario(t); const target = await tracker(t);
-  const native = await remember('Alpha A', { ...target.options, slug: 'alpha', kind: 'project' });
+  await importSubset(join(source.root, 'rollback-export'), target, ['alpha']);
+  const native = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!;
   const sourceItems = (await source.client.listAllComplete()).items;
   await source.store.link(sourceItems.find(row => row.memory_slug === 'beta')!.id, sourceItems.find(row => row.memory_slug === 'alpha')!.id);
   await source.store.link(sourceItems.find(row => row.memory_slug === 'policy')!.id, sourceItems.find(row => row.memory_slug === 'beta')!.id);
@@ -240,7 +241,7 @@ test('native deletion of interrupted nodes wins and explicit retries create a fr
     for (const item of (await target.client.listAllComplete()).items) await target.client.run('delete', { id: item.id, options: { force: true, author } });
     await assert.rejects(importDir(path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'conflict');
     assert.equal((await target.client.listAllComplete()).items.length, 0);
-    assert.equal((await importDir(path, { ...target.options, from: 'agents-md' })).imported, 3);
+    assert.equal((await explicitRecreation(path, { ...target.options, from: 'agents-md' })).imported, 3);
     assertClosedGraph((await target.client.listAllComplete()).items);
   }
 });

@@ -265,14 +265,42 @@ transaction-owned creations. The SDK reserves deleted identities in history, so 
 allocates fresh identities and remaps edges while retaining the old audit history.
 Portable ownership receipts are committed in a second recoverable SDK workspace
 transaction, outside native item fields. Their field fingerprints use the SDK storage
-normalizer. Immutable history identifies later native changes per field and relationship identity, so an older
+normalizer. When an edge-free SDK creation has no later update marker, `getItemAt(id, "1")` supplies its immutable field baseline without inventing a graph receipt. Immutable history identifies later native changes per field and relationship identity, so an older
 manifest can still replay without adopting a native edit as portable state. No input
 bookkeeping, verification, utility, unknown fields or other native-only metadata is
 rewritten on existing records. An unchanged source round trip performs no item writes.
 Legacy adapters share this ownership split and the same recoverable SDK batch; implicit defaults and absent wiki links grant no deletion authority. Native identity and source bookkeeping remain unchanged when portable content is revised. Raw input whitespace is never compared with stored values to classify native edits.
-Export reuses original legacy bytes only when their decoded defaults reproduce every portable field, including kind, description, rationale, application, pinning and tags. A native edit to those values or the relationship graph selects the policy format, so a fresh destination retains the current guidance rather than the older legacy defaults.
-Older legacy records without ownership receipts use policy output whenever stored edges or source wiki references make graph fidelity unproven.
-Legacy source bookkeeping is decoded only when attempting legacy output; policy output reads current SDK semantics directly.
+Every exported record binds its originating tracker namespace, item id and SDK
+creation-history hash in `origin` (also retained in `baseline.origin`). Slugs and titles are display hints,
+never target selectors. The namespace is published once as package-owned
+`memory-origin.json` in the tracker and travels with tracker copies. Native renames
+cannot redirect an import to an identical same-slug replacement. A known deleted
+origin refuses with typed `origin_missing`; `pm memory import DIRECTORY --from
+agents-md --create` (SDK `createMissingOrigins: true`) explicitly recreates it, provided
+its display alias is free. A never-seen remote origin can be first imported into a
+fresh tracker. Older unbound policy inventories require a new export or explicit
+creation; they never adopt a same-name native record. Recovery also guards immutable
+lineage and compensates older plans that predate this identity contract.
+
+Export reuses original legacy bytes only when their decoded defaults and slug reproduce
+every portable field, including kind, description, rationale, application, pinning
+and tags. Those files ship with `pm-memory-origins.json`: a checksummed immutable
+snapshot carries origins and retained native relationships. Keep the companion with
+the whole exported inventory; edit the adjacent guidance files, not its payload.
+Removing a wiki link from text never removes a retained edge. Supported text edits
+are projected onto that snapshot and use the same validated policy/CAS transaction.
+Native semantic edits select canonical policy output when raw bytes would be stale.
+Older legacy records without ownership receipts use policy output whenever stored
+edges or source wiki references make graph fidelity unproven. Legacy bookkeeping is
+decoded only when attempting legacy output; policy output reads current SDK semantics.
+Export receipts explicitly report `lossy: [{slug, fields, reason}]` for relationships
+outside the inventory and SDK attribution provenance that fresh writes must reassert.
+Canonical fallback also reports each omitted native index artifact with every lost
+semantic field (`slug`, `title`, `description`, `body`, `kind`, `why`, `how`, `pinned`,
+`tags`, `relationships`, `artifact`). Byte-preserved companions retain that artifact
+record. Other expressible fields, including native slug renames and retained edges,
+round trip; nothing is silently treated as absent.
+
 Unrelated tracker readers can observe staged writes until
 commit or recovery completes. Schema registration is idempotent and
 precedes the item batch. The lease covers the state read, planning, preview and
@@ -302,7 +330,8 @@ The existing CLI commands return compact host TOON or `--json` counts; policy im
 also return `skipped: [{slug, reason}]`. Bodies and renewal histories are kept in files
 rather than echoed in the receipt. SDK clients use `importDir`, `exportDir`,
 `PortableImportOptions`, `PortableImportResult`, `PortableExportResult`, `PortableGuidance`,
-`PortablePolicyManifest`, `PortableBaseline`, `PortableFields` and the pure `parsePolicy` validator. See the [typed
+`PortablePolicyManifest`, `PortableBaseline`, `PortableFields`, `PortableOrigin`,
+`LegacyOriginManifest`, `LegacyOriginRecord` and the pure `parsePolicy`/`parseLegacyOrigins` validators. See the [typed
 example](examples/portable-guidance.ts) and [public-tracker validation](docs/portable-guidance-validation.md). The state-machine property executes 500 independent seeded
 sequences (master seed `0x1363cafe`) with 22,933 SDK-read state checks over both
 harnesses, older-manifest replays, native body/field/relationship edits,
@@ -317,6 +346,11 @@ failing sequence prints its master seed, sequence seed, operation and step. One 
 fresh Node workers run five sequences each, bounding Node 22 coverage bookkeeping
 without reducing state coverage. The parent verifies each worker and its complete
 SDK-read receipt; workers inherit coverage collection.
+A separate legacy fidelity law runs 500 sequences with master seed `0x13631d07`.
+It compares native SDK values after a fresh import, permitting only the exact fields
+reported as lossy, and then tests post-export renames with identical replacements.
+Inputs include retained edges after link removal, native field/slug edits, whitespace,
+typed relationship additions/removals, native Task and canceled targets, and byte-preserved inventories from both exporting harnesses.
 Three additional ownership laws each run 500 seeded sequences through both harnesses:
 identity (`import(export(T))` into T changes no SDK-returned field), locality (only
 explicit portable edits change), and foreign preservation (intervening native edits

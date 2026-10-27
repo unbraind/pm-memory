@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { exportDir, importDir, remember, renew, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody } from '../src/portable.ts';
-import { tracker, snapshot, crashAtStep, assertSkippedUnchanged, exportedPolicy, editIntent, crashAfterCompensation } from './helpers.ts';
+import { tracker, snapshot, crashAtStep, assertSkippedUnchanged, exportedPolicy, editIntent, crashAfterCompensation, assertOriginRefused, importText } from './helpers.ts';
 import { WorkspaceTransactionInterruptedError, commitItemMutations, getHistoryPath, getItemPath, canonicalDocument, serializeItemDocument, resolveItemTypeRegistry, readSettings } from '@unbrained/pm-cli/sdk';
 import type { ImportPlan } from '../src/portable-plan.ts';
 import { replanNodes } from '../src/portable-replan.ts';
@@ -240,13 +240,12 @@ test('immutable origin lookup ignores malformed and unrelated creation provenanc
   assert.equal((await importDir(path, { ...target.options, from: 'agents-md' })).imported, 1);
   assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items.filter(item => before.some(row => row.id === item.id)), before);
   const original = Buffer.from(JSON.stringify([row, 'Baseline policy A'])).toString('base64');
-  for (const slug of ['duplicate-one', 'duplicate-two']) await target.client.run('create', { options: { title: 'Duplicate origin', type: 'Knowledge', memorySlug: slug, memoryKind: 'reference', memorySource: 'portable:policy-v1', memoryOriginal: original } });
+  for (const slug of ['duplicate-one', 'duplicate-two']) await target.client.run('create', { options: { title: 'Duplicate origin', type: 'Knowledge', memorySlug: slug, memoryKind: 'reference', memorySource: 'portable:policy-v1', memoryOriginal: original, memoryOrigin: JSON.stringify(row.origin) } });
   const imported = (await target.client.listAllComplete()).items.find(item => item.memory_slug === row.slug)!;
   await target.store.fields(imported.id, { slug: 'also-renamed' });
-  await assertSkippedUnchanged(() => importDir(path, { ...target.options, from: 'agents-md' }), target.workspace);
+  await assertOriginRefused(() => importDir(path, { ...target.options, from: 'agents-md' }), target.workspace);
   const retained = (await target.client.listAllComplete({ includeBody: true })).items;
-  const ownCopy = await exportedPolicy(target, 're-exported-origins');
-  await importDir(ownCopy.path, { ...target.options, from: 'agents-md' });
+  await assert.rejects(exportedPolicy(target, 're-exported-origins'), error => error instanceof MemoryError && error.code === 'origin_missing');
   assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, retained);
 });
 
@@ -328,7 +327,7 @@ test('malformed immutable creation provenance is skipped without adopting a pack
   for (const original of ['{', 'null', '[]', '[{},3]', '[{},"body"]']) {
     const target = await tracker(t); await target.store.register();
     await target.client.run('create', { options: { title: 'Retained unrelated record', type: 'Knowledge', memorySlug: 'policy', memoryKind: 'project', memorySource: 'portable:policy-v1', memoryOriginal: Buffer.from(original).toString('base64') } });
-    await assertSkippedUnchanged(() => importDir(path, { ...target.options, from: 'agents-md' }), target.workspace);
+    await assertOriginRefused(() => importDir(path, { ...target.options, from: 'agents-md' }), target.workspace);
   }
 });
 
@@ -355,7 +354,8 @@ test('compensated mixed imports remap new nodes while retaining native external 
 });
 
 test('single-file legacy imports guard represented targets outside the input and drain older incomplete read sets', async t => {
-  const target = await tracker(t); const beta = await remember('Native beta reference', { ...target.options, slug: 'beta', kind: 'reference' });
+  const target = await tracker(t); await importText(target, 'beta.md', 'Native beta reference');
+  const beta = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'beta')!;
   const file = join(target.root, 'alpha.md'); await writeFile(file, 'Alpha references [[beta]]');
   await assert.rejects(importDir(file, { ...target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
   const intent = join(target.workspace, 'runtime', 'memory-policy-import.json');

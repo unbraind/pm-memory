@@ -23,8 +23,8 @@ export async function replanNodes(store: Store, plan: ImportPlan): Promise<Impor
   if (plan.ownership === undefined) throw new MemoryError('history', 'Older graph plans require compensated recovery', 'Rerun the original memory import to compensate its older plan before replanning');
   const identity = await importIdentity(store, plan.input); const { transactionId } = identity;
   const settings = await readSettings(store.workspace);
-  const ids = new Map(plan.expected.map(target => [target.slug, plan.mutations.some(row => row.id === target.id && row.op === 'create') ? `${settings.id_prefix}${digest(`${transactionId}:${target.slug}`).slice(0, 24)}` : target.id]));
-  const remapped = new Map(plan.expected.map(target => [target.id, ids.get(target.slug)!]));
+  const ids = new Map(plan.expected.map(target => [target.id, plan.mutations.some(row => row.id === target.id && row.op === 'create') ? `${settings.id_prefix}${digest(`${transactionId}:${target.slug}`).slice(0, 24)}` : target.id]));
+  const remapped = new Map(plan.expected.map(target => [target.id, ids.get(target.id)!]));
   /** Both represented and native-only edges keep external identities during remapping. */
   const remapEdge = (edge: Dependency): Dependency => ({ ...edge, id: remapped.get(edge.id) ?? edge.id });
   const ownership = plan.ownership.map(target => ({ ...target, id: remapped.get(target.id)!, relationships: target.relationships.map(remapEdge), graph: target.graph.map(remapEdge) }));
@@ -35,7 +35,7 @@ export async function replanNodes(store: Store, plan: ImportPlan): Promise<Impor
     const before = mutation.op === 'create' ? undefined : (await store.client.get(mutation.id, { full: true })).item;
     return { ...mutation, id: target.id, options: { ...options, ...(mutation.op === 'create' ? itemDocumentToMutationOptions(JSON.stringify({ dependencies: target.graph }), 'create') : relationshipPatch(before!.dependencies ?? [], target.graph)) } };
   }));
-  const expected = await expectedTargets(store, plan.expected.map(target => ({ id: ids.get(target.slug)!, slug: target.slug })));
-  const initial = (plan.initial ?? plan.expected).map(target => ({ ...target, id: ids.get(target.slug)! }));
+  const expected = await expectedTargets(store, plan.expected.map(target => ({ id: ids.get(target.id)!, slug: target.slug, origin: target.origin })));
+  const initial = (plan.initial ?? plan.expected).map(target => ({ ...target, id: ids.get(target.id)! }));
   return { ...plan, ...identity, ownership, ownedTransactions: [...(plan.ownedTransactions ?? []), plan.transactionId], mutations, expected, initial, members: [...ids.values()], nodes: undefined, nodesDone: false, snapshots: undefined };
 }

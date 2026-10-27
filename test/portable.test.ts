@@ -29,9 +29,11 @@ async function fixture(t: Parameters<typeof tracker>[0], to: 'agents-md' | 'clau
 
 /** Create two independent policy rows for batch boundary tests. */
 async function twoPolicies(t: Parameters<typeof tracker>[0]) {
-  const source = await fixture(t); const valid = await manifest(source.path);
-  const row = structuredClone(valid.guidance[0]); row.slug = 'second'; row.path = 'memories/second.md'; row.baseline!.slug = row.slug; delete row.baseline!.id; valid.guidance.push(row);
-  await save(source.path, valid); await writeFile(join(source.path, row.path), policyBody(row, 'Second policy'));
+  const source = await fixture(t);
+  await remember('Second policy', { ...source.options, slug: 'second', kind: 'project', pin: true, forceNew: true });
+  await renew('second', { ...source.options, from, until, evidence: 'Second independently created origin' });
+  await rm(source.path, { recursive: true }); await exportDir(source.path, { ...source.options, to: 'agents-md' });
+  const valid = await manifest(source.path); const row = valid.guidance.find(row => row.slug === 'second')!;
   return { source, valid, row };
 }
 /** Check that recovery retained the one policy and its latest evidence revision. */
@@ -149,7 +151,7 @@ test('every malformed or expanded policy field refuses the whole batch before an
 });
 
 test('SDK transaction crashes at every transition resume without duplicate items or lost renewal evidence', async t => {
-  const { source, valid, row } = await twoPolicies(t);
+  const { source, valid } = await twoPolicies(t);
   const probe = await tracker(t); const boundaries: string[] = [];
   await importDir(source.path, { ...probe.options, from: 'agents-md', onTransition: event => { boundaries.push(`${event.transition}:${event.stepId ?? ''}`); } });
   assert.equal(boundaries.length, 21);
@@ -158,7 +160,7 @@ test('SDK transaction crashes at every transition resume without duplicate items
     await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onTransition: () => { if (step++ === index) throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
     await importDir(source.path, { ...target.options, from: 'agents-md' });
     const rows = await target.store.read(); assert.equal(rows.length, 2);
-    for (const item of rows) assert.deepEqual((await policyRecord(target.store, item)).renewals, row.renewals);
+    for (const item of rows) assert.deepEqual((await policyRecord(target.store, item)).renewals, valid.guidance.find(row => row.slug === item.slug)!.renewals);
     const saved = await snapshot(target.workspace);
     assert.equal((await importDir(source.path, { ...target.options, from: 'agents-md' })).unchanged, 2);
     assert.deepEqual(await snapshot(target.workspace), saved);
@@ -236,10 +238,15 @@ test('export crashes and competing exporters at every file-publication boundary 
 test('missing manifests and foreign native records are refused or skipped with explicit reasons', async t => {
   const source = await fixture(t); const target = await tracker(t);
   await assert.rejects(importDir(join(source.path, 'memories/policy.md'), { ...target.options, from: 'agents-md' }), refused);
-  await remember('Foreign authored content', { ...target.options, kind: 'reference', slug: 'policy' });
+  const unrelated = await remember('Foreign authored content', { ...target.options, kind: 'reference', slug: 'policy' });
+  const before = await snapshot(target.workspace);
+  await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'origin_missing');
+  assert.deepEqual(await snapshot(target.workspace), before);
+  await target.store.fields(unrelated.id, { source: 'foreign:tool' });
   const result = await importDir(source.path, { ...target.options, from: 'agents-md' });
-  assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /Foreign native/);
+  assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /Foreign record has no package-owned source/);
   assert.equal((await get('policy', target.options)).body, 'Foreign authored content');
+  await target.store.fields(unrelated.id, { source: 'native:item' });
   assert.deepEqual(await importPolicy([{ path: POLICY_MANIFEST, bytes: Buffer.from(JSON.stringify({ version: 1, format: 'pm-memory-policy', harness: 'agents-md', guidance: [] })) }], { ...target.options, from: 'agents-md' }), { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [] });
 });
 

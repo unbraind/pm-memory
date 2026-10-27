@@ -10,6 +10,8 @@ import type { Store } from './store.ts';
 import { guardedCompensation, rollbackImport } from './portable-rollback.ts';
 import { relationshipPatch, validOwnedTarget } from './portable-ownership.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
+import { creator, readTrackerOrigin, sameOrigin, validOrigin } from './portable-origin.ts';
+import type { PortableOrigin } from './portable-origin.ts';
 
 /** SDK-derived attempts and the earlier private content/history identity format. */
 const IMPORT_ID = /^memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})$/;
@@ -33,6 +35,8 @@ export interface ExpectedTarget {
   id: string;
   /** Unique portable identity also guarded against a new competing owner. */
   slug: string;
+  /** Exported immutable lineage, never resolved from a mutable alias. */
+  origin?: PortableOrigin;
   /** SDK restorable revision checked atomically by update.match. */
   version: string | null;
   /** Expected number of immutable history entries. */
@@ -41,7 +45,7 @@ export interface ExpectedTarget {
   history: string;
 }
 /** Capture expected target state through the SDK before constructing a batch. */
-export async function expectedTargets(store: Store, targets: readonly Pick<ExpectedTarget, 'id' | 'slug'>[], observed?: readonly { id: string; updated_at: string }[]): Promise<ExpectedTarget[]> {
+export async function expectedTargets(store: Store, targets: readonly Pick<ExpectedTarget, 'id' | 'slug' | 'origin'>[], observed?: readonly { id: string; updated_at: string }[]): Promise<ExpectedTarget[]> {
   const items = observed ?? certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
   return Promise.all(targets.map(async target => {
     const item = items.find(item => item.id === target.id);
@@ -70,7 +74,7 @@ async function guardPlan(store: Store, plan: ImportPlan): Promise<void> {
   const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: true })).items;
   for (const expected of plan.expected) {
     const item = items.find(item => item.id === expected.id);
-    if (items.some(row => row.memory_slug === expected.slug && row.id !== expected.id)) throw new PlanMoved('Portable target ownership moved');
+    if (expected.version === null && items.some(row => row.memory_slug === expected.slug && row.id !== expected.id)) throw new PlanMoved('Portable target ownership moved');
     const entries = await readHistoryEntries(getHistoryPath(store.workspace, expected.id), expected.id);
     const tail = entries.slice(expected.length);
     const mutation = plan.mutations.find(row => row.id === expected.id);
@@ -84,11 +88,17 @@ async function guardPlan(store: Store, plan: ImportPlan): Promise<void> {
       return entry.message?.startsWith(`bulk-item-transaction ${plan.transactionId} `) || entry.message?.startsWith(`bulk-item-transaction ${plan.transactionId}-snapshot `) || (entry.op === 'delete' && entry.author === plan.author && entry.message === `Compensate interrupted bulk transaction ${plan.transactionId}-nodes`);
     });
     if (expected.version === null && item !== undefined && !owned) throw new PlanForeign('Foreign record occupies the reserved import id');
+    if (expected.origin !== undefined && entries.length > 0) {
+      const actual = creator(expected.id, entries[0], await readTrackerOrigin(store));
+      if (actual === undefined || !sameOrigin(actual.origin, expected.origin)) throw new PlanMoved('Immutable import origin changed');
+    }
     if (hashHistoryStream(entries.slice(0, expected.length)) !== expected.history || !(unchanged || owned)) throw new PlanMoved('Portable import target revision moved');
   }
 }
 /** Frozen SDK batch bound to the target history positions that it replaces. */
 export interface ImportPlan {
+  /** Plans predating immutable selection are compensated rather than replayed. */
+  identityVersion?: 1;
   /** Input bytes and metadata, independent of the target generation. */
   input: string;
   /** Attributed SDK operation identity. */
@@ -201,12 +211,13 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
   try {
     plan = JSON.parse(value.payload) as ImportPlan;
     if (!IMPORT_ID.test(plan.transactionId) || typeof plan.input !== 'string' || typeof plan.author !== 'string' || !Array.isArray(plan.members) || !plan.members.every(id => typeof id === 'string')) throw new Error();
+    if (plan.identityVersion !== undefined && plan.identityVersion !== 1) throw new Error();
     if (plan.nodesDone !== undefined && typeof plan.nodesDone !== 'boolean') throw new Error();
     if (plan.attempt !== undefined && (typeof plan.attempt !== 'string' || !/^[a-f0-9-]{36}$/.test(plan.attempt))) throw new Error();
     if (plan.refusing !== undefined && typeof plan.refusing !== 'boolean') throw new Error();
     if (plan.ownership !== undefined && (!Array.isArray(plan.ownership) || !plan.ownership.every(row => validOwnedTarget(row) && plan.expected.some(target => target.id === row.id)))) throw new Error();
     if (plan.ownedTransactions !== undefined && (!Array.isArray(plan.ownedTransactions) || !plan.ownedTransactions.every(id => typeof id === 'string' && IMPORT_ID.test(id)))) throw new Error();
-    if (!Array.isArray(plan.expected) || !plan.expected.every(row => typeof row.id === 'string' && typeof row.slug === 'string' && (row.version === null || typeof row.version === 'string') && Number.isSafeInteger(row.length) && row.length >= 0 && typeof row.history === 'string')) throw new Error();
+    if (!Array.isArray(plan.expected) || !plan.expected.every(row => typeof row.id === 'string' && typeof row.slug === 'string' && (row.version === null || typeof row.version === 'string') && Number.isSafeInteger(row.length) && row.length >= 0 && typeof row.history === 'string' && (row.origin === undefined || validOrigin(row.origin)))) throw new Error();
     if (plan.initial !== undefined && (!Array.isArray(plan.initial) || !plan.initial.every(row => row !== null && typeof row === 'object' && typeof row.id === 'string' && plan.expected.some(target => target.id === row.id) && (row.version === null || typeof row.version === 'string')))) throw new Error();
     if (![plan.mutations, ...(plan.nodes === undefined ? [] : [plan.nodes]), ...(plan.snapshots === undefined ? [] : [plan.snapshots])].every(batch => validBatch(batch, plan.expected))) throw new Error();
     if (plan.ownership !== undefined && plan.mutations.some(row => !plan.ownership!.some(target => target.id === row.id))) throw new Error();
@@ -215,7 +226,7 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
   if (plan.refusing) return drainRefusal(store, plan, onStep, onTransition);
   const journal = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.transactionId}-snapshot.json`));
   if (typeof journal === 'object' && journal !== null && 'status' in journal && journal.status === 'committed') { await onStep?.('recover-published'); return await removeIntent(store, plan) ? undefined : 'foreign'; }
-  if (plan.ownership === undefined || plan.ownership.some(target => target.relationships.some(edge => !plan.expected.some(row => row.id === edge.id)))) {
+  if (plan.identityVersion === undefined || plan.ownership === undefined || plan.ownership.some(target => target.relationships.some(edge => !plan.expected.some(row => row.id === edge.id)))) {
     // Older whole-record or incomplete read-set plans must compensate before the current adapter replans.
     if (plan.initial === undefined) plan.initial = plan.expected.map(target => plan.nodes?.some(row => row.id === target.id) ? { ...target, version: null, length: 0, history: hashHistoryStream([]) } : target);
     plan.refusing = true; await savePlan(store, plan);

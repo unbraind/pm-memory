@@ -5,8 +5,10 @@ import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
 import type { GuidanceWindow, Harness, Memory, MemoryKind, MemoryOptions } from './types.ts';
-import { portableFields, validFields, ownershipPatch, previousOwnership, resolvedRelationships, creationMetadata, matchesOrigin } from './portable-ownership.ts';
-import type { PortableBaseline, OwnedTarget } from './portable-ownership.ts';
+import { portableFields, validFields, ownershipPatch, previousOwnership, resolvedRelationships, creationMetadata } from './portable-ownership.ts';
+import type { PortableBaseline, OwnedTarget, PortableFields } from './portable-ownership.ts';
+import { itemOrigin, validOrigin, originCatalog, selectOrigin, sameOrigin } from './portable-origin.ts';
+import type { PortableOrigin } from './portable-origin.ts';
 
 /** Reserved inventory file: keep it with the Markdown files through harness edits. */
 export const POLICY_MANIFEST = 'pm-memory-policy.json';
@@ -18,6 +20,11 @@ export function foreignMemories<T extends { type: string; memory_slug?: unknown;
 /** Decode ownership and semantic values from one complete native SDK snapshot. */
 export async function ownedMemories(store: Store, corpus: Awaited<ReturnType<Store['client']['listAllComplete']>>['items']) {
   const foreign = foreignMemories(corpus);
+  // A foreign native record cannot acquire memory ownership by changing only its current tags.
+  for (const item of corpus) if (item.type === 'Knowledge' && item.memory_slug !== undefined && !foreign.some(row => row.id === item.id)) {
+    const born = await creationMetadata(store, item.id);
+    if (born !== undefined && (born.type !== 'Knowledge' || typeof born.memory_slug !== 'string' || typeof born.memory_source !== 'string' || !OWNED_SOURCES.includes(born.memory_source))) foreign.push(item);
+  }
   const allowed = new Set(corpus.filter(item => !foreign.some(record => record.id === item.id)).map(item => item.id));
   return { foreign, memories: await store.read(allowed, corpus) };
 }
@@ -25,6 +32,8 @@ export async function ownedMemories(store: Store, corpus: Awaited<ReturnType<Sto
 export type PortableRelationship = Omit<Dependency, 'id'> & { slug: string };
 /** Semantic memory projection that is independent of native ids and tracker bookkeeping. */
 export interface PortableGuidance {
+  /** Immutable lineage remains bound even when older tools omit ownership baselines. */
+  origin?: PortableOrigin;
   /** Immutable owned-field and relationship baseline; absent only in older exports. */
   baseline?: PortableBaseline;
   /** Stable interoperable guidance identity. */
@@ -69,6 +78,8 @@ export interface PortablePolicyManifest {
 }
 /** Deterministic transition observer for import crash and contention validation. */
 export interface PortableImportOptions extends MemoryOptions {
+  /** Explicitly recreate a deleted or otherwise missing previously bound origin. */
+  createMissingOrigins?: boolean;
   /** Source harness, validated by the normal transfer entry point. */
   from: Harness;
   /** Explicit email opt-in; secrets remain forbidden. */
@@ -91,8 +102,12 @@ export interface PortableImportResult {
   /** Foreign records left untouched. */
   skipped: { slug: string; reason: string }[];
 }
+/** Exact semantic field names that an export can explicitly report as unrepresentable. */
+export type PortableLossyField = keyof PortableFields | 'slug' | 'artifact' | 'relationships' | 'relationships.author_source';
 /** Export counts plus explicit receipts for references outside the active inventory. */
 export interface PortableExportResult {
+  /** Exact semantic fields the complete export cannot reproduce through native SDK writes. */
+  lossy?: { slug: string; fields: PortableLossyField[]; reason: string }[];
   /** Number of published harness files. */
   exported: number;
   /** Original source files retained without rewriting their bytes. */
@@ -101,6 +116,17 @@ export interface PortableExportResult {
   omitted_links?: { slug: string; target: string; kind: Dependency['kind']; reason: 'canceled' | 'artifact' | 'missing' }[];
   /** Unrecognized records excluded before package metadata is decoded. */
   skipped?: { slug: string; reason: string }[];
+}
+/** Original legacy provenance retained by the shared policy transaction path. */
+export interface LegacyPortableSource {
+  /** Raw source bytes encoded as base64. */
+  original: string;
+  /** Confined source path. */
+  path: string;
+  /** Non-fact harness index marker. */
+  artifact: boolean;
+  /** Original harness discriminator. */
+  harness: Harness;
 }
 /** Refuse ambiguity without echoing source content. */
 function invalid(): never {
@@ -123,9 +149,11 @@ export function parsePolicy(value: unknown): PortablePolicyManifest {
   const manifest = shape(value, ['version', 'format', 'harness', 'guidance']);
   if (manifest.version !== 1 || manifest.format !== 'pm-memory-policy' || !['claude-code', 'agents-md'].includes(String(manifest.harness)) || !Array.isArray(manifest.guidance)) invalid();
   const guidance = manifest.guidance.map((value: unknown): PortableGuidance => {
+    const hasIdentity = value !== null && typeof value === 'object' && 'origin' in value;
     const hasBaseline = value !== null && typeof value === 'object' && 'baseline' in value;
-    const row = shape(value, ['slug', 'title', 'description', 'kind', 'why', 'how', 'pinned', 'tags', 'path', 'updated', 'validity', 'renewals', 'snapshotHash', 'relationships', ...(hasBaseline ? ['baseline'] : [])]);
+    const row = shape(value, ['slug', 'title', 'description', 'kind', 'why', 'how', 'pinned', 'tags', 'path', 'updated', 'validity', 'renewals', 'snapshotHash', 'relationships', ...(hasBaseline ? ['baseline'] : []), ...(hasIdentity ? ['origin'] : [])]);
     for (const key of ['slug', 'title', 'description', 'why', 'how', 'path', 'updated']) if (typeof row[key] !== 'string') invalid();
+    if (hasIdentity && !validOrigin(row.origin)) invalid();
     const key = slug(row.slug as string);
     instant(row.updated);
     if (typeof row.snapshotHash !== 'string' || !/^[a-f0-9]{64}$/.test(row.snapshotHash)) invalid();
@@ -144,23 +172,28 @@ export function parsePolicy(value: unknown): PortablePolicyManifest {
     if (hasBaseline) {
       const hasId = row.baseline !== null && typeof row.baseline === 'object' && 'id' in row.baseline;
       const hasSlug = row.baseline !== null && typeof row.baseline === 'object' && 'slug' in row.baseline;
-      const fields = shape(row.baseline, ['fields', 'relationships', ...(hasId ? ['id'] : []), ...(hasSlug ? ['slug'] : [])]);
+      const hasOrigin = row.baseline !== null && typeof row.baseline === 'object' && 'origin' in row.baseline;
+      const fields = shape(row.baseline, ['fields', 'relationships', ...(hasId ? ['id'] : []), ...(hasSlug ? ['slug'] : []), ...(hasOrigin ? ['origin'] : [])]);
       if (!validFields(fields.fields) || !Array.isArray(fields.relationships)) invalid();
       if (hasId && (typeof fields.id !== 'string' || fields.id.length === 0 || /[\r\n/\\\0]/.test(fields.id))) invalid();
       if (hasSlug && fields.slug !== key) throw new MemoryError('format', 'Portable identities cannot be renamed by editing the manifest', 'Restore the exported slug and path; rename native guidance explicitly, then export again');
-      baseline = { ...(hasId ? { id: fields.id as string } : {}), ...(hasSlug ? { slug: key } : {}), fields: fields.fields, relationships: parseRelationships(fields.relationships) };
+      if (hasOrigin && !validOrigin(fields.origin)) invalid();
+      baseline = { ...(hasId ? { id: fields.id as string } : {}), ...(hasSlug ? { slug: key } : {}), ...(hasOrigin ? { origin: fields.origin as NonNullable<PortableBaseline['origin']> } : {}), fields: fields.fields, relationships: parseRelationships(fields.relationships) };
     }
+    if (hasIdentity && baseline?.origin !== undefined && !sameOrigin(row.origin as PortableOrigin, baseline.origin)) invalid();
     const renewals = row.renewals.map(window);
     for (const [index, entry] of renewals.entries()) if (entry.revision !== index + 1 || (index > 0 && entry.recordedAt < renewals[index - 1].recordedAt)) invalid();
     const validity = row.validity === null ? null : window(row.validity);
     if (!equal(validity, renewals.at(-1) ?? null)) invalid();
-    return { ...(baseline === undefined ? {} : { baseline }), relationships, snapshotHash: row.snapshotHash, slug: key, title: row.title as string, description: row.description as string, kind: kind(row.kind), why: row.why as string, how: row.how as string, pinned: row.pinned, tags: row.tags as string[], path: row.path, updated: row.updated as string, validity, renewals };
+    return { ...(hasIdentity ? { origin: row.origin as PortableOrigin } : {}), ...(baseline === undefined ? {} : { baseline }), relationships, snapshotHash: row.snapshotHash, slug: key, title: row.title as string, description: row.description as string, kind: kind(row.kind), why: row.why as string, how: row.how as string, pinned: row.pinned, tags: row.tags as string[], path: row.path, updated: row.updated as string, validity, renewals };
   });
   if (new Set(guidance.map(row => row.slug)).size !== guidance.length) invalid();
+  const origins = guidance.flatMap(row => { const origin = guidanceOrigin(row); return origin === undefined ? [] : [JSON.stringify([origin.tracker, origin.id, origin.creation])]; });
+  if (new Set(origins).size !== origins.length) throw new MemoryError('origin_missing', 'Duplicate immutable origins in one inventory', 'Delete unintended duplicate native copies explicitly, then export again; aliases cannot select a lineage');
   return { version: 1, format: 'pm-memory-policy', harness: manifest.harness as PortablePolicyManifest['harness'], guidance };
 }
 /** Recover every renewal from verified native history, including imported ancestry. */
-export async function policyRecord(store: Store, item: Memory, memories?: readonly Memory[]): Promise<PortableGuidance> {
+export async function policyRecord(store: Store, item: Memory, memories?: readonly Memory[], origins?: Awaited<ReturnType<typeof originCatalog>>): Promise<PortableGuidance> {
   await store.history(item.id);
   const revisions = new Map<number, GuidanceWindow>();
   /** Refuse conflicting historical claims rather than replacing prior evidence. */
@@ -177,7 +210,8 @@ export async function policyRecord(store: Store, item: Memory, memories?: readon
   const corpus = memories ?? await store.read();
   const relationships = portableRelationships(item, corpus);
   const row: PortableGuidance = { relationships, snapshotHash: snapshotDigest(item, item.body, relationships), slug: item.slug, title: item.title, description: item.description, kind: item.kind, why: item.why, how: item.how, pinned: item.pinned, tags: item.tags, path: `memories/${item.slug}.md`, updated: item.updated, validity: item.validity ?? null, renewals: [...revisions.values()].sort((a, b) => a.revision - b.revision) };
-  row.baseline = { id: item.id, slug: item.slug, fields: portableFields(row, item.body), relationships };
+  row.origin = await itemOrigin(store, item.id, origins);
+  row.baseline = { id: item.id, slug: item.slug, origin: row.origin, fields: portableFields(row, item.body), relationships };
   return parsePolicy({ version: 1, format: 'pm-memory-policy', harness: 'agents-md', guidance: [row] }).guidance[0];
 }
 /** Retain local typed edges; excluded targets are reported in the export receipt. */
@@ -204,14 +238,16 @@ export function closeSkips(rows: readonly Pick<PortableGuidance, 'slug' | 'relat
     }
   }
 }
+/** Resolve one validated immutable lineage, independently of optional ownership baselines. */
+export function guidanceOrigin(row: Pick<PortableGuidance, 'origin' | 'baseline'>): PortableOrigin | undefined { return row.origin ?? row.baseline?.origin; }
 /** Reserve planned identities without adopting an unrelated native record. */
 export function skipOccupiedIdentities(rows: readonly PortableGuidance[], existing: ReadonlySet<string>, occupied: ReadonlySet<string>, ids: ReadonlyMap<string, string>, skipped: Map<string, string>): void {
   for (const row of rows) if (!existing.has(row.slug) && occupied.has(ids.get(row.slug)!)) skipped.set(row.slug, 'Foreign record occupies the reserved import id');
 }
 /** Bind a file to its inventory row without embedding unbounded advice in the index. */
-export function policyBody(row: PortableGuidance, body: string): Buffer { return Buffer.from(`<!-- pm-memory-policy:v1 ${row.slug}; policy ${digest(JSON.stringify([row.validity, row.renewals, row.pinned, ...(row.baseline === undefined ? [] : [row.baseline])]))}; keep ${POLICY_MANIFEST} -->\n${body}`); }
+export function policyBody(row: PortableGuidance, body: string): Buffer { return Buffer.from(`<!-- pm-memory-policy:v1 ${row.slug}; policy ${digest(JSON.stringify([row.validity, row.renewals, row.pinned, ...(row.baseline === undefined ? [] : [row.baseline]), ...(row.origin === undefined ? [] : [row.origin])]))}; keep ${POLICY_MANIFEST} -->\n${body}`); }
 /** Parse only files owned by the manifest; foreign adjacent records are skipped with a reason. */
-export async function importPolicy(input: readonly { path: string; bytes: Buffer }[], options: PortableImportOptions): Promise<PortableImportResult> {
+export async function importPolicy(input: readonly { path: string; bytes: Buffer }[], options: PortableImportOptions, legacy?: ReadonlyMap<string, LegacyPortableSource>): Promise<PortableImportResult> {
   let value: unknown;
   try { value = JSON.parse(input.find(file => file.path === POLICY_MANIFEST)!.bytes.toString('utf8')); } catch { return invalid(); }
   const manifest = parsePolicy(value);
@@ -239,12 +275,19 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     const occupied = new Set(corpus.map(item => item.id));
     const identity = await importIdentity(store, inputHash); const { transactionId } = identity;
     const selected = new Map<string, Memory>(); const originSkips = new Map<string, string>();
+    const catalog = await originCatalog(store, new Set(corpus.map(item => item.id)));
     for (const row of manifest.guidance) {
-      const named = current.find(item => item.slug === row.slug);
-      const origins = named === undefined ? (await Promise.all(current.map(async item => await matchesOrigin(store, item.id, row) ? item : undefined))).filter((item): item is Memory => item !== undefined) : [named];
-      if (origins.length === 1) selected.set(row.slug, origins[0]);
-      if (origins.length > 1) originSkips.set(row.slug, 'Ambiguous native origin retained; export again to select its current identity');
-      for (const item of foreign) if (item.memory_slug === row.slug || await matchesOrigin(store, item.id, row)) originSkips.set(row.slug, 'Foreign record has no package-owned source');
+      const origin = guidanceOrigin(row);
+      if (origin === undefined) {
+        if (!options.createMissingOrigins) throw new MemoryError('origin_missing', 'Export has no immutable origin binding', 'Export again from the source tracker, or use memory import --create for an explicit new origin');
+      } else {
+        const foreignOrigin = catalog.creators.some(entry => sameOrigin(entry.origin, origin) && corpus.some(item => item.id === entry.id) && !current.some(item => item.id === entry.id));
+        if (foreignOrigin) { originSkips.set(row.slug, 'Foreign record owns the exported origin'); continue; }
+        const target = selectOrigin(origin, current, catalog, options.createMissingOrigins === true);
+        if (target !== undefined) selected.set(row.slug, target);
+      }
+      if (!selected.has(row.slug) && current.some(item => item.slug === row.slug)) throw new MemoryError('origin_missing', 'A display alias is occupied by a different origin', 'Retain the original item or rename the unrelated alias before an explicit --create');
+      if (!selected.has(row.slug) && foreign.some(item => item.memory_slug === row.slug)) originSkips.set(row.slug, 'Foreign record has no package-owned source');
     }
     const ids = new Map(manifest.guidance.map(row => [row.slug, selected.get(row.slug)?.id ?? `${settings.id_prefix}${digest(`${transactionId}:${row.slug}`).slice(0, 24)}`]));
     const mutations: BulkItemMutation[] = [];
@@ -254,7 +297,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     skipOccupiedIdentities(manifest.guidance, new Set(selected.keys()), occupied, ids, skipped);
     closeSkips(manifest.guidance, skipped);
     const decisions = new Map<string, 'imported' | 'updated' | 'unchanged'>();
-    const result: PortableImportResult = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: foreign.filter(item => !manifest.guidance.some(row => row.slug === item.memory_slug)).map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };
+    const result: PortableImportResult = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: foreign.filter(item => !manifest.guidance.some(row => row.slug === item.memory_slug && originSkips.has(row.slug))).map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };
     for (const file of input) if (file.path !== POLICY_MANIFEST && file.path !== 'AGENTS.md' && file.path !== 'MEMORY.md' && !manifest.guidance.some(row => row.path === file.path)) result.skipped.push({ slug: file.path, reason: 'Foreign file absent from the policy inventory' });
     for (const [index, row] of manifest.guidance.entries()) {
       if (skipped.has(row.slug)) continue;
@@ -263,18 +306,8 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
       const body = bodies[index];
       let update: ReturnType<typeof ownershipPatch> | undefined;
       if (previous !== undefined) {
-        if (previous.source !== 'portable:policy-v1') {
-          if (row.baseline?.id !== previous.id && snapshotDigest(previous, previous.body, portableRelationships(previous, current)) !== row.snapshotHash) { skipped.set(row.slug, 'Foreign native content differs from the exported guidance; export again to capture ownership'); continue; }
-        } else if (row.baseline?.id !== previous.id) {
-          try {
-            const created = await creationMetadata(store, previous.id);
-            const parsed: unknown = JSON.parse(Buffer.from(String(created?.memory_original), 'base64').toString('utf8'));
-            if (!Array.isArray(parsed) || parsed.length !== 2 || typeof parsed[1] !== 'string') invalid();
-            parsePolicy({ version: 1, format: 'pm-memory-policy', harness: options.from, guidance: [parsed[0]] });
-          } catch { skipped.set(row.slug, 'Foreign or unreadable import provenance'); continue; }
-        }
         if (previous.slug !== row.slug) result.skipped.push({ slug: row.slug, reason: `Native identity retained as ${previous.slug}` });
-        const prior = await policyRecord(store, previous, current);
+        const prior = await policyRecord(store, previous, current, catalog);
         if (!equal(prior.validity, row.validity) || JSON.stringify(prior.renewals) !== JSON.stringify(row.renewals)) invalid();
         update = ownershipPatch(previous, row, body, ids, baselineIds, await previousOwnership(store, previous, baselineIds));
         if (update.conflicts.length > 0) {
@@ -285,11 +318,12 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
         if (Object.keys(update.options).length === 0) { decisions.set(row.slug, 'unchanged'); continue; }
         decisions.set(row.slug, 'updated');
       } else decisions.set(row.slug, 'imported');
-      const fields = { slug: row.slug, kind: row.kind, why: row.why, how: row.how, pinned: row.pinned, source: 'portable:policy-v1', original: Buffer.from(JSON.stringify([row, body])).toString('base64'), path: row.path, edited: false, artifact: false, changed_at: row.updated, renewals: JSON.stringify(row.renewals), ...(row.validity === null ? {} : { validity: JSON.stringify(row.validity) }) };
+      const wire = legacy?.get(row.slug);
+      const fields = { slug: row.slug, kind: row.kind, why: row.why, how: row.how, pinned: row.pinned, source: wire === undefined ? 'portable:policy-v1' : `${wire.harness}:relative-file`, original: wire?.original ?? Buffer.from(JSON.stringify([row, body])).toString('base64'), path: wire?.path ?? row.path, edited: false, artifact: wire?.artifact ?? false, changed_at: row.updated, renewals: JSON.stringify(row.renewals), ...(guidanceOrigin(row) === undefined ? {} : { origin: JSON.stringify(guidanceOrigin(row)) }), ...(row.validity === null ? {} : { validity: JSON.stringify(row.validity) }) };
       // Stable create ids and payloads let the SDK resume an interrupted batch without duplicates.
       const creating = previous === undefined;
       const relationships = resolvedRelationships(row.relationships, ids);
-      ownership.push(update?.ownership ?? { id, fields: portableFields(row, body), relationships, graph: relationships });
+      ownership.push({ ...(update?.ownership ?? { id, fields: portableFields(row, body), relationships, graph: relationships }), ...(wire === undefined ? {} : { source: { original: wire.original } }) });
       mutations.push({ op: creating ? 'create' : 'update', id: previous?.id ?? id, ...(creating ? { unique: { key: 'memory_slug', value: row.slug } } : { match: { key: 'updated_at', value: corpus.find(item => item.id === previous.id)!.updated_at } }), options: creating ? { title: row.title, description: row.description, body, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, tags: row.tags.join(','), ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: relationships }), 'create'), ...metadata(fields) } : update!.options });
     }
     closeSkips(manifest.guidance, skipped);
@@ -298,8 +332,8 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     const planned = mutations.filter(mutation => admitted.some(row => ids.get(row.slug) === mutation.id));
     for (const row of admitted) result[decisions.get(row.slug)!]++;
     if (planned.length === 0) return result;
-    const expected = await expectedTargets(store, admitted.map(row => ({ id: ids.get(row.slug)!, slug: row.slug })), corpus);
-    const plan = { pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, ...identity, mutations: planned, ownership: ownership.filter(target => planned.some(row => row.id === target.id)), input: inputHash, result, expected, initial: expected, members: admitted.map(row => ids.get(row.slug)!) };
+    const expected = await expectedTargets(store, admitted.map(row => ({ id: ids.get(row.slug)!, slug: selected.get(row.slug)?.slug ?? row.slug, origin: guidanceOrigin(row) })), corpus);
+    const plan = { identityVersion: 1 as const, pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, ...identity, mutations: planned, ownership: ownership.filter(target => planned.some(row => row.id === target.id)), input: inputHash, result, expected, initial: expected, members: admitted.map(row => ids.get(row.slug)!) };
     await validateImportPlan(store, plan, options.onStep);
     await store.register(options.onStep);
     await previewImport(store, plan);

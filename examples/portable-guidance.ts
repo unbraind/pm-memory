@@ -8,8 +8,15 @@ export async function portableGuidance(source: string, destination: string, dire
     evidence: 'docs/release-checklist.md: public checklist reviewed',
   });
   const exportReceipt = await exportDir(directory, { workspace: source, to: 'agents-md' });
+  // Receipts name any unrepresentable relationship fields in exportReceipt.lossy.
+  // Legacy byte-preserved exports instead require pm-memory-origins.json.
   // Keep pm-memory-policy.json and the policy marker; edit only the Markdown body.
   const receipt = await importDir(directory, { workspace: destination, from: 'agents-md' });
   const imported = await get('release-policy', { workspace: destination });
   return { exportReceipt, receipt, validity: imported.validity, state: guidanceState(imported, Date.now()) };
+}
+
+/** Explicitly recreate a known missing origin; never adopt a same-name native replacement. */
+export async function recreatePortableOrigin(workspace: string, directory: string) {
+  return importDir(directory, { workspace, from: 'agents-md', createMissingOrigins: true });
 }

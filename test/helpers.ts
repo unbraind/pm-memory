@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { mkdtemp, rm, readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, readFile, mkdir, writeFile, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,7 @@ import type { TestContext } from 'node:test';
 import { PmClient, WorkspaceTransactionInterruptedError, type Dependency, type WorkspaceTransactionTransitionContext } from '@unbrained/pm-cli/sdk';
 import { Store } from '../src/store.ts';
 import { testEnvironment } from '../scripts/environment.ts';
-import { exportDir, POLICY_MANIFEST, type PortablePolicyManifest, type importDir } from '../index.ts';
+import { exportDir, POLICY_MANIFEST, type PortablePolicyManifest, importDir, MemoryError } from '../index.ts';
 import type { ImportPlan } from '../src/portable-plan.ts';
 import { digest } from '../src/core.ts';
 
@@ -37,6 +37,19 @@ export async function exportedPolicy(source: Pick<Awaited<ReturnType<typeof trac
   const manifest = JSON.parse(await readFile(join(path, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
   return { path, manifest };
 }
+/** Seed one raw intake with SDK creation provenance for reference-selection tests. */
+export async function importText(target: Pick<Awaited<ReturnType<typeof tracker>>, 'root' | 'options'>, name: string, body: string, from: Parameters<typeof importDir>[1]['from'] = 'agents-md') {
+  const file = join(target.root, name); await writeFile(file, body);
+  await importDir(file, { ...target.options, from }); return file;
+}
+/** Seed immutable imported origins while retaining other rows for a later mixed creation batch. */
+export async function importSubset(directory: string, target: Pick<Awaited<ReturnType<typeof tracker>>, 'root' | 'options'>, slugs: readonly string[]) {
+  const subset = await mkdtemp(join(target.root, 'origin-subset-')); await cp(directory, subset, { recursive: true });
+  const manifest = JSON.parse(await readFile(join(subset, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+  manifest.guidance = manifest.guidance.filter(row => slugs.includes(row.slug));
+  await writeFile(join(subset, POLICY_MANIFEST), JSON.stringify(manifest));
+  return importDir(subset, { ...target.options, from: manifest.harness });
+}
 /** Alter only a fixture-owned checksummed recovery record, retaining its real SDK plan. */
 export async function editIntent(file: string, change: (plan: ImportPlan) => ImportPlan): Promise<ImportPlan> {
   const envelope = JSON.parse(await readFile(file, 'utf8')) as { payload: string; checksum: string };
@@ -56,6 +69,17 @@ export async function snapshot(root: string): Promise<Record<string, string>> {
     }
   }
   await walk(root); return result;
+}
+/** Missing immutable origins refuse without any durable tracker mutation. */
+export async function assertOriginRefused(run: () => ReturnType<typeof importDir>, workspace: string) {
+  const before = await snapshot(workspace);
+  await assert.rejects(run, error => error instanceof MemoryError && error.code === 'origin_missing');
+  assert.deepEqual(await snapshot(workspace), before);
+}
+/** A deleted known lineage requires an explicit, independently observable create action. */
+export async function explicitRecreation(directory: string, options: Parameters<typeof importDir>[1]) {
+  await assert.rejects(importDir(directory, options), error => error instanceof MemoryError && error.code === 'origin_missing');
+  return importDir(directory, { ...options, createMissingOrigins: true });
 }
 /** Serialized memory documents are distinct from their append-only SDK audit streams. */
 export async function memoryDocuments(root: string): Promise<Record<string, string>> {

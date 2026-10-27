@@ -1,12 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getHistoryPath, readHistoryEntries, replayHistoryToTarget, itemDocumentToMutationOptions, DEPENDENCY_KIND_VALUES, createRelationshipKindRegistry } from '@unbrained/pm-cli/sdk';
+import { getHistoryPath, getItemAt, readHistoryEntries, replayHistoryToTarget, itemDocumentToMutationOptions, DEPENDENCY_KIND_VALUES, createRelationshipKindRegistry } from '@unbrained/pm-cli/sdk';
 import type { Dependency } from '@unbrained/pm-cli/sdk';
 import { canonicalProvenance } from './portable.ts';
 import type { PortableGuidance, PortableRelationship } from './portable.ts';
 import type { Memory } from './types.ts';
 import type { Store } from './store.ts';
 import { digest, MemoryError } from './core.ts';
+import type { PortableOrigin } from './portable-origin.ts';
 
 const relationshipKinds = createRelationshipKindRegistry();
 
@@ -16,6 +17,8 @@ export const PORTABLE_FIELDS = ['title', 'description', 'body', 'kind', 'why', '
 export type PortableFields = Record<typeof PORTABLE_FIELDS[number], string>;
 /** Immutable export baseline distinguishes absence from an explicit portable edit. */
 export interface PortableBaseline {
+  /** Immutable originating subject and tracker namespace; aliases never select a target. */
+  origin?: PortableOrigin;
   /** Original native identity distinguishes source edits from unrelated slug collisions. */
   id?: string;
   /** Exported identity is stable even when native-only slug metadata later changes. */
@@ -40,6 +43,8 @@ export interface OwnedTarget {
 }
 /** Native changes invalidate only the affected part of a prior portable receipt. */
 export interface PreviousOwnership {
+  /** SDK birth values grant field authority without claiming a committed graph receipt. */
+  creation?: boolean;
   /** Unrepresented or subsequently native-edited fields grant no portable authority. */
   fields: Partial<PortableFields>;
   /** Prior represented edges remain authoritative outside the actual native edit scope. */
@@ -82,18 +87,6 @@ export async function creationMetadata(store: Store, id: string): Promise<Return
     const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
     return entries.length === 0 ? undefined : replayHistoryToTarget(entries, 0).metadata;
   } catch { return undefined; }
-}
-/** Recognize an imported origin without interpreting mutable native provenance fields. */
-export async function matchesOrigin(store: Store, id: string, row: PortableGuidance): Promise<boolean> {
-  if (row.baseline?.id === id) return true;
-  const metadata = await creationMetadata(store, id);
-  if (metadata?.memory_source !== 'portable:policy-v1' || typeof metadata.memory_original !== 'string') return false;
-  try {
-    const value: unknown = JSON.parse(Buffer.from(metadata.memory_original, 'base64').toString('utf8'));
-    if (!Array.isArray(value) || value[0] === null || typeof value[0] !== 'object') return false;
-    const original = value[0] as PortableGuidance;
-    return original.slug === row.slug && original.baseline?.id === row.baseline?.id;
-  } catch { return false; }
 }
 /** Resolve portable identities without adopting references absent from the inventory. */
 export function resolvedRelationships(edges: readonly PortableRelationship[], ids: ReadonlyMap<string, string>): Dependency[] {
@@ -161,7 +154,7 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
   const attempted = new Set<string>();
   const changed = new Set<string>(); const graphEdits = new Set<number>();
   /** Invalidate native-edited fields without discarding ownership of unrelated values. */
-  const retained = (target: Pick<OwnedTarget, 'fields' | 'relationships' | 'source'>): PreviousOwnership => {
+  const retained = (target: Pick<OwnedTarget, 'fields'> & Partial<Pick<OwnedTarget, 'relationships' | 'source'>>): PreviousOwnership => {
     const nativeEdges = new Map<string, Dependency>();
     for (const index of graphEdits) {
       const before = (replayHistoryToTarget(entries, index - 1).metadata.dependencies ?? []) as Dependency[];
@@ -198,12 +191,17 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
       if (target !== undefined) return retained(target);
     }
   }
-  if (item.source === 'portable:policy-v1') {
+  const created = await creationMetadata(store, item.id);
+  if (created?.memory_source === 'portable:policy-v1') {
     try {
-      const created = await creationMetadata(store, item.id);
       const [row, body] = JSON.parse(Buffer.from(String(created?.memory_original), 'base64').toString('utf8')) as [PortableGuidance, string];
       return retained({ fields: portableFields(row, body), relationships: resolvedRelationships(row.relationships, ids) });
     } catch { return undefined; }
+  }
+  if (typeof created?.memory_source === 'string' && created.memory_source.endsWith(':relative-file')) {
+    const { document } = await getItemAt(item.id, '1', { pmRoot: store.workspace });
+    const born = (await store.read(new Set([item.id]), [{ ...document.metadata, body: document.body }]))[0];
+    if (born !== undefined) return { ...retained({ fields: portableFields(born, born.body), source: { original: born.original } }), creation: true };
   }
   return undefined;
 }
