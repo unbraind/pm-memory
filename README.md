@@ -4,6 +4,32 @@ Agents manage their own memory. Project management is context management: facts,
 
 This is an unreleased package under local review. Publication and scheduled releases remain held until the maintainer approves.
 
+## Install and release approval
+
+The first npm release is pending the maintainer's interactive bootstrap. After
+that first publish, the maintainer configures npm trusted publishing for
+`release.yml` and sets the repository variable `PM_RELEASE_APPROVED` to `true`.
+The daily workflow and manual dispatch both require this variable and `main`.
+Publishing uses OIDC with provenance; no stored npm token is needed.
+
+Once published, install the package and compatible pm host, then activate the
+extension in an initialized pm project:
+
+```sh
+npm install pm-memory @unbrained/pm-cli
+npx --no-install pm package install ./node_modules/pm-memory
+
+bun add pm-memory @unbrained/pm-cli
+bunx --bun --no-install pm package install ./node_modules/pm-memory
+
+pm package install npm:pm-memory
+pm memory --help
+```
+
+The package exports its SDK through `main` and `types` and registers commands
+with pm. It has no standalone `bin`: use `npx pm` or `bunx --bun pm` through
+the installed host. npm/Bun dependency installation alone does not activate it.
+
 ## Install
 
 After publication, choose your usual package manager:
@@ -297,3 +323,10 @@ Native mutations and file export fence publication against successor takeover;
 a stale writer refuses with `lock_lost`. Live or unverifiable owners remain
 protected, and contention waits are capped at 30 seconds. These paths also work
 without Git. See [writer lock evidence](ARCHITECTURE.md#writer-lock-recovery-evidence).
+
+Every workflow job granted write permissions, including CodeQL, Dependabot and
+reusable workflow calls, requires the exact repository `unbraind/pm-memory`.
+The approval variable controls GitHub releases; it does not impose a local npm
+publishing hold. Maintainers run the prepublish checks and authenticate with npm
+for local publication. The first local publish uses `--provenance=false`; daily
+GitHub OIDC releases keep provenance enabled.
