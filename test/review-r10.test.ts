@@ -50,6 +50,10 @@ test('preserved and revised source references resolve inside the emitted directo
   exported.omitted_links?.sort((a, b) => a.reason.localeCompare(b.reason));
   assert.deepEqual(exported, {
     exported: 4, byte_preserved: 0,
+    lossy: [
+      { slug: 'source', fields: ['relationships', 'relationships.author_source'], reason: 'External targets are unknown in this inventory; SDK-authored relationship provenance is reasserted on fresh creation' },
+      { slug: 'memory', fields: ['slug', 'title', 'description', 'body', 'kind', 'why', 'how', 'pinned', 'tags', 'relationships', 'artifact'], reason: 'Native index artifact is regenerated; its record is outside this policy inventory' },
+    ],
     omitted_links: [
       { slug: 'source', target: rows.find(row => row.artifact)!.id, kind: 'related', reason: 'artifact' },
       { slug: 'source', target: target.id, kind: 'related', reason: 'canceled' },

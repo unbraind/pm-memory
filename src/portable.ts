@@ -336,7 +336,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     const plan = { identityVersion: 1 as const, pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, ...identity, mutations: planned, ownership: ownership.filter(target => planned.some(row => row.id === target.id)), input: inputHash, result, expected, initial: expected, members: admitted.map(row => ids.get(row.slug)!) };
     await validateImportPlan(store, plan, options.onStep);
     await store.register(options.onStep);
-    await previewImport(store, plan);
+    await previewImport(store, plan, options.onStep);
     await options.onStep?.('previewed');
     return applyImport(store, plan, options);
   });

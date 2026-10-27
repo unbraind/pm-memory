@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T22:03:10.834Z"
-updated_at: "2026-10-27T06:58:38.170Z"
+updated_at: "2026-10-27T09:42:53.004Z"
 author: codex-agent
 acceptance_criteria: Bounded guidance can round trip without becoming unbounded or silently losing evidence; imported windows are validated before writes.
 parent: pm-memory-0kwy
-comments[82]{created_at,author,text}:
+comments[90]{created_at,author,text}:
   "2026-10-25T01:04:43.613Z",codex-agent,"Claimed portable policy-window work. Design inspection: existing transfer refuses bounded guidance and sequential imports can partially publish. Investigating SDK transactions and existing lease/history surfaces before selecting an atomic import contract. Will preserve window evidence and renewal ancestry, reject broadened or removed bounds, and validate in non-git trackers with crash and competing-writer boundaries."
   "2026-10-25T01:15:25.678Z",codex-agent,"Implemented versioned policy inventory plus editable body files, exact window and renewal validation, full-batch SDK preview/commit, deterministic recovery ids, foreign-record skips, and staged export publication. Targeted suite: 24 passed before the final update/rollback and independent-export tests were added. Randomized sets cover both harnesses, mixed bounded/unbounded guidance, kinds, tags and renewal counts. Existing unbounded byte-preserving transfers remain supported. CI now invokes the explicit npm release:check gate as well as the existing Bun gate; local full release gates are intentionally deferred to CI on this saturated host."
   "2026-10-25T01:17:54.916Z",codex-agent,"Read-only public-copy validation passed: 17 public items, 6 nonempty bodies, 232693 projected input bytes; 17 derived scenario guidance records, 34 renewal records retained per harness, 19 exported files per harness, all 17 unchanged on identical retries, zero lost windows/evidence, edited bodies needs-renewal. Every source file was permission-protected and its aggregate fingerprint remained unchanged. Evidence: docs/portable-guidance-validation.md. The first unrestricted read created only SDK runtime metadata caches, so the measured run used an independently extracted read-only copy."
@@ -94,21 +94,32 @@ comments[82]{created_at,author,text}:
   "2026-10-27T06:55:35.634Z",codex-agent,"The unchanged collision and ambiguous-key regressions now pass 2/2 with node --test --test-concurrency=2 --test-name-pattern=\"^export detects path collisions|^ambiguous legacy export keys\" test/edges.test.ts test/portable-ownership.test.ts. Typecheck, lint and zero duplication also pass after the wording fix. Superseded Node 22 and 26 logs contain this same diagnostic failure and no other reported failure before cancellation. The twelve class revert proofs remain intact; the diagnostic regression also has a recorded pre-fix 0/1 reproduction. No source assertion or gate threshold changed."
   "2026-10-27T06:56:47.376Z",codex-agent,"The collision audit also removes two unreachable alternatives: canonical policy output now requires the already lease-fenced origin catalog from its only caller, and raw export relies on the preflight duplicate-key validation rather than repeating that same check on a subset of identical decoded files. This preserves stricter validate-before-publication behavior and avoids an unexercisable late error branch. Existing collision and duplicate-slug regressions stay unchanged."
   "2026-10-27T06:58:33.137Z",codex-agent,"Final collision/canonical export check passes 3/3: node --test --test-concurrency=2 --test-name-pattern=\"^export detects path collisions|^ambiguous legacy export keys|^legacy export carries an unreferenced\" test/edges.test.ts test/portable-ownership.test.ts test/portable-identity.test.ts. Typecheck, lint and zero duplication across 91 sources pass after removing redundant validation. No other local tests remain running. Releasing the claim with the feature still in_progress; the next pushed head is the final release-gate candidate."
-files[47]{path,scope}:
+  "2026-10-27T08:03:00.690Z",codex-agent,"Exact-head CI 40464347662 completed the Node 26 suite with 492/496 passing and 99.62 percent branches, exposing four fixture expectations after the wire extension. Corrections preserve all prior assertions: include the required origin companion in file counts and validate its records; compare all original bytes separately from that companion; assert exact lossy fields alongside existing omitted-link receipts; seed the unchanged recovery target as Alpha A rather than the helper bundle edited to Alpha B. Added real-SDK tests for independent malformed origin slots, malformed birth authority, CAS lineage refusal and reserved companion names. Parser object validation now precedes policy decoding; removed only branch alternatives made impossible by existing guards and sameContent slug equality. No assertion, threshold or refusal validation was deleted."
+  "2026-10-27T08:14:54.772Z",codex-agent,"Coverage-gap completion: focused real-SDK run passes 9/9, and the final validation file passes 5/5. It covers malformed or contradictory root/baseline origins, corrupt portable birth snapshots, unresolved edge identities, malformed immutable birth origins during CAS, reserved companion filenames, YAML frontmatter and unique file aliases mixed with unknown wiki references. Additional behavioral revert proofs: deleting only the reserved-name guard fails its fixed case 0/1; deleting only the immutable-origin CAS guard fails its malformed-birth case 0/1. Both guards restored after each test. Fourteen behavioral mutants now fail as expected, plus the separately recorded collision-diagnostic reproduction. Existing original-byte, omitted-link, closed-graph and unchanged-target assertions remain and now explicitly validate the added companion/loss receipts."
+  "2026-10-27T08:48:06.183Z",codex-agent,"Packed acceptance found an SDK preview scope limitation: previewItemMutations snapshots the managed extensions tree, so a broken installed dependency link refused an otherwise valid body-only import in both npm and Bun consumers. Public declarations expose no include/exclude path option. Added a private disposable SDK projection: SDK configuration-only settings, guarded schema hydration, native type registry, certified item list, SDK item/history paths, then the unchanged SDK preview and compensating commit. It copies every native item document and only admitted history streams; foreign installed code is never traversed or changed. Existing and fresh non-git projection cases pass 2/2. No validator, CAS precondition or preview was bypassed. Crash and competing-edit coverage will cover every private projection boundary before the next full gate."
+  "2026-10-27T09:21:29.966Z",codex-agent,"Installed consumer validation now passes 2/2 (npm and native Bun), including identical-alias origin selection, retained edges and native-field fidelity through JSON and TOON. Projection crash and peer-edit tests pass all 13 SDK projection boundaries on non-git trackers; native peer body C always wins, retries converge without duplicates, foreign package links and native Task references remain untouched. Added parity against the ordinary SDK preview path. Targeted actual CLI tests also expose a refusal mapping gap: ExpectedError previously discarded the MemoryError code/remedy into generic command_failed. The shared command adapter now supplies SDK context.code and context.required for every refusal; actual JSON origin_missing and human output retain --create and leave a same-alias replacement byte-identical through SDK read-back. Focused CLI/native-preview roots pass 3/3. Packed consumers additionally assert this refusal contract."
+  "2026-10-27T09:24:18.858Z",codex-agent,"Final adapter revert proofs: forcing direct SDK preview on the installed-code fixture fails 0/1; moving guarded schema hydration outside configuration-only scope fails 0/1; removing only SDK error context.code/context.required fails the typed-refusal regression 0/1. All production mutations restored. These bring semantic behavioral proofs to seventeen, plus the earlier collision-diagnostic reproduction. Combined focused c8 receipts measure portable-preview.ts at 67/67 lines and statements, 3/3 functions, 49/49 branches (100 percent in all four dimensions). Both native SDK and scoped projection paths have the same SDK-read result. Full gate evidence will come from the next pushed head."
+  "2026-10-27T09:25:58.402Z",codex-agent,"SDK minimum verification: inspected the published 2026.10.23 declarations and confirmed public runWithConfigurationOnlySettings, resolveTransactionSchema, writeSettings, locateItem and getItemPath are present; the peer minimum remains valid. Main supplies the unchanged development pin 2026.10.24. The new preview adapter has no private SDK import. README documents installed-code exclusion, SDK path-filter/host-bound gaps and structured CLI refusal codes. All review and adapter work is linked to the feature and the existing SDK follow-up, without creating an upstream issue or duplicating the item."
+  "2026-10-27T09:39:36.776Z",codex-agent,"The actual host --create remedy passes 1/1 end-to-end: missing origin plus same-alias replacement refuses in JSON and human output without touching the replacement; after the fixture explicitly frees the alias, --create imports a new native id bound to the immutable old origin, and the next ordinary retry reports unchanged. The packed npm/Bun scenarios now assert the same refusal, explicit recreation, full native field/edge read-back and idempotent retry. Typecheck, lint and zero duplication pass after these assertions. Seventeen semantic revert proofs and the diagnostic reproduction are committed in tracker comments; no gate threshold or existing assertion was removed."
+  "2026-10-27T09:42:41.125Z",codex-agent,"Completion checkpoint: seventeen semantic revert mutants plus the diagnostic reproduction fail as expected and are restored. Local focused suites pass 21/21 identity/origin/companion, 9/9 validation/corrected receipts, 5/5 final wire validation, 6/6 preview safety/interleavings, 3/3 CLI/native-preview and 1/1 actionable --create tests. Packed installed npm and Bun consumers pass 2/2 before their added explicit-recreation assertions; those assertions are now included in the unchanged CI release gates. Final static checks pass: typecheck, lint, duplication 0 percent across 94 sources, docstrings 38 files / 142 declarations, identity/privacy 0 violations. Source projection coverage is 100/100/100/100. Public read-only validation is rechecking the same source with the merged SDK pin; prior 17-item receipt remains linked. Releasing the claim while final exact-head npm Node 22/26 and Bun Node 26 gates run; feature remains in_progress for orchestrator verification."
+files[52]{path,scope}:
   .github/workflows/ci.yml,project
   index.ts,project
   package.json,project
   scripts/bench.ts,project
   scripts/coverage-gate.ts,project
+  src/commands.ts,project
   src/portable-origin.ts,project
   src/portable-ownership.ts,project
   src/portable-plan.ts,project
+  src/portable-preview.ts,project
   src/portable-replan.ts,project
   src/portable-rollback.ts,project
   src/portable.ts,project
   src/store.ts,project
   src/transfer.ts,project
   src/types.ts,project
+  test/commands.test.ts,project
   test/consent.test.ts,project
   test/edges.test.ts,project
   test/guidance.test.ts,project
@@ -126,8 +137,10 @@ files[47]{path,scope}:
   test/portable-origin.test.ts,project
   test/portable-ownership.test.ts,project
   test/portable-plan.test.ts,project
+  test/portable-preview.test.ts,project
   test/portable-review.test.ts,project
   test/portable-rollback.test.ts,project
+  test/portable-validation.test.ts,project
   test/portable.test.ts,project
   test/review-r1.test.ts,project
   test/review-r10.test.ts,project
@@ -142,7 +155,7 @@ files[47]{path,scope}:
   test/round2.test.ts,project
   test/transfer.test.ts,project
   test/validate-guidance.ts,project
-tests[15]:
+tests[18]:
   - command: node --test test/portable.test.ts test/transfer.test.ts test/guidance.test.ts
     scope: project
     provenance:
@@ -260,6 +273,30 @@ tests[15]:
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
     note: "500 independent SDK-read sequences, master 0x13631d07; full execution belongs to the CI release gates on this shared host"
+  - command: node --test --test-concurrency=2 test/portable-validation.test.ts
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T08:15:02.846Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: node --test --test-concurrency=2 test/portable-preview.test.ts
+    scope: project
+    timeout_seconds: 2400
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T09:25:48.253Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: "node --test --test-concurrency=2 --test-name-pattern=\"^actual CLI origin refusals|^typed refusal exit codes\" test/commands.test.ts"
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-27T09:39:52.941Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
 docs[4]{path,scope}:
   docs/portable-guidance-validation.md,project
   examples/portable-guidance.ts,project

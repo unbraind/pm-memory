@@ -194,7 +194,7 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
   const created = await creationMetadata(store, item.id);
   if (created?.memory_source === 'portable:policy-v1') {
     try {
-      const [row, body] = JSON.parse(Buffer.from(String(created?.memory_original), 'base64').toString('utf8')) as [PortableGuidance, string];
+      const [row, body] = JSON.parse(Buffer.from(String(created.memory_original), 'base64').toString('utf8')) as [PortableGuidance, string];
       return retained({ fields: portableFields(row, body), relationships: resolvedRelationships(row.relationships, ids) });
     } catch { return undefined; }
   }

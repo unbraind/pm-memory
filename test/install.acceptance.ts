@@ -8,11 +8,11 @@ import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
 /** Run a consumer process with private settings isolated from the current machine. */
-function execute(cwd: string, args: string[], executable: string, env: NodeJS.ProcessEnv): string {
+function execute(cwd: string, args: string[], executable: string, env: NodeJS.ProcessEnv, expected = 0): string {
   const child = spawnSync(executable, args, { cwd, env, encoding: 'utf8', timeout: 300000 });
   assert.equal(child.error, undefined);
-  assert.equal(child.status, 0, child.stderr + child.stdout);
-  return child.stdout;
+  assert.equal(child.status, expected, child.stderr + child.stdout);
+  return expected === 0 ? child.stdout : child.stderr + child.stdout;
 }
 /** Install the actual packed distribution in independent package-manager consumers. */
 for (const manager of ['npm', 'bun']) test(`packed ${manager} consumer installs, discovers and executes the memory command`, t => {
@@ -81,6 +81,25 @@ if (process.argv[2] === 'setup') {
   assert.deepEqual((await client.get(saved.replacement.id, { full: true })).item, saved.replacement);
   await client.run('delete', { id: saved.replacement.id, options: { force: true } });
   await client.run('update', { id: saved.item.id, options: { memorySlug: 'renamed', body: saved.item.body } });
+} else if (process.argv[2] === 'origin-delete') {
+  const item = (await client.listAllComplete()).items.find(row => row.memory_slug === 'renamed');
+  await client.run('delete', { id: item.id, options: { force: true } });
+  await client.run('create', { options: { title: 'Same alias replacement', body: 'Retain replacement', type: 'Knowledge', memorySlug: 'renamed', memoryKind: 'reference', memorySource: 'native:item', allowDuplicate: true } });
+  await writeFile(process.argv[3] + '.missing.json', JSON.stringify((await client.listAllComplete({ includeBody: true })).items));
+} else if (process.argv[2] === 'origin-deleted-check') {
+  assert.deepEqual((await client.listAllComplete({ includeBody: true })).items, JSON.parse(await readFile(process.argv[3] + '.missing.json', 'utf8')));
+} else if (process.argv[2] === 'origin-alias-clear') {
+  const item = (await client.listAllComplete()).items.find(row => row.memory_slug === 'renamed');
+  await client.run('delete', { id: item.id, options: { force: true } });
+} else if (process.argv[2] === 'origin-created-check') {
+  const prior = JSON.parse(await readFile(process.argv[3] + '.identity.json', 'utf8'));
+  const items = (await client.listAllComplete({ includeBody: true })).items;
+  const item = items.find(row => row.memory_slug === 'renamed');
+  const manifest = JSON.parse(await readFile(join(process.argv[3], 'pm-memory-policy.json'), 'utf8'));
+  const wire = manifest.guidance.find(row => row.slug === 'renamed');
+  assert.notEqual(item.id, prior.item.id); assert.equal(JSON.parse(item.memory_origin).id, prior.item.id);
+  assert.equal(item.body, 'Packed harness revision'); assert.equal(item.dependencies[0].id, items.find(row => row.memory_slug === 'beta').id);
+  for (const [key, field] of [['title','title'],['description','description'],['kind','memory_kind'],['why','memory_why'],['how','memory_how'],['pinned','memory_pinned'],['tags','tags']]) assert.deepEqual(item[field], wire[key]);
 } else {
   const destination = join(process.cwd(), 'lossless-destination', process.argv[2]);
   const fresh = new PmClient({ cwd: process.cwd(), pmRoot: destination, author: 'memory-consumer', noExtensions: true });
@@ -111,6 +130,18 @@ console.log('lossless accepted');
       if (format === 'json') assert.equal(JSON.parse(imported).updated, 1); else assert.match(imported, /updated: 1/);
       assert.match(execute(consumer, ['lossless.ts', 'identity-check', output], runtime, losslessEnv), /lossless accepted/);
     }
+    const losslessRuntime = manager === 'npm' ? process.execPath : 'bun';
+    assert.match(execute(consumer, ['lossless.ts', 'origin-delete', 'lossless-toon'], losslessRuntime, losslessEnv), /lossless accepted/);
+    for (const format of ['json', 'toon']) {
+      const refusal = execute(consumer, [...prefix, 'memory', 'import', 'lossless-toon', '--from', 'claude-code', ...(format === 'json' ? ['--json'] : [])], executable, losslessEnv, 2);
+      if (format === 'json') { const value = JSON.parse(refusal); assert.equal(value.code, 'origin_missing'); assert.match(value.required, /--create/); }
+      else { assert.match(refusal, /origin_missing/); assert.match(refusal, /--create/); }
+    }
+    assert.match(execute(consumer, ['lossless.ts', 'origin-deleted-check', 'lossless-toon'], losslessRuntime, losslessEnv), /lossless accepted/);
+    assert.match(execute(consumer, ['lossless.ts', 'origin-alias-clear'], losslessRuntime, losslessEnv), /lossless accepted/);
+    assert.equal(JSON.parse(execute(consumer, [...prefix, 'memory', 'import', 'lossless-toon', '--from', 'claude-code', '--create', '--json'], executable, losslessEnv)).imported, 1);
+    assert.match(execute(consumer, ['lossless.ts', 'origin-created-check', 'lossless-toon'], losslessRuntime, losslessEnv), /lossless accepted/);
+    assert.equal(JSON.parse(execute(consumer, [...prefix, 'memory', 'import', 'lossless-toon', '--from', 'claude-code', '--json'], executable, losslessEnv)).unchanged, 2);
     const remembered = JSON.parse(execute(consumer, [...prefix, 'memory', 'remember', 'Packed host remembers context', '--kind', 'user', '--slug', 'packed', '--pin', '--json'], executable, hostEnv)) as { slug: string; updated: boolean };
     assert.equal(remembered.slug, 'packed'); assert.equal(remembered.updated, false);
     const packet = JSON.parse(execute(consumer, [...prefix, 'memory', 'recall', 'host context', '--budget', '200', '--json'], executable, hostEnv)) as { recall: string; estimated_tokens: number; memories: { slug: string }[] };

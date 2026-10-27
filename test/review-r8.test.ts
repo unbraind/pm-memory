@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { consolidate, exportDir, importDir, remember } from '../index.ts';
+import { consolidate, exportDir, importDir, remember, LEGACY_ORIGINS, parseLegacyOrigins } from '../index.ts';
 import { MemoryError } from '../src/core.ts';
 import { testEnvironment } from '../scripts/environment.ts';
 import { assertTestsPassed, snapshot, tracker } from './helpers.ts';
@@ -54,7 +54,11 @@ test('remember refuses index artifact slugs for both creation and explicit updat
   await client.update(artifact.id, { status: 'open' });
   const output = join(root, 'output');
   await exportDir(output, { ...options, to: 'claude-code' });
-  assert.deepEqual(await snapshot(output), await snapshot(input));
+  const { [LEGACY_ORIGINS]: companion, ...originals } = await snapshot(output);
+  assert.deepEqual(originals, await snapshot(input));
+  assert.ok(companion);
+  const records = parseLegacyOrigins(JSON.parse(await readFile(join(output, LEGACY_ORIGINS), 'utf8')), 'claude-code');
+  assert.equal(records.length, 1); assert.equal(records[0].artifact, true); assert.equal(records[0].guidance.origin!.id, artifact.id);
 });
 
 test('child test assertions reject successful processes with zero matching tests', () => {

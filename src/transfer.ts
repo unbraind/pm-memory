@@ -181,12 +181,12 @@ export function parseLegacyOrigins(value: unknown, from: Harness): LegacyOriginR
   const envelope = value as LegacyOriginManifest;
   if (Object.keys(envelope).sort().join(',') !== 'checksum,format,harness,payload,version' || envelope.version !== 1 || envelope.format !== 'pm-memory-origins' || envelope.harness !== from || typeof envelope.payload !== 'string' || digest(envelope.payload) !== envelope.checksum) return refuse();
   let values: unknown; try { values = JSON.parse(envelope.payload); } catch { return refuse(); }
-  if (!Array.isArray(values)) return refuse();
-  const guidance = parsePolicy({ version: 1, format: 'pm-memory-policy', harness: from, guidance: values.map((row: unknown) => (row as Record<string, unknown> | null)?.guidance) }).guidance;
-  const records = values.map((value: unknown, index): LegacyOriginRecord => {
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) return refuse();
-    const row = value as LegacyOriginRecord;
-    if (Object.keys(row).sort().join(',') !== 'artifact,decoded,file,guidance,links' || typeof row.file !== 'string' || !validFields(row.decoded) || !Array.isArray(row.links) || !row.links.every(link => typeof link === 'string') || typeof row.artifact !== 'boolean' || guidanceOrigin(guidance[index]) === undefined || guidance[index].validity !== null) return refuse();
+  if (!Array.isArray(values) || values.some((row: unknown) => row === null || typeof row !== 'object' || Array.isArray(row))) return refuse();
+  const objects = values as Record<string, unknown>[];
+  const guidance = parsePolicy({ version: 1, format: 'pm-memory-policy', harness: from, guidance: objects.map(row => row.guidance) }).guidance;
+  const records = objects.map((value, index): LegacyOriginRecord => {
+    const row = value;
+    if (Object.keys(row).sort().join(',') !== 'artifact,decoded,file,guidance,links' || typeof row.file !== 'string' || !validFields(row.decoded) || !Array.isArray(row.links) || !row.links.every((link: unknown) => typeof link === 'string') || typeof row.artifact !== 'boolean' || guidanceOrigin(guidance[index]) === undefined || guidance[index].validity !== null) return refuse();
     return { file: safePath(row.file), guidance: guidance[index], decoded: row.decoded, links: row.links, artifact: row.artifact };
   });
   if (new Set(records.map(row => row.file)).size !== records.length) return refuse();
@@ -304,7 +304,7 @@ export async function importDir(path: string, options: PortableImportOptions): P
     const expected = await expectedTargets(store, [...readSet].map(([id, slug]) => ({ id, slug, origin: catalog.creators.find(row => row.id === id)?.origin })), corpus);
     const plan = { identityVersion: 1 as const, ...identity, input: inputHash, author: resolveAuthorIdentity(options.author, settings.author_default).author, mutations, ownership, expected, initial: expected, members: expected.map(row => row.id), result };
     await validateImportPlan(store, plan, options.onStep); await store.register(options.onStep);
-    await previewImport(store, plan);
+    await previewImport(store, plan, options.onStep);
     await options.onStep?.('previewed');
     const { skipped: refusals, ...counts } = await applyImport(store, plan, options); return refusals.length === 0 ? counts : { ...counts, skipped: refusals };
   });
@@ -387,13 +387,7 @@ function exportedReferences(bytes: Buffer, memories: readonly Memory[], targets:
     const exact = memories.find(item => item.slug === reference);
     const aliases = memories.filter(item => stemOf(item.path) === reference);
     const item = exact ?? (aliases.length === 1 ? aliases[0] : undefined);
-    const target = item === undefined ? undefined : targets.get(item.id);
-    if (target === undefined) return reference;
-    const exported = [...targets.values()];
-    const canonical = exported.find(source => source.slug === reference);
-    const aliasesOut = exported.filter(source => stemOf(source.path) === reference);
-    const resolved = canonical ?? (aliasesOut.length === 1 ? aliasesOut[0] : undefined);
-    return `[[${resolved === target ? reference : target.slug}]]`;
+    return item !== undefined && targets.has(item.id) ? `[[${reference}]]` : reference;
   }));
 }
 /** Canonical raw bodies and explicit ownership avoid changing native state through projection. */

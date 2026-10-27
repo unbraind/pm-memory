@@ -4,15 +4,19 @@ description: "The pinned SDK exposes commitItemMutations and commitWorkspaceTran
 type: Task
 status: open
 priority: 3
-tags[3]: "gh:unbraind/pm-cli#1597",sdk-gap,"upstream:pm-cli#1597"
+tags[5]: "gh:unbraind/pm-cli#1597","gh:unbraind/pm-cli#1598",sdk-gap,"upstream:pm-cli#1597","upstream:pm-cli#1598"
 created_at: "2026-10-27T06:21:15.119Z"
-updated_at: "2026-10-27T06:25:02.297Z"
+updated_at: "2026-10-27T09:39:43.694Z"
 author: codex-agent
 acceptance_criteria: "Replace owned SDK journal reads with public transaction inspection without weakening crash recovery, CAS, foreign preservation or replay tests"
 parent: pm-memory-0kwy
-files[4]{path,scope}:
+comments[2]{created_at,author,text}:
+  "2026-10-27T08:53:47.062Z",codex-agent,"Additional verified SDK adapter limit: previewItemMutations accepts only pmRoot, transactionId, author and mutations; no include/exclude path or authoritative-item projection option exists. Its owned snapshot includes extensions, so installed dependency links can refuse normal imports. The package now projects SDK-certified item documents, relevant exact history streams and guarded SDK schema/settings into a private disposable tracker before invoking the same SDK validator. PmClient still has no host-bound preview method (related upstream issue 1598); that issue covers the public host-context surface, while this managed-directory scoping constraint is a separate observed symptom. Adopt a public scoped preview when available; do not remove validation or copy installed code."
+  "2026-10-27T09:39:43.693Z",codex-agent,"Capability precision: runWorkspaceTransactionGc(dryRun: true) provides status/age sweep decisions, but not the ownership payload or step results needed for recovery, abandonment or replanning. It is not a substitute for the missing full transaction receipt reader tracked by 1597. No GC of foreign or SDK journals was added."
+files[5]{path,scope}:
   src/portable-ownership.ts,project
   src/portable-plan.ts,project
+  src/portable-preview.ts,project
   src/portable-replan.ts,project
   src/portable-rollback.ts,project
 body: ""

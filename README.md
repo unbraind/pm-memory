@@ -47,7 +47,7 @@ npx --package=@unbrained/pm-cli pm package install pm-memory
 bunx --bun --package @unbrained/pm-cli pm package install pm-memory
 ```
 
-Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The peer host minimum and pinned development host are 2026.10.23. Node 22.18 or later is required.
+Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The peer host minimum is 2026.10.23; the pinned development host is 2026.10.24. Node 22.18 or later is required.
 
 
 ## Consent-scoped recall views
@@ -352,9 +352,20 @@ Ownership and content use one certified SDK snapshot. Exports stage their comple
 a rename; matching peer publication succeeds, differing publication refuses without
 overwriting it.
 
+Installed extension code stays outside item validation. When the tracker contains
+packages, preview builds a private disposable projection from SDK-certified item
+paths, admitted history streams and guarded SDK schema/settings, then runs the same
+SDK mutation preview. Package dependency links and foreign files remain untouched.
+Every projection boundary has crash and competing-native-edit coverage; final CAS
+still guards the original tracker. The pinned SDK has no preview path filter or
+host-bound batch method (the latter is tracked by
+[pm-cli#1598](https://github.com/unbraind/pm-cli/issues/1598)).
+
 The existing CLI commands return compact host TOON or `--json` counts; policy imports
 also return `skipped: [{slug, reason}]`. Bodies and renewal histories are kept in files
-rather than echoed in the receipt. SDK clients use `importDir`, `exportDir`,
+rather than echoed in the receipt. Refusals preserve their typed `code` and safe
+`required` remedy in the SDK host's JSON error, including `origin_missing` and its
+explicit `--create` option. SDK clients use `importDir`, `exportDir`,
 `PortableImportOptions`, `PortableImportResult`, `PortableExportResult`, `PortableGuidance`,
 `PortablePolicyManifest`, `PortableBaseline`, `PortableFields`, `PortableOrigin`,
 `LegacyOriginManifest`, `LegacyOriginRecord` and the pure `parsePolicy`/`parseLegacyOrigins` validators. See the [typed

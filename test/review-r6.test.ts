@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import promises, { lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
-import { consolidate, exportDir, importDir, remember, verify } from '../index.ts';
+import { consolidate, exportDir, importDir, remember, verify, LEGACY_ORIGINS, parseLegacyOrigins } from '../index.ts';
 import { privacy } from '../src/core.ts';
 import { exportAncestor } from '../src/transfer.ts';
 import { tracker, snapshot } from './helpers.ts';
@@ -105,7 +105,8 @@ test('agents aggregate preservation tolerates empty and nonembedded imported com
   const separate = (await store.read()).find(row => row.path === 'separate.md')!;
   await client.update(separate.id, { status: 'canceled', closeReason: 'Synthetic archive' });
   const output = join(root, 'output');
-  assert.deepEqual(await exportDir(output, { ...options, to: 'agents-md' }), { exported: 2, byte_preserved: 2 });
+  assert.deepEqual(await exportDir(output, { ...options, to: 'agents-md' }), { exported: 3, byte_preserved: 2 });
+  assert.equal(parseLegacyOrigins(JSON.parse(await readFile(join(output, LEGACY_ORIGINS), 'utf8')), 'agents-md').length, 2);
   assert.equal(await readFile(join(output, 'AGENTS.md'), 'utf8'), 'Standalone instructions\n');
   assert.equal((await readFile(join(output, 'empty.md'))).length, 0);
 });

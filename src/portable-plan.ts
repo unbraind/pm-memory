@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { writeFileAtomic, commitItemMutations, commitWorkspaceTransaction, previewItemMutations, deriveMutationTransactionId, getHistoryPath, readHistoryEntries, hashHistoryStream, certifyCompleteListResult, WorkspaceTransactionInterruptedError, PmClient, isPmCliExpectedError, replayHistoryToTarget } from '@unbrained/pm-cli/sdk';
+import { writeFileAtomic, commitItemMutations, commitWorkspaceTransaction, deriveMutationTransactionId, getHistoryPath, readHistoryEntries, hashHistoryStream, certifyCompleteListResult, WorkspaceTransactionInterruptedError, PmClient, isPmCliExpectedError, replayHistoryToTarget } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import { replanNodes } from './portable-replan.ts';
 import { digest, MemoryError } from './core.ts';
@@ -12,6 +12,7 @@ import { relationshipPatch, validOwnedTarget } from './portable-ownership.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
 import { creator, readTrackerOrigin, sameOrigin, validOrigin } from './portable-origin.ts';
 import type { PortableOrigin } from './portable-origin.ts';
+import { previewOwnedItems } from './portable-preview.ts';
 
 /** SDK-derived attempts and the earlier private content/history identity format. */
 const IMPORT_ID = /^memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})$/;
@@ -282,9 +283,9 @@ async function refuseImport(store: Store, plan: ImportPlan, options: PortableImp
   return planError(error);
 }
 /** Preview creations before updates so SDK validation resolves newly represented targets. */
-export async function previewImport(store: Store, plan: ImportPlan): Promise<void> {
+export async function previewImport(store: Store, plan: ImportPlan, onStep?: PortableImportOptions['onStep']): Promise<void> {
   const mutations = [...plan.mutations.filter(row => row.op === 'create'), ...plan.mutations.filter(row => row.op === 'update')];
-  try { await previewItemMutations({ ...plan, mutations, pmRoot: store.workspace }); } catch (error) { return planError(error); }
+  try { await previewOwnedItems(store, plan, mutations, onStep); } catch (error) { return planError(error); }
 }
 /** Validate the captured read set before schema writes or SDK preview. */
 export async function validateImportPlan(store: Store, plan: ImportPlan, onStep?: PortableImportOptions['onStep']): Promise<void> {

@@ -27,7 +27,7 @@ function wrap(envelope: LegacyOriginManifest, records: unknown): LegacyOriginMan
 
 test('origin companion validates every row before writes and refuses malformed or incomplete inventory', async t => {
   const { output, file, envelope, records } = await companion(t); const target = await tracker(t); const before = await snapshot(target.workspace);
-  const malformed: unknown[] = [null, [], {}, { ...envelope, version: 2 }, { ...envelope, format: 'foreign' }, { ...envelope, harness: 'agents-md' }, { ...envelope, payload: 3 }, { ...envelope, checksum: 'wrong' }, { ...envelope, extra: true }, wrap(envelope, null), { ...envelope, payload: '{', checksum: digest('{') }, wrap(envelope, [null])];
+  const malformed: unknown[] = [null, [], {}, { ...envelope, version: 2 }, { ...envelope, format: 'foreign' }, { ...envelope, harness: 'agents-md' }, { ...envelope, payload: 3 }, { ...envelope, checksum: 'wrong' }, { ...envelope, extra: true }, wrap(envelope, null), { ...envelope, payload: '{', checksum: digest('{') }, ...[null, 3, []].map(value => wrap(envelope, [value]))];
   const changes: ((rows: LegacyOriginRecord[]) => void)[] = [
     rows => { Object.assign(rows[0], { extra: true }); },
     rows => { rows[0].file = 3 as unknown as string; },

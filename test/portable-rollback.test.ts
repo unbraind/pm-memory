@@ -210,6 +210,8 @@ test('mixed graph node compensation remaps every edge and reads older intent exp
   const { source } = await rollbackScenario(t); const target = await tracker(t);
   await importSubset(join(source.root, 'rollback-export'), target, ['alpha']);
   const native = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!;
+  await target.client.update(native.id, { body: 'Alpha A' });
+  assert.equal((await target.client.get(native.id, { full: true })).item.body, 'Alpha A');
   const sourceItems = (await source.client.listAllComplete()).items;
   await source.store.link(sourceItems.find(row => row.memory_slug === 'beta')!.id, sourceItems.find(row => row.memory_slug === 'alpha')!.id);
   await source.store.link(sourceItems.find(row => row.memory_slug === 'policy')!.id, sourceItems.find(row => row.memory_slug === 'beta')!.id);
