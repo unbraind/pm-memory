@@ -323,3 +323,6 @@ Native mutations and file export fence publication against successor takeover;
 a stale writer refuses with `lock_lost`. Live or unverifiable owners remain
 protected, and contention waits are capped at 30 seconds. These paths also work
 without Git. See [writer lock evidence](ARCHITECTURE.md#writer-lock-recovery-evidence).
+
+Release jobs with write permissions are restricted to `unbraind/pm-memory` at job
+level, so a fork cannot run publication with its own approval variable.
