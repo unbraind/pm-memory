@@ -139,3 +139,23 @@ instrumented run was canceled and contributes no sequence count.
 Earlier exact SDK assertions now include the newly required complete source snapshot
 or source bytes explicitly, retaining their original native metadata, clock, alias,
 reference and retry checks. The full release thresholds remain 100/100/100/100.
+
+Current-grammar local results: 200 complete sequences (eight batches of 25, starts
+0 through 175) passed with master seed `325316613`. Each batch ran
+`PM_MEMORY_GRAMMAR_START=<start> PM_MEMORY_GRAMMAR_COUNT=25 node --test --test-concurrency=1 test/portable-grammar.worker.ts`.
+The unfinished next batch was stopped when host saturation made full-model execution
+unsuitable locally; it contributes no passing count. The committed law still requires
+500 sequences, and the complete npm/Bun release gates run in CI. No model assertions,
+sequence counts or coverage thresholds were reduced.
+
+The pinned pm source-context runner passed 10/10 focused roots, including current
+grammar, refusal and released-record compatibility. Six disposable behavioral
+reverts failed as expected; commands, counterexamples and positive controls are
+recorded on `pm-memory-1363`. Typecheck, lint, identity/privacy, documentation
+(39 files / 153 declarations), and duplication (0% / 102 sources) pass.
+
+Fresh public validation on 2026-10-28 retained 17 items, 6 nonempty bodies and
+232,693 SDK input bytes. Each harness exported 19 files, retained 17 guidance
+records and 34 renewals, and reported 17 unchanged retries. Edited bodies became
+`needs-renewal`; bounds/evidence and the read-only source fingerprint were retained.
+Final-head release results are reported in the PR, separately from these local counts.
