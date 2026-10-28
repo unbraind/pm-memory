@@ -1,6 +1,6 @@
 {
   "name": "pm-memory",
-  "version": "2026.10.19",
+  "version": "2026.10.28",
   "description": "Typed long-term agent memory with bounded recall and cross-harness round trips",
   "author": "@unbraind",
   "entry": "./dist/index.js",

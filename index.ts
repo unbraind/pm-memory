@@ -13,7 +13,7 @@ export { MemoryError, packetTokens } from './src/core.ts';
 /** Public typed harness, memory and receipt contracts. */
 export type { MemoryOptions, RememberOptions, MemoryKind, Harness, HarnessDocument, Memory, Packet, RecallRow, Verdict, Claim, ClaimResult, Proposal } from './src/types.ts';
 /** Activate memory commands and registered Knowledge fields in any pm host. */
-export default defineExtension({ name: 'pm-memory', version: '2026.10.19', description: 'Shared long-term agent memory as typed pm context', activate: register });
+export default defineExtension({ name: 'pm-memory', version: "2026.10.28", description: 'Shared long-term agent memory as typed pm context', activate: register });
 
 /** Local embedding adapters and opt-in provider contracts. */
 export { OllamaProvider, LexicalProvider, EmbeddingInputError } from './src/embeddings.ts';
