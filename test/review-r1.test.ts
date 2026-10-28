@@ -230,6 +230,8 @@ test('in-process injected client keeps author precedence and content-only timest
   const imported = (await store.read()).find(item => item.slug === 'format')!;
   await store.fields(imported.id, { changed_at: '2020-01-01T00:00:00.000Z' });
   await writeFile(source, '---\nname: "Formatting fixture"\n---\nUnchanged semantic guidance.\n');
+  assert.equal((await importDir(source, { ...options, from: 'claude-code' })).updated, 1);
+  assert.equal((await store.read()).find(item => item.id === imported.id)!.document!.original, Buffer.from(await readFile(source)).toString('base64'));
   assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unchanged, 1);
   assert.equal((await store.read()).find(item => item.id === imported.id)!.updated, '2020-01-01T00:00:00.000Z');
 });

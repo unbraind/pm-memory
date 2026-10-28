@@ -65,12 +65,14 @@ export interface Source {
 }
 /** Normalize relative source paths identically for generated slugs and wiki aliases. */
 export function stemOf(path: string): string { return path.replace(/\.[^./]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, ''); }
+/** Detect document framing independently of YAML validity, including literal native body text. */
+export function frontmatter(content: string): RegExpExecArray | null { return /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content); }
 /** Parse frontmatter with the YAML parser while preserving its original byte representation. */
 export function sourceDocument(path: string, bytes: Buffer, from: Harness): Source {
   const original = bytes.toString('base64');
   const content = bytes.toString('utf8');
   if (!Buffer.from(content).equals(bytes)) throw new MemoryError('format', 'Non-UTF-8 memory refused', 'Convert the source to UTF-8 before importing');
-  const front = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
+  const front = frontmatter(content);
   let metadata: Record<string, unknown> = {};
   if (front !== null) {
     let parsed: unknown;

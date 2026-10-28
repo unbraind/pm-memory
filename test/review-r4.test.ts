@@ -45,7 +45,8 @@ test('unchanged remember preserves stale verification, import bytes and reimport
   const out = join(root, 'out'); await exportDir(out, { ...options, to: 'claude-code' });
   assert.equal((await client.get(imported.id, { full: true })).item.memory_original, Buffer.from(bytes).toString('base64'));
   const exported = await readFile(join(out, 'memories/guide.md'), 'utf8');
-  assert.equal(exported.slice(exported.indexOf('\n') + 1), imported.body);
+  assert.equal(exported.slice(exported.indexOf('\n') + 1), bytes);
+  assert.equal((await client.get(imported.id, { full: true })).item.body, imported.body);
   assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unchanged, 1);
   await remember(imported.body, { ...options, kind: 'project', update: imported.slug, pin: true });
   const changed = (await store.read()).find(row => row.id === imported.id)!;

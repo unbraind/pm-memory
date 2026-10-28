@@ -112,3 +112,30 @@ deletion and accepted native history drift. One initially invalid recovery fixtu
 was withdrawn and replaced by the corrected positive/revert pair; pm comments
 preserve that correction. Full npm/Bun release evidence belongs to the final-head
 CI run linked from the PR; these focused counts do not assert a full-gate pass.
+
+
+## Current grammar transitions
+
+Canonical legacy imports and their export baselines now use the shared source parser
+regardless of whether the original source had frontmatter. New `type`/`metadata.type`
+and `description` fields become native semantic edits; unknown fields and exact
+source bytes remain in the document snapshot. An empty outer mapping frames literal
+SDK-native YAML bodies, including malformed literal YAML, so parsing current source
+syntax does not rewrite native body text on an unchanged round trip. Exact body
+caches are written only when needed to preserve bytes or an existing cache; ordinary
+SDK-canonical body edits add no redundant native metadata.
+
+The current-grammar reference model uses seed `0x1363f005` (`325316613`) and 500
+sequences across raw, companion, canonical AGENTS/Claude, and Cursor-source exports.
+Every sequence introduces frontmatter into plain source, changes one unknown value,
+removes the frontmatter, exports/imports unchanged after each transition, and imports
+the final export into a fresh tracker. Independent SDK updates on a cloned reference
+tracker define the complete expected native state; generated field values and full
+source bytes are not derived with the importer. Native priorities, utility metadata
+and links to a Task are retained. Bounded batches reuse initialized schema fixtures
+through independent native copies to limit host resource usage. The earlier partial
+instrumented run was canceled and contributes no sequence count.
+
+Earlier exact SDK assertions now include the newly required complete source snapshot
+or source bytes explicitly, retaining their original native metadata, clock, alias,
+reference and retry checks. The full release thresholds remain 100/100/100/100.

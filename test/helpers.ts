@@ -23,13 +23,22 @@ export async function runModelWorker(t: TestContext, worker: URL, variables: Rec
 
 /** Initialize a real tracker and register cleanup before any mutations. */
 export async function tracker(t: TestContext) {
+  const result = await trackerFixture(t);
+  await result.client.init('memory-test', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+  return result;
+}
+/** Allocate one independently owned temporary SDK fixture before initialization or cloning. */
+async function trackerFixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), 'memory-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const workspace = join(root, '.agents', 'pm');
   const client = new PmClient({ cwd: root, pmRoot: workspace, author: 'memory-test', noExtensions: true });
-  await client.init('memory-test', { defaults: true, agentGuidance: 'skip', mergeFence: false });
   const options = { workspace, author: 'memory-test' }; const store = new Store(options);
   return { root, workspace, client, options, store };
+}
+/** Reuse initialized schema through a native copy while preserving independent tracker state. */
+export async function clonedTracker(t: TestContext, source: Awaited<ReturnType<typeof tracker>>) {
+  const result = await trackerFixture(t); await cloneTracker(source, result.workspace); return result;
 }
 /** Keep native SDK tests outside ancestor Git discovery and restore only the variables we changed. */
 export function withoutGit(t: TestContext, root: string): void {
@@ -48,6 +57,25 @@ export async function exportedPolicy(source: Pick<Awaited<ReturnType<typeof trac
 export async function importText(target: Pick<Awaited<ReturnType<typeof tracker>>, 'root' | 'options'>, name: string, body: string, from: Parameters<typeof importDir>[1]['from'] = 'agents-md') {
   const file = join(target.root, name); await writeFile(file, body);
   await importDir(file, { ...target.options, from }); return file;
+}
+/** Seed a complete legacy harness inventory with an unchanged index where required. */
+export async function importHarness(target: Pick<Awaited<ReturnType<typeof tracker>>, 'root' | 'options'>, from: 'agents-md' | 'claude-code', body: string) {
+  const directory = join(target.root, 'source'); await mkdir(directory);
+  const name = from === 'agents-md' ? 'AGENTS.md' : 'alpha.md'; await writeFile(join(directory, name), body);
+  if (from === 'claude-code') await writeFile(join(directory, 'MEMORY.md'), '- [Alpha](alpha.md)\n');
+  await importDir(directory, { ...target.options, from }); return { directory, name };
+}
+/** Clone native documents and configuration for an independent SDK reference update. */
+export async function cloneTracker(target: Pick<Awaited<ReturnType<typeof tracker>>, 'workspace' | 'options'>, destination: string): Promise<PmClient> {
+  await cp(target.workspace, destination, { recursive: true, filter: path => !['runtime', 'locks', 'transactions', 'checkpoints', 'search'].includes(relative(target.workspace, path).split('/')[0]) });
+  return new PmClient({ pmRoot: destination, author: target.options.author, noExtensions: true });
+}
+/** Require a complete export/import round trip to preserve every SDK-returned native field. */
+export async function assertExportIdentity(target: Awaited<ReturnType<typeof tracker>>, directory: string, to: Parameters<typeof exportDir>[1]['to']): Promise<void> {
+  const expected = (await target.client.listAllComplete({ includeBody: true })).items;
+  await exportDir(directory, { ...target.options, to });
+  assert.equal((await importDir(directory, { ...target.options, from: to })).updated, 0);
+  assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, expected);
 }
 /** Seed immutable imported origins while retaining other rows for a later mixed creation batch. */
 export async function importSubset(directory: string, target: Pick<Awaited<ReturnType<typeof tracker>>, 'root' | 'options'>, slugs: readonly string[]) {

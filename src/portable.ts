@@ -5,7 +5,7 @@ import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
 import type { GuidanceWindow, Harness, HarnessDocument, Memory, MemoryKind, MemoryOptions } from './types.ts';
-import { readDocument, documentPatch, encodeDocument, sourceDocument } from './portable-source.ts';
+import { readDocument, documentPatch, encodeDocument, sourceDocument, frontmatter } from './portable-source.ts';
 import { portableFields, validFields, ownershipPatch, previousOwnership, resolvedRelationships, creationMetadata, legacyBirth, recordedCreation, projectSourceFields } from './portable-ownership.ts';
 import type { PortableBaseline, OwnedTarget, PortableFields } from './portable-ownership.ts';
 import { itemOrigin, validOrigin, originCatalog, selectOrigin, sameOrigin, creatorMatchesOrigin } from './portable-origin.ts';
@@ -223,7 +223,7 @@ export async function policyRecord(store: Store, item: Memory, memories?: readon
   const row: PortableGuidance = { ...(item.document === undefined ? {} : { document: item.document }), relationships, snapshotHash: snapshotDigest(item, item.body, relationships), slug: item.slug, title: item.title, description: item.description, kind: item.kind, why: item.why, how: item.how, pinned: item.pinned, tags: item.tags, path: `memories/${item.slug}.md`, updated: item.updated, validity: item.validity ?? null, renewals: [...revisions.values()].sort((a, b) => a.revision - b.revision) };
   row.origin = await itemOrigin(store, item.id, origins);
   const payload = policyPayload(item);
-  const source = item.document?.format === 'legacy' && policyParts(item).prefix !== '' ? sourceDocument(item.document.path, Buffer.from(payload), item.document.harness) : undefined;
+  const source = item.document?.format === 'legacy' ? sourceDocument(item.document.path, Buffer.from(payload), item.document.harness) : undefined;
   row.baseline = { ...(source === undefined ? {} : { sourceFields: portableFields({ ...source, pinned: false, tags: [] }, source.body) }), bodyHash: digest(payload), ...(item.document === undefined ? {} : { documentHash: digest(encodeDocument(item.document)) }), ...(item.policyBody === undefined ? {} : { policyBodyHash: digest(encodeDocument(item.policyBody)) }), id: item.id, slug: item.slug, origin: row.origin, fields: portableFields(row, item.body), relationships };
   return parsePolicy({ version: 1, format: 'pm-memory-policy', harness: 'agents-md', guidance: [row] }).guidance[0];
 }
@@ -247,7 +247,8 @@ export function policyParts(item: Memory): { prefix: string; body: string } {
   if (item.document.format === 'policy') return { prefix: '', body: item.policyBody === undefined && canonicalProvenance(item, original, []).body === item.body ? original : body };
   const source = sourceDocument(item.document.path, bytes, item.document.harness);
   if (item.policyBody === undefined && canonicalProvenance(item, source.body, []).body === item.body) body = source.body;
-  return { prefix: original.slice(0, original.length - source.body.length), body };
+  const prefix = original.slice(0, original.length - source.body.length);
+  return { prefix: prefix === '' && frontmatter(body) !== null ? '---\n{}\n---\n' : prefix, body };
 }
 /** Preserve all unrecognized frontmatter and body bytes, excluding only the derived marker. */
 export function policyPayload(item: Memory): string {
@@ -291,7 +292,6 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     const payload = content.slice(prefix.length); payloads.push(payload);
     if (!provenance.has(row.slug) && row.document?.format === 'legacy') {
       const before = sourceDocument(row.document.path, Buffer.from(row.document.original, 'base64'), row.document.harness);
-      if (before.body.length === Buffer.from(row.document.original, 'base64').toString('utf8').length) return payload;
       const source = sourceDocument(row.document.path, Buffer.from(payload), row.document.harness);
       projectSourceFields(row, source, row.baseline?.sourceFields ?? portableFields({ ...before, pinned: false, tags: [] }, before.body));
       const edited = row.baseline?.bodyHash === undefined ? payload !== Buffer.from(row.document.original, 'base64').toString('utf8') : digest(payload) !== row.baseline.bodyHash;
@@ -347,10 +347,11 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
       const body = bodies[index];
       const wire = provenance.get(row.slug);
       const document: HarnessDocument | undefined = wire === undefined ? row.document : wire.document ?? { version: 1, format: 'legacy', harness: wire.harness, path: wire.path, original: wire.original };
-      const sourceBody = document?.format === 'legacy' ? sourceDocument(document.path, Buffer.from(document.original, 'base64'), document.harness).body : document === undefined ? undefined : Buffer.from(document.original, 'base64').toString('utf8');
+      const retainedDocument = document ?? previous?.document;
+      const sourceBody = retainedDocument?.format === 'legacy' ? sourceDocument(retainedDocument.path, Buffer.from(retainedDocument.original, 'base64'), retainedDocument.harness).body : retainedDocument === undefined ? undefined : Buffer.from(retainedDocument.original, 'base64').toString('utf8');
       const changedPayload = previous === undefined
         ? canonicalProvenance(row, body, []).body !== body && sourceBody !== body || sourceBody !== undefined && sourceBody !== body && canonicalProvenance(row, sourceBody, []).body === body
-        : (wire === undefined || previous.policyBody !== undefined) && policyParts(previous).body !== body;
+        : (wire === undefined || previous.policyBody !== undefined) && policyParts(previous).body !== body && (previous.policyBody !== undefined || canonicalProvenance(row, body, []).body !== body || sourceBody !== undefined && sourceBody !== body && canonicalProvenance(row, sourceBody, []).body === body);
       const policyBody: HarnessDocument | undefined = changedPayload ? { version: 1, format: 'policy', harness: options.from, path: row.path, original: Buffer.from(body).toString('base64') } : undefined;
       let policyBodyHash = previous === undefined && policyBody !== undefined ? digest(encodeDocument(policyBody)) : undefined;
       let documentHash = previous === undefined && document !== undefined ? digest(encodeDocument(document)) : undefined;
@@ -364,7 +365,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
         if (previous.policyBody !== undefined && owned?.policyBodyHash === digest(encodeDocument(previous.policyBody))) policyBodyHash = owned.policyBodyHash;
         update = ownershipPatch(previous, row, body, ids, baselineIds, owned);
         if (document !== undefined) {
-          const patch = documentPatch(previous, document, wire === undefined ? row.document?.original : row.document?.original ?? owned?.source?.original ?? previous.original, owned?.sourceEdited, documentHash ?? row.baseline?.documentHash);
+          const patch = documentPatch(previous, document, wire === undefined ? document.original : row.document?.original ?? owned?.source?.original ?? previous.original, owned?.sourceEdited, documentHash ?? row.baseline?.documentHash);
           Object.assign(update.options, patch.options); if (patch.conflict) update.conflicts.push('document');
           if (patch.options.memoryDocument !== undefined) documentHash = digest(encodeDocument(document));
         }

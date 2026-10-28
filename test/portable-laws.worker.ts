@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { PmClient, DEPENDENCY_KIND_VALUES } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, renew, POLICY_MANIFEST } from '../index.ts';
 import type { PortableGuidance, PortablePolicyManifest } from '../index.ts';
-import { tracker } from './helpers.ts';
+import { tracker, cloneTracker } from './helpers.ts';
 
 const LAW = process.env.PM_MEMORY_LAW!;
 const START = Number(process.env.PM_MEMORY_LAW_START);
@@ -121,8 +121,7 @@ test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, 
       const oracle = join(target.root, `oracle-${sequence}`);
       if (changed) {
         await mkdir(oracle);
-        await cp(target.workspace, oracle, { recursive: true, filter: path => !['runtime', 'locks', 'transactions', 'checkpoints', 'search'].includes(relative(target.workspace, path).split('/')[0]) });
-        const client = new PmClient({ pmRoot: oracle, author: target.options.author, noExtensions: true });
+        const client = await cloneTracker(target, oracle);
         await client.run('update', { id: alphaId, options: referenceAction });
         expected = (await client.listAllComplete({ includeBody: true })).items;
       }

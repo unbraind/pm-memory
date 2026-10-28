@@ -229,6 +229,45 @@ console.log('complete document accepted');
         assert.match(execute(consumer, ['documents.ts', from, 'check', output + '-final', format + '-companion'], losslessRuntime, documentsEnv), /complete document accepted/);
       }
     }
+    writeFileSync(join(consumer, 'grammar.ts'), String.raw`import assert from 'node:assert/strict';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { PmClient } from '@unbrained/pm-cli/sdk';
+import { importDir, POLICY_MANIFEST } from 'pm-memory';
+const [from, operation, directory] = process.argv.slice(2);
+const workspace = process.env.PM_PATH; const client = new PmClient({ pmRoot: workspace, author: 'memory-consumer', noExtensions: true });
+const source = directory + '.md'; const original = 'Plain body';
+const edited = '---\r\ntype: feedback\r\ndescription: New source hook\r\ncustom: {nested: [true, null]}\r\n---\r\n' + original;
+if (operation === 'setup') {
+  await client.init('grammar', { defaults: true, agentGuidance: 'skip', mergeFence: false }); await writeFile(source, original);
+  await importDir(source, { workspace, author: 'memory-consumer', from });
+  const id = (await client.listAllComplete()).items[0].id; await writeFile(directory + '.before.json', JSON.stringify((await client.get(id, { full: true })).item));
+} else if (operation === 'edit') {
+  const manifest = JSON.parse(await readFile(join(directory, POLICY_MANIFEST), 'utf8')); const file = join(directory, manifest.guidance[0].path);
+  const bytes = await readFile(file, 'utf8'); await writeFile(file, bytes.slice(0, bytes.indexOf('\n') + 1) + edited);
+} else {
+  const before = JSON.parse(await readFile(directory + '.before.json', 'utf8')); const actual = (await client.get(before.id, { full: true })).item;
+  const document = JSON.stringify({ format: 'legacy', harness: from, original: Buffer.from(edited).toString('base64'), path: source, version: 1 });
+  assert.deepEqual(actual, { ...before, description: 'New source hook', memory_kind: 'feedback', memory_document: document, updated_at: actual.updated_at });
+  const freshRoot = directory + '-fresh'; const fresh = new PmClient({ pmRoot: freshRoot, author: 'memory-consumer', noExtensions: true });
+  await fresh.init('grammar-fresh', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+  await importDir(directory + '-final', { workspace: freshRoot, author: 'memory-consumer', from });
+  const copied = (await fresh.listAllComplete({ includeBody: true })).items[0];
+  for (const key of ['description', 'memory_kind', 'body', 'memory_document']) assert.equal(copied[key], actual[key]);
+}
+console.log('current grammar accepted');
+`);
+    for (const from of ['agents-md', 'claude-code']) for (const format of ['json', 'toon']) {
+      const directory = 'grammar-' + from + '-' + format; const grammarEnv = { ...hostEnv, PM_PATH: join(consumer, directory + '-tracker') }; const flags = format === 'json' ? ['--json'] : [];
+      assert.match(execute(consumer, ['grammar.ts', from, 'setup', directory], losslessRuntime, grammarEnv), /current grammar accepted/);
+      execute(consumer, [...prefix, 'package', 'install', join(scratch, packed[0].filename)], executable, grammarEnv);
+      execute(consumer, [...prefix, 'memory', 'export', directory, '--to', from, ...flags], executable, grammarEnv);
+      assert.match(execute(consumer, ['grammar.ts', from, 'edit', directory], losslessRuntime, grammarEnv), /current grammar accepted/);
+      const imported = execute(consumer, [...prefix, 'memory', 'import', directory, '--from', from, ...flags], executable, grammarEnv);
+      if (format === 'json') assert.equal(JSON.parse(imported).updated, 1); else assert.match(imported, /updated: 1/);
+      execute(consumer, [...prefix, 'memory', 'export', directory + '-final', '--to', from, ...flags], executable, grammarEnv);
+      assert.match(execute(consumer, ['grammar.ts', from, 'check', directory], losslessRuntime, grammarEnv), /current grammar accepted/);
+    }
     const remembered = JSON.parse(execute(consumer, [...prefix, 'memory', 'remember', 'Packed host remembers context', '--kind', 'user', '--slug', 'packed', '--pin', '--json'], executable, hostEnv)) as { slug: string; updated: boolean };
     assert.equal(remembered.slug, 'packed'); assert.equal(remembered.updated, false);
     const packet = JSON.parse(execute(consumer, [...prefix, 'memory', 'recall', 'host context', '--budget', '200', '--json'], executable, hostEnv)) as { recall: string; estimated_tokens: number; memories: { slug: string }[] };

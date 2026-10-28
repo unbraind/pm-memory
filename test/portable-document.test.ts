@@ -9,22 +9,38 @@ import { documentPatch, readDocument } from '../src/portable-source.ts';
 import { validOwnedTarget } from '../src/portable-ownership.ts';
 import { policyPayload, policyBody } from '../src/portable.ts';
 import { digest } from '../src/core.ts';
-import { tracker, crashAtStep, exportedPolicy, snapshot } from './helpers.ts';
+import { tracker, crashAtStep, exportedPolicy, snapshot, importHarness } from './helpers.ts';
 
 /** The oracle reads complete source bytes through the SDK, independently of importer projections. */
 async function nativeDocument(target: Awaited<ReturnType<typeof tracker>>, slug: string): Promise<HarnessDocument> {
   const item = (await target.client.listAllComplete({ includeBody: true })).items.find(row => row.memory_slug === slug)!;
   return JSON.parse(String(item.memory_document)) as HarnessDocument;
 }
+/** Persist the released legacy shape without any newer document or transaction ownership fields. */
+async function releasedSource(target: Awaited<ReturnType<typeof tracker>>, original: string): Promise<string> {
+  await target.store.register();
+  await target.client.run('create', { options: { title: 'alpha', body: 'Body', type: 'Knowledge', memorySlug: 'alpha', memoryKind: 'reference', memorySource: 'agents-md:relative-file', memoryPath: 'AGENTS.md', memoryOriginal: Buffer.from(original).toString('base64'), memoryEdited: false } });
+  return (await target.client.listAllComplete()).items[0].id;
+}
+/** Keep a checksummed older companion that predates complete document snapshots. */
+async function companionWithoutSnapshots(directory: string): Promise<void> {
+  const file = join(directory, 'pm-memory-origins.json'); const envelope = JSON.parse(await readFile(file, 'utf8')) as { payload: string; checksum: string };
+  const records = JSON.parse(envelope.payload) as { guidance: PortablePolicyManifest['guidance'][number] }[];
+  for (const record of records) delete record.guidance.document;
+  envelope.payload = JSON.stringify(records); envelope.checksum = digest(envelope.payload); await writeFile(file, JSON.stringify(envelope));
+}
+/** Produce an older policy body projection without claiming ownership of the native source snapshot. */
+async function policyWithoutSnapshot(directory: string, body: string): Promise<void> {
+  const file = join(directory, POLICY_MANIFEST); const manifest = JSON.parse(await readFile(file, 'utf8')) as PortablePolicyManifest;
+  delete manifest.guidance[0].document; await writeFile(file, JSON.stringify(manifest));
+  await writeFile(join(directory, manifest.guidance[0].path), policyBody(manifest.guidance[0], body));
+}
 
 test('unknown frontmatter edits update exactly one document through raw and companion imports', async t => {
   for (const from of ['agents-md', 'claude-code'] as const) for (const companion of [false, true]) {
-    const target = await tracker(t); const source = join(target.root, 'source'); await mkdir(source);
-    const name = from === 'agents-md' ? 'AGENTS.md' : 'alpha.md';
+    const target = await tracker(t);
     const first = '---\r\nname: alpha\r\ncustom: old-value\r\nnested: {key: [1, false, null]}\r\n---\r\n\r\n# Guidance\r\n\r\n## Unrecognized section\r\n\tKeep every byte.  \r\n';
-    await writeFile(join(source, name), first);
-    if (from === 'claude-code') await writeFile(join(source, 'MEMORY.md'), '- [Alpha](alpha.md)\n');
-    await importDir(source, { ...target.options, from });
+    const { directory: source, name } = await importHarness(target, from, first);
     const input = companion ? join(target.root, 'companion') : source;
     if (companion) await exportDir(input, { ...target.options, to: from });
     const before = (await target.client.listAllComplete({ includeBody: true })).items;
@@ -288,6 +304,8 @@ test('policy snapshots remove historical whitespace and preserve policy-format n
   await writeFile(payload, bytes.slice(0, bytes.indexOf('\n') + 1) + 'Body A');
   await writeFile(join(exported.path, POLICY_MANIFEST), JSON.stringify(exported.manifest));
   await importDir(exported.path, { ...target.options, from: 'agents-md' });
+  const retained = await exportedPolicy(target, 'retained-native-document'); const retainedBytes = await readFile(join(retained.path, retained.manifest.guidance[0].path), 'utf8');
+  assert.equal(retainedBytes.slice(retainedBytes.indexOf('\n') + 1), '---\ncustom: retained\n---\nBody A');
   const fresh = await tracker(t); await importDir(exported.path, { ...fresh.options, from: 'agents-md' });
   const output = await exportedPolicy(fresh); const full = await readFile(join(output.path, output.manifest.guidance[0].path), 'utf8');
   assert.equal(full.slice(full.indexOf('\n') + 1), 'Body A');
@@ -317,10 +335,7 @@ test('raw imports synchronize owned policy bytes and retain foreign exact-body e
     const first = '---\nname: alpha\ncustom: A\n---\nBody A'; await writeFile(file, first);
     await importDir(file, { ...target.options, from });
     const policy = join(target.root, 'older-policy'); await exportDir(policy, { ...target.options, to: 'claude-code' });
-    const manifest = JSON.parse(await readFile(join(policy, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
-    delete manifest.guidance[0].document; await writeFile(join(policy, POLICY_MANIFEST), JSON.stringify(manifest));
-    const payload = join(policy, manifest.guidance[0].path); const current = await readFile(payload, 'utf8');
-    await writeFile(payload, current.slice(0, current.indexOf('\n') + 1) + '\nBody B  \n');
+    await policyWithoutSnapshot(policy, '\nBody B  \n');
     assert.equal((await importDir(policy, { ...target.options, from: 'claude-code' })).updated, 1);
     const revised = first.replace('custom: A', 'custom: C').replace('Body A', '\nBody C  \n'); await writeFile(file, revised);
     assert.equal((await importDir(file, { ...target.options, from })).updated, 1);
@@ -341,10 +356,9 @@ test('raw imports synchronize owned policy bytes and retain foreign exact-body e
 });
 
 test('released legacy records without document snapshots retain unknown source bytes on their first update', async t => {
-  const target = await tracker(t); await target.store.register();
+  const target = await tracker(t);
   const first = '---\r\nname: alpha\r\ncustom: old-value\r\n---\r\nBody';
-  await target.client.run('create', { options: { title: 'alpha', body: 'Body', type: 'Knowledge', memorySlug: 'alpha', memoryKind: 'reference', memorySource: 'agents-md:relative-file', memoryPath: 'AGENTS.md', memoryOriginal: Buffer.from(first).toString('base64'), memoryEdited: false } });
-  const id = (await target.client.listAllComplete()).items[0].id;
+  const id = await releasedSource(target, first);
   const before = (await target.client.get(id, { full: true })).item;
   assert.equal(before.memory_document, undefined);
   const output = join(target.root, 'old-export'); await exportDir(output, { ...target.options, to: 'agents-md' });
@@ -355,11 +369,40 @@ test('released legacy records without document snapshots retain unknown source b
   assert.equal((await nativeDocument(target, 'alpha')).original, Buffer.from(second).toString('base64'));
   const final = join(target.root, 'old-updated'); await exportDir(final, { ...target.options, to: 'agents-md' });
   assert.deepEqual(await readFile(join(final, 'AGENTS.md')), Buffer.from(second));
-  const companion = join(final, 'pm-memory-origins.json'); const envelope = JSON.parse(await readFile(companion, 'utf8')) as { payload: string; checksum: string };
-  const records = JSON.parse(envelope.payload) as { guidance: PortablePolicyManifest['guidance'][number] }[];
-  for (const record of records) delete record.guidance.document;
-  envelope.payload = JSON.stringify(records); envelope.checksum = digest(envelope.payload); await writeFile(companion, JSON.stringify(envelope));
+  await companionWithoutSnapshots(final);
   const third = second.replace('new-value', 'older-companion-value'); await writeFile(join(final, 'AGENTS.md'), third);
   assert.equal((await importDir(final, { ...target.options, from: 'agents-md' })).updated, 1);
   assert.equal((await nativeDocument(target, 'alpha')).original, Buffer.from(third).toString('base64'));
+});
+
+test('released source ownership survives canonical handoffs and snapshot-free companion replays', async t => {
+  const target = await tracker(t); const first = '---\nname: alpha\n---\nBody'; const id = await releasedSource(target, first);
+  const legacy = join(target.root, 'legacy'); await exportDir(legacy, { ...target.options, to: 'agents-md' });
+  await companionWithoutSnapshots(legacy);
+  const policy = join(target.root, 'policy'); await exportDir(policy, { ...target.options, to: 'claude-code' });
+  await policyWithoutSnapshot(policy, 'Canonical body B');
+  assert.equal((await importDir(policy, { ...target.options, from: 'claude-code' })).updated, 1);
+  const original = (await target.client.get(id, { full: true })).item;
+  assert.equal(original.memory_document, undefined); assert.equal(original.memory_policy_body, undefined);
+  const raw = join(target.root, 'AGENTS.md'); await writeFile(raw, first);
+  assert.equal((await importDir(raw, { ...target.options, from: 'agents-md' })).updated, 1);
+  assert.equal((await target.client.get(id, { full: true })).item.memory_document, undefined);
+  assert.equal((await importDir(policy, { ...target.options, from: 'claude-code' })).updated, 1);
+  assert.equal((await importDir(legacy, { ...target.options, from: 'agents-md' })).updated, 1);
+  const after = (await target.client.get(id, { full: true })).item;
+  assert.deepEqual(after, { ...original, body: 'Body', updated_at: after.updated_at });
+});
+
+test('snapshot-free legacy adapters bind native origins without inventing prior source receipts', async t => {
+  const target = await tracker(t); const item = await remember('Alpha baseline', { ...target.options, slug: 'alpha', kind: 'reference' });
+  const exported = await exportedPolicy(target); const guidance = exported.manifest.guidance[0];
+  const payload = JSON.stringify([{ file: 'alpha.md', guidance, decoded: guidance.baseline!.fields, links: [], artifact: false }]);
+  const directory = join(target.root, 'legacy-adapter'); await mkdir(directory);
+  await writeFile(join(directory, 'pm-memory-origins.json'), JSON.stringify({ version: 1, format: 'pm-memory-origins', harness: 'agents-md', payload, checksum: digest(payload) }));
+  await writeFile(join(directory, 'alpha.md'), 'Alpha revised');
+  const before = (await target.client.get(item.id, { full: true })).item;
+  assert.equal((await importDir(directory, { ...target.options, from: 'agents-md' })).updated, 1);
+  const actual = (await target.client.get(item.id, { full: true })).item;
+  const document = JSON.stringify({ format: 'legacy', harness: 'agents-md', original: Buffer.from('Alpha revised').toString('base64'), path: 'alpha.md', version: 1 });
+  assert.deepEqual(actual, { ...before, body: 'Alpha revised', title: 'Alpha revised', memory_document: document, updated_at: actual.updated_at });
 });

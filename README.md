@@ -310,7 +310,14 @@ field changes. Snapshot fingerprints in the portable baseline and ownership rece
 prevent overwriting a newer native document; the receipt identifies the conflicting
 field and a fresh export authorizes a later edit. Older records without these optional
 snapshots retain their existing source-history fallback. Malformed foreign snapshots
-are skipped with a reason. Canonical exports explicitly report index artifacts and
+are skipped with a reason. Legacy documents are parsed from their current payload:
+a file exported as plain Markdown can acquire frontmatter later, including `type`,
+`metadata.type`, `description` and unknown keys. Export baselines describe the actual
+current document, so unchanged files preserve native semantic overrides. If a native
+SDK body is literal YAML text, canonical export adds an empty outer source mapping
+before that body; importing it preserves the literal text and native metadata. Invalid
+new source frontmatter refuses before tracker writes. Native policy bodies whose
+metadata lives in the manifest retain their explicit Markdown body contract. Canonical exports explicitly report index artifacts and
 their document snapshots as lossy when those artifacts are outside the inventory.
 
 Compensation of a creation requires the complete independently planned SDK birth
