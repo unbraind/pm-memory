@@ -1,10 +1,15 @@
 # Changelog
 
-## 2026.10.28 - 2026-10-28
+## Unreleased
 
 ### Added
 
 - Preserve guidance validity in portable harness round trips ([pm-memory-1363](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-1363.toon))
+
+## 2026.10.28 - 2026-10-28
+
+### Added
+
 - Recall and index ([pm-memory-lc64](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-lc64.toon))
 - Outcome-linked memory utility with source denominators ([pm-memory-kkxg](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-kkxg.toon))
 - Time-bounded standing guidance with renewal evidence ([pm-memory-wvy5](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-wvy5.toon))
