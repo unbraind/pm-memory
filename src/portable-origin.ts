@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { link, mkdir, open, rm } from 'node:fs/promises';
+import { link, mkdir, open, rm, readFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join } from 'node:path';
 import { hashHistoryStream, listMutationEvents, replayHistoryToTarget, writeFileAtomic, getHistoryPath, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { Store } from './store.ts';
 import type { Memory } from './types.ts';
+import { validWriteReceipt } from './portable-write.ts';
 import { MemoryError } from './core.ts';
 type HistoryEntry = Parameters<typeof replayHistoryToTarget>[0][number];
 
@@ -99,13 +100,24 @@ export async function originCatalog(store: Store, liveIds?: ReadonlySet<string>,
       if (row === undefined) continue;
       if (liveIds !== undefined && !liveIds.has(row.id)) {
         const last = (await readHistoryEntries(getHistoryPath(store.workspace, row.id), row.id)).at(-1);
-        row.compensated = last?.op === 'delete' && (/^Compensate interrupted bulk transaction memory-policy-/.test(last.message ?? '') || /^bulk-item-transaction memory-policy-.* compensate$/.test(last.message ?? ''));
+        row.compensated = last?.op === 'delete' && await compensatedOrigin(store, row.id, last.message);
       }
       creators.push(row);
     }
     const next = originCursor(page, since); if (next === undefined) break; since = next;
   }
   return { tracker, creators };
+}
+/** A history marker only locates a journal; its exact SDK deletion fingerprint grants recovery. */
+async function compensatedOrigin(store: Store, id: string, message: string | undefined): Promise<boolean> {
+  const hint = /^bulk-item-transaction (memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})-rollback) /.exec(message ?? '');
+  if (hint === null) return false;
+  try {
+    const journal = JSON.parse(await readFile(join(store.workspace, 'transactions', 'sdk', `${hint[1]}.json`), 'utf8')) as { status?: unknown; results?: Record<string, { owner?: unknown; id?: unknown; writes?: unknown[] }> };
+    if (journal.status !== 'committed' || journal.results === null || typeof journal.results !== 'object') return false;
+    const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
+    return Object.values(journal.results).some(result => result?.owner === 'pm-memory-policy-rollback:1' && result.id === id && Array.isArray(result.writes) && result.writes.some(value => validWriteReceipt(value) && value.id === id && value.after?.hash === null && value.after.length === entries.length && value.after.history === hashHistoryStream(entries)));
+  } catch { return false; }
 }
 /** Resolve an exported origin before considering aliases; known deleted identities need explicit recreation. */
 export function selectOrigin(origin: PortableOrigin, current: readonly Memory[], catalog: Awaited<ReturnType<typeof originCatalog>>, create: boolean): Memory | undefined {

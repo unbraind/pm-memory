@@ -320,13 +320,28 @@ new source frontmatter refuses before tracker writes. Native policy bodies whose
 metadata lives in the manifest retain their explicit Markdown body contract. Canonical exports explicitly report index artifacts and
 their document snapshots as lossy when those artifacts are outside the inventory.
 
-Compensation of a creation requires the complete independently planned SDK birth
-document. Both creation and update rollback verify the captured immutable history
-prefix, every subsequent owned transaction event and the current SDK document against
-its history. These checks run inside the SDK item lock before deleting or restoring
-anything. A later peer edit, copied transaction marker,
-unplanned metadata or an unverifiable history produces `superseded`; peer state is
-retained, including its support graph.
+Each import invocation uses the public SDK `commitWorkspaceTransaction` coordinator
+with a unique attempt id recorded in its intent. Recovery retains that invocation
+through committed sub-batches until publication finishes. Its cross-process workspace lock
+covers `inspect`, `apply` and compensation. Inspection reads the current target;
+application checks the captured document hash and immutable history position again
+inside the SDK item lock. The public SDK mutation path supplies normalization.
+Compensation restores or deletes only when the current complete SDK document hash
+and history head equal the exact write receipt captured by this invocation inside
+that lock. Attribution, message prefixes and timestamps never establish ownership.
+A later peer write produces `superseded`; its complete state and support graph are
+retained. Recovery uses the same coordinator, guard and write path. Creation also
+requires the independent planned SDK birth document. Hooks are scoped to the exact
+tracker, so identical ids in another tracker cannot borrow a write receipt.
+The optional `onStep` observer runs `write-guard` inside the item lock. A competing
+native write started there must be awaited after an SDK transition releases that
+lock; other observed boundaries can await it immediately.
+
+Relationship validation checks the kind, target and every optional provenance field
+(`created_at`, `author`, `source_kind`, `author_source`) in the first pure pass,
+before schema, origin or history writes. Invalid provenance returns typed
+`relationship` with a remedy; legacy edges without provenance remain supported.
+
 Every exported record binds its originating tracker namespace, item id and SDK
 creation-history hash in `origin` (also retained in `baseline.origin`). Slugs and titles are display hints,
 never target selectors. The namespace is published once as package-owned
@@ -361,8 +376,8 @@ round trip; nothing is silently treated as absent.
 Unrelated tracker readers can observe staged writes until
 commit or recovery completes. Schema registration is idempotent and
 precedes the item batch. The lease covers the state read, planning, preview and
-publication, and releases last. Direct writers outside this package must coordinate
-separately. Relationship target ids are remapped to portable slugs and back, including
+publication, and releases last. Native writers use the SDK item lock; a newer native revision supersedes
+this import even when its author and transaction message match. Relationship target ids are remapped to portable slugs and back, including
 kinds, source references and author/time provenance; SDK edge authorship is reasserted
 by its native mutation path. Import computes selective SDK additions/removals over the
 represented relationship identities. An edge can be removed only if the current or a
@@ -379,8 +394,8 @@ to canceled, artifact or missing/non-memory targets are omitted from the portabl
 graph and reported as `omitted_links: [{slug, target, kind, reason}]` in the typed export
 receipt. Neither export nor re-import treats these receipts as deletion instructions. Foreign
 records are excluded before decoding package metadata and reported as `skipped` entries.
-An occupied import ID grants no ownership by itself. Planning and compensation use
-the same full SDK birth check. An independent private tracker applies the intended
+An occupied import ID grants no ownership by itself. Planning validates the
+full SDK birth; compensation additionally requires the exact native write receipt. An independent private tracker applies the intended
 node request through the SDK; its complete read-back document and immutable creation message are frozen in the intent
 before native writes. The observed target never supplies expected metadata. Only
 SDK-generated creation/update timestamps are excluded from that comparison. Extra

@@ -4,9 +4,10 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PmClient, certifyCompleteListResult, readSettings, writeSettings, runWithConfigurationOnlySettings, resolveTransactionSchema, resolveItemTypeRegistry, locateItem, getItemPath, getHistoryPath, previewItemMutations, commitItemMutations, getItemAt, canonicalDocument, serializeItemDocument, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
+import { validateImportPlan } from './portable-plan.ts';
+import { Store } from './store.ts';
 import type { ImportPlan } from './portable-plan.ts';
 import type { PortableImportOptions } from './portable.ts';
-import type { Store } from './store.ts';
 import { digest, MemoryError } from './core.ts';
 
 /** Installed packages are foreign to item preview, including their dependency links. */
@@ -46,6 +47,7 @@ async function withProjection<T>(store: Store, plan: ImportPlan, excluded: Reado
     const client = new PmClient({ pmRoot: workspace, noExtensions: true, author: plan.author });
     await client.init('memory-preview', { defaults: true, agentGuidance: 'skip', mergeFence: false });
     await writeSettings(workspace, selected);
+    await copyPreviewFile(join(store.workspace, 'memory-origin.json'), join(workspace, 'memory-origin.json'));
     await onStep?.('preview-settings');
     const items = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
     await onStep?.('preview-listed');
@@ -100,8 +102,15 @@ export async function captureBirths(store: Store, plan: ImportPlan): Promise<voi
 /** Keep SDK schema/lifecycle validation while excluding installed code from its snapshot. */
 export async function previewOwnedItems(store: Store, plan: ImportPlan, mutations: BulkItemMutation[], onStep?: PortableImportOptions['onStep']): Promise<void> {
   const creates = mutations.some(row => row.op === 'create');
-  if (!creates && !await hasPreviewPackages(store.workspace)) { await previewItemMutations({ ...plan, mutations, pmRoot: store.workspace }); return; }
-  await withProjection(store, plan, new Set(), workspace => previewItemMutations({ ...plan, mutations, pmRoot: workspace }), onStep);
+  if (!creates && !await hasPreviewPackages(store.workspace)) {
+    await validateImportPlan(store, plan);
+    await previewItemMutations({ ...plan, mutations, pmRoot: store.workspace }); return;
+  }
+  await withProjection(store, plan, new Set(), async workspace => {
+    const target = new Store({ workspace, author: plan.author });
+    await validateImportPlan(target, plan);
+    await previewItemMutations({ ...plan, mutations, pmRoot: workspace });
+  }, onStep);
   if (creates) {
     plan.nodes = prepareImportNodes(plan);
     await captureBirths(store, plan);

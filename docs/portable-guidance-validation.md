@@ -159,3 +159,108 @@ Fresh public validation on 2026-10-28 retained 17 items, 6 nonempty bodies and
 records and 34 renewals, and reported 17 unchanged retries. Edited bodies became
 `needs-renewal`; bounds/evidence and the read-only source fingerprint were retained.
 Final-head release results are reported in the PR, separately from these local counts.
+
+## Exact native write ownership
+
+Portable node creation, data updates, publication and rollback use the public SDK
+`commitWorkspaceTransaction` workspace coordinator. Each invocation reserves a
+unique attempt in the durable intent; interrupted SDK attempts resume their own
+journal, including committed sub-batches of an unpublished invocation. Replacing
+that identity early would orphan publication provenance and falsely classify the
+next harness edit as native. `inspect` re-reads inside that coordinator. Apply and compensation capture
+SDK document hashes and immutable history positions, then verify them again inside
+the SDK item lock. The SDK's canonical document serializer normalizes both sides.
+A confirmed write receipt records the exact post-write hash and history head while
+the item lock is held. A peer append supersedes that receipt even with the same
+author, copied transaction prefix, timestamp or body. Prefixes can locate a receipt;
+they cannot authorize a write. Deletion recovery verifies the actual committed
+rollback result, and publication provenance verifies its exact historical position.
+An internally compensated creation publishes its exact deletion receipt before a
+new attempt replaces the recovery state, keeping legitimate retries possible
+without accepting a forged deletion marker.
+Creation admission still requires the independent complete SDK birth document.
+
+The package-wide audit covers raw, companion and canonical adapters, the SDK and
+CLI, JSON/TOON receipts, installed Node/native Bun consumers, non-git trackers and
+all restore/delete paths. Disposable previews retain the same compiled SDK mutation
+options and captured read-set validation; public SDK preview executes its native
+lifecycle without publishing source changes. Hooks also verify the exact tracker
+root/path, so an identical id in a different tracker cannot lend ownership evidence.
+
+`portable-critical.test.ts` keeps a real native writer in a second OS process. At
+every observed creation, update and rollback boundary it writes the same tracker
+using the import's author and copied prefix. The independent oracle is that peer's
+complete SDK read-back, including priority and metadata; it must survive refusal
+and retry without a dangling graph. Fixed cases cover the reported CAS-refusal
+rollback, copied provenance and compensation markers, and cross-tracker hook scope.
+All earlier model, foreign-birth and crash-boundary assertions remain enabled.
+
+Relationship validation is pure and precedes schema, origin and workspace history
+writes. Both current and baseline edges validate target/kind plus `created_at`,
+`author`, `source_kind` and `author_source`. The refusal corpus covers objects,
+arrays, nulls, booleans, numbers and invalid enum/timestamp strings. The allow corpus
+includes missing legacy provenance and SDK-supported timestamp literals. SDK and
+JSON/TOON CLI consumers return typed `relationship` with a remedy; they retain the
+entire pre-import durable tracker snapshot on this validation refusal.
+
+Final shared-path cross-process measurements: **142** schedules, comprising **80**
+creation, **55** update and **7** rollback boundaries. The complete critical file
+passes **11/11** roots with no failures or cancellations. Every schedule uses a second OS process
+with the same author and copied prefix; the peer's complete SDK state survives
+refusal and retry. The first-pass provenance corpus passes **48** malformed
+current/baseline cases plus its legacy/missing-field allow corpus.
+
+Nine disposable behavioral reverts reproduce the rejected designs: rollback prefix
+ownership; provenance prefix filtering; deletion-marker inference; late relationship
+validation; unscoped native hooks; missing compensated-deletion publication; foreign
+identity errors converted before skip handling; replacing an unpublished invocation
+after data commit; and losing the original typed item-hook interruption. The latter
+two cases additionally check a later portable edit plus an older replay after both
+readback/data-commit interruptions, and recovery after creation/update/rollback
+item-lock guard interruptions. Exact commands and counterexamples are recorded on
+`pm-memory-1363`; the source checkout was never mutated for a revert.
+
+The current SDK journal crash control passed all **21** transitions, retaining two
+bounded items and their renewal evidence. The original complete-document update
+control passed all **34** observed import steps. The linked pinned pm runner passed
+**2/2** recovery roots, including both post-data-commit interruptions and native
+item-lock interruptions in all three write phases.
+
+The stateful model observer now accepts both SDK step-id spellings (item id at the
+end, or followed by a legacy suffix), and requires exactly one immutable target.
+No expected state, field, relationship or sequence-count assertion changed. Its
+isolated observer-only revert fails at master `0x1363cafe`, sequence **2**, seed
+**1339211376**, step **34**. The current source completes sequences 0–3 with seeds
+`325307134`, `2979742903`, `1339211376`, `3993647145`. Sequence 4
+(`2353115618`) was canceled by the existing **600-second** batch timeout on the
+saturated host. That is **four complete sequences**, not a passing five-sequence
+batch or a current 500-sequence claim. The committed 500-sequence contracts and
+timeouts remain unchanged; complete current-head evidence belongs to CI.
+An unfinished optional instrumented critical repeat was also stopped without a
+result and contributes no passing count.
+
+Transition observers use the same guarded path as ordinary CLI imports. Each data
+mutation and ownership publication validates its read set before applying; commits
+revalidate it. Read-only journal events do not add observer-dependent global scans.
+All actual SDK transition and native write boundaries remain in the interleaving
+probe. The optional `PM_MEMORY_CRITICAL_PROGRESS=1` test flag prints per-boundary
+progress without changing assertions or execution guards. The earlier plain repeat
+passed ten roots and timed out only its creation matrix at the existing 20-minute
+limit; that is not a complete-file pass. Final counts are measured again against
+the shared path and reported separately.
+
+The packed critical consumer passes **1/1** root from one captured archive: actual
+Node and Bun runtimes, two same-author second-process peer writes, and four native
+CLI refusals across JSON/TOON. Every malformed-provenance refusal preserves its
+complete durable tracker snapshot. Archive integrity:
+`sha512-WWrFkmfa0X/FzaZqNIATBAKKJfyYNZB/nYr8zRYZeILPwAEnaqJOVUP5dn3AoAPppA1txRtxhmDZ5clqqAiRyg==`.
+Snapshot oracles record symbolic-link targets verbatim rather than following
+foreign links; regular files still compare their complete bytes. This handles the
+SDK-installed extension tree without ignoring its entries or failing on a dangling
+foreign bin link.
+
+The isolated consumer-oracle revert restores only symlink dereferencing and fails
+the same captured-consumer test with `ENOENT` on the foreign SDK bin link. The
+corrected oracle passes both runtimes and all four CLI refusals. In total the pm
+item records **nine production-design** and **two test-oracle** behavioral revert
+proofs. Final full npm/Bun gate outcomes are reported on the exact pushed head.

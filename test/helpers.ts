@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { mkdtemp, rm, readdir, readFile, mkdir, writeFile, cp } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, readlink, readFile, mkdir, writeFile, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -100,7 +100,7 @@ export async function snapshot(root: string): Promise<Record<string, string>> {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (['runtime', 'locks', 'search', 'transactions', 'checkpoints'].includes(entry.name)) continue;
       const path = join(directory, entry.name);
-      if (entry.isDirectory()) await walk(path); else result[relative(root, path)] = (await readFile(path)).toString('base64');
+      if (entry.isDirectory()) await walk(path); else result[relative(root, path)] = entry.isSymbolicLink() ? 'link:' + await readlink(path) : (await readFile(path)).toString('base64');
     }
   }
   await walk(root); return result;

@@ -7,6 +7,7 @@ import { exportDir, importDir, remember, renew, MemoryError, POLICY_MANIFEST } f
 import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody, skipOccupiedIdentities } from '../src/portable.ts';
 import { replanNodes } from '../src/portable-replan.ts';
+import { commitPortableBatch } from '../src/portable-write.ts';
 import { digest } from '../src/core.ts';
 import { guardedCompensation, rollbackImport, ownsLatest, ownsCreation } from '../src/portable-rollback.ts';
 import { importIdentity, validateImportPlan, pendingImport, applyImport, type ImportPlan } from '../src/portable-plan.ts';
@@ -18,6 +19,10 @@ async function creationProofScenario(t: Parameters<typeof tracker>[0]) {
   await assert.rejects(importDir(input, { ...target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
   const plan = JSON.parse(JSON.parse(await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload) as ImportPlan;
   return { target, plan, node: plan.nodes![0] };
+}
+/** Produce a positive ownership fixture through the actual SDK critical-section writer. */
+async function createWithReceipt(target: Awaited<ReturnType<typeof tracker>>, plan: ImportPlan, mutation: ImportPlan['mutations'][number]): Promise<void> {
+  await commitPortableBatch(target.store, plan, `${plan.transactionId}-positive`, 'positive', [mutation], async () => {}, () => validateImportPlan(target.store, plan), { ...target.options, from: 'agents-md' });
 }
 /** Both SDK compensation operations must retain the complete peer-owned document. */
 async function assertSuperseded(target: Awaited<ReturnType<typeof tracker>>, plan: ImportPlan, id: string, operation: () => Promise<unknown>): Promise<void> {
@@ -71,7 +76,8 @@ async function assertForeignIntent(result: Awaited<ReturnType<typeof importDir>>
 test('compensation requires full birth evidence and an uninterrupted owned history tail', async t => {
   for (const extra of [false, true]) {
     const { target, plan, node } = await creationProofScenario(t);
-    await target.client.create({ ...node.options, id: node.id, ...(extra ? { priority: 1 } : {}) });
+    if (extra) await target.client.create({ ...node.options, id: node.id, priority: 1 });
+    else await createWithReceipt(target, plan, node);
     assert.equal(await ownsLatest(target.store, plan, node.id), !extra, 'A complete untouched SDK birth is positive ownership evidence');
     if (!extra) await target.client.update(node.id, { body: 'Native C', author: 'peer-agent' });
     await target.client.update(node.id, { description: 'A copied later transaction marker proves nothing', author: plan.author, message: `bulk-item-transaction ${plan.transactionId} ${node.id} update` });
@@ -89,7 +95,7 @@ test('compensation requires full birth evidence and an uninterrupted owned histo
 
 test('compensation treats drifted missing and malformed native proof records as foreign', async t => {
   const { target, plan, node } = await creationProofScenario(t);
-  await target.client.create({ ...node.options, id: node.id });
+  await createWithReceipt(target, plan, node);
   assert.equal(await ownsLatest(target.store, plan, node.id), true);
   const settings = await readSettings(target.workspace);
   const located = await locateItem(target.workspace, node.id, settings.id_prefix, settings.item_format, resolveItemTypeRegistry(settings).type_to_folder); assert.ok(located);
@@ -230,7 +236,7 @@ test('ordinary rollback failures and corrupt rollback journals remain typed and 
   const { target, path, intent } = await rollbackScenario(t);
   await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onTransition: refusalFault('step_recorded', new Error('Rollback observer failure')) }), error => error instanceof MemoryError && error.code === 'transaction');
   const plan = JSON.parse(JSON.parse(await readFile(intent, 'utf8')).payload) as ImportPlan; assert.equal(plan.refusing, true);
-  const journal = join(target.workspace, 'transactions', 'sdk', `${plan.transactionId}-rollback.json`);
+  const journal = join(target.workspace, 'transactions', 'sdk', `${plan.rollbackId ?? plan.transactionId}-rollback.json`);
   const verified = await readFile(journal, 'utf8'); await writeFile(journal, '{}');
   await assert.rejects(importDir(path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'transaction');
   assert.equal(await readFile(journal, 'utf8'), '{}');
@@ -392,7 +398,8 @@ test('creation authority requires every immutable birth discriminator and SDK-no
   const patches = [{}, { message: 'copied-marker' }, { author: 'foreign-agent' }, { type: 'Task' }, { memorySlug: 'different' }, { memorySource: 'foreign:source' }, { memoryOriginal: 'different' }, { memoryOrigin: 'invalid' }, { memoryOrigin: JSON.stringify({ ...plan.expected[0].origin!, creation: 'a'.repeat(64) }) }, { body: 'Different native birth' }, { memoryKind: 'invalid-kind' }];
   for (const [index, patch] of patches.entries()) {
     const target = await tracker(t); await target.store.register();
-    await target.client.create({ ...mutation.options, id: mutation.id, ...patch });
+    if (index === 0) await createWithReceipt(target, plan, mutation);
+    else await target.client.create({ ...mutation.options, id: mutation.id, ...patch });
     // Exercise both a node-stage plan and a legacy pre-node representation.
     for (const current of [plan, { ...plan, nodes: undefined }]) assert.equal(await ownsCreation(target.store, current, mutation.id), index === 0, `birth discriminator ${index}`);
     assert.equal(await ownsLatest(target.store, plan, mutation.id), index === 0);
@@ -565,6 +572,7 @@ test('copied node markers with unplanned full-document data never authorize dele
 
 test('SDK item-lock birth preconditions reject changed proposals at every apply boundary', async t => {
   for (const phase of ['fresh', 'interrupted', 'compensated']) for (const boundary of ['intent', 'cas-read', 'cas-guarded']) {
+    t.diagnostic(`birth precondition phase=${phase} boundary=${boundary}`);
     const producer = await tracker(t); const input = join(producer.root, 'proposals'); await mkdir(input);
     await writeFile(join(input, 'alpha.md'), 'Alpha A'); await writeFile(join(input, 'beta.md'), 'Beta A');
     await assert.rejects(importDir(input, { ...producer.options, from: 'agents-md', ...(phase === 'compensated' ? { onTransition: crashAfterCompensation } : { onStep: crashAtStep('intent') }) }), WorkspaceTransactionInterruptedError);

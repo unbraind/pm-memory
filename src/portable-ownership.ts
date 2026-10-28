@@ -1,6 +1,9 @@
+import { documentHash, validNativeProof } from './portable-write.ts';
+import type { NativeProof } from './portable-write.ts';
+import { validRelationship } from './portable-relationships.ts';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getHistoryPath, getItemAt, readHistoryEntries, replayHistoryToTarget, itemDocumentToMutationOptions, DEPENDENCY_KIND_VALUES, createRelationshipKindRegistry } from '@unbrained/pm-cli/sdk';
+import { getHistoryPath, getItemAt, hashHistoryStream, readHistoryEntries, replayHistoryToTarget, itemDocumentToMutationOptions, createRelationshipKindRegistry } from '@unbrained/pm-cli/sdk';
 import type { Dependency } from '@unbrained/pm-cli/sdk';
 import { canonicalProvenance } from './portable.ts';
 import type { PortableGuidance, PortableRelationship } from './portable.ts';
@@ -41,6 +44,8 @@ export interface PortableBaseline {
 }
 /** Durable ownership receipt carried by the SDK transaction, never native item fields. */
 export interface OwnedTarget {
+  /** Exact SDK publication position; a message only locates the receipt, never grants authority. */
+  proof?: NativeProof;
   /** Complete document state positively retained by this publication. */
   documentHash?: string;
   /** Exact policy-payload state this publication actually wrote or retained as owned. */
@@ -105,9 +110,9 @@ export function validOwnedTarget(value: unknown): value is OwnedTarget {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const target = value as Record<string, unknown>;
   /** Foreign edge shapes never become deletion authority. */
-  const edges = (values: unknown): values is Dependency[] => Array.isArray(values) && values.every(value => value !== null && typeof value === 'object' && !Array.isArray(value) && typeof value.id === 'string' && DEPENDENCY_KIND_VALUES.includes(value.kind));
+  const edges = (values: unknown): values is Dependency[] => Array.isArray(values) && values.every(value => validRelationship(value, 'id'));
   const source = target.source;
-  return typeof target.id === 'string' && validOwnedFields(target.fields) && edges(target.relationships) && edges(target.graph) && (target.documentHash === undefined || (typeof target.documentHash === 'string' && /^[a-f0-9]{64}$/.test(target.documentHash))) && (target.policyBodyHash === undefined || (typeof target.policyBodyHash === 'string' && /^[a-f0-9]{64}$/.test(target.policyBodyHash))) && (source === undefined || (source !== null && typeof source === 'object' && !Array.isArray(source) && 'original' in source && typeof source.original === 'string'));
+  return (target.proof === undefined || validNativeProof(target.proof)) && typeof target.id === 'string' && validOwnedFields(target.fields) && edges(target.relationships) && edges(target.graph) && (target.documentHash === undefined || (typeof target.documentHash === 'string' && /^[a-f0-9]{64}$/.test(target.documentHash))) && (target.policyBodyHash === undefined || (typeof target.policyBodyHash === 'string' && /^[a-f0-9]{64}$/.test(target.policyBodyHash))) && (source === undefined || (source !== null && typeof source === 'object' && !Array.isArray(source) && 'original' in source && typeof source.original === 'string'));
 }
 /** Immutable creation metadata remains authoritative when native bookkeeping is edited. */
 export async function creationMetadata(store: Store, id: string): Promise<ReturnType<typeof replayHistoryToTarget>['metadata'] | undefined> {
@@ -227,7 +232,6 @@ export async function recordedCreation(store: Store, id: string): Promise<boolea
 /** Read only committed package receipts linked by immutable SDK history markers. */
 export async function previousOwnership(store: Store, item: Memory, ids: ReadonlyMap<string, string>): Promise<PreviousOwnership | undefined> {
   const entries = await readHistoryEntries(getHistoryPath(store.workspace, item.id), item.id);
-  const attempted = new Set<string>();
   const changed = new Set<string>(); const graphEdits = new Set<number>();
   let sourceEdited = false;
   let bodyEdited = false;
@@ -245,23 +249,30 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
     return { fields: Object.fromEntries(PORTABLE_FIELDS.filter(key => !changed.has(key) && target.fields[key] !== undefined).map(key => [key, target.fields[key]!])) as Partial<PortableFields>, relationships: target.relationships, nativeRelationships: [...nativeEdges.values()], sourceEdited, bodyEdited, documentHash: target.documentHash, policyBodyHash: target.policyBodyHash, ...(target.source === undefined ? {} : { source: target.source }) };
   };
   for (const [position, entry] of [...entries].reverse().entries()) {
-    const match = /^bulk-item-transaction (memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})) /.exec(entry.message ?? '');
-    if (match === null) {
-      if (!entry.message?.startsWith('bulk-item-transaction memory-policy-') && entry.op !== 'create') for (const patch of entry.patch) {
-        if (patch.path === '/metadata/memory_document' || patch.path.startsWith('/metadata/memory_document/')) sourceEdited = true;
-        if (patch.path === '/metadata/memory_policy_body' || patch.path.startsWith('/metadata/memory_policy_body/')) bodyEdited = true;
-        for (const key of PORTABLE_FIELDS) {
-          const path = key === 'body' ? '/body' : `/metadata/${['kind', 'why', 'how', 'pinned'].includes(key) ? `memory_${key}` : key}`;
-          if (patch.path === path || patch.path.startsWith(`${path}/`)) changed.add(key);
-        }
-        if (patch.path.startsWith('/metadata/dependencies')) graphEdits.add(entries.length - 1 - position);
+    const match = /^bulk-item-transaction (memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40}))(?:-nodes)? /.exec(entry.message ?? '');
+    if (match !== null) {
+      const target = await committedReceipt(store, match[1], item.id);
+      if (target !== undefined) {
+        const index = entries.length - 1 - position;
+        const { document } = await getItemAt(item.id, String(index + 1), { pmRoot: store.workspace });
+        const [historical] = await store.read(new Set([item.id]), [{ ...document.metadata, body: document.body }]);
+        const fields = portableFields(historical, historical.body);
+        const exact = target.proof === undefined
+          ? Object.entries(target.fields).every(([key, value]) => fields[key as keyof PortableFields] === value) && inheritEdges(target.relationships, historical.relationships, false).every(edge => historical.relationships.some(current => edgeKey(current) === edgeKey(edge) && edgeHash(current) === edgeHash(edge)))
+          : target.proof.length === index + 1 && target.proof.history === hashHistoryStream(entries.slice(0, index + 1)) && target.proof.hash === documentHash(document);
+        if (exact) return retained(target);
       }
-      continue;
     }
-    if (attempted.has(match[1])) continue;
-    attempted.add(match[1]);
-    const target = await committedReceipt(store, match[1], item.id);
-    if (target !== undefined) return retained(target);
+    // Even a perfect copy of an import's marker is a native edit without an exact receipt.
+    if (entry.op !== 'create') for (const patch of entry.patch) {
+      if (patch.path === '/metadata/memory_document' || patch.path.startsWith('/metadata/memory_document/')) sourceEdited = true;
+      if (patch.path === '/metadata/memory_policy_body' || patch.path.startsWith('/metadata/memory_policy_body/')) bodyEdited = true;
+      for (const key of PORTABLE_FIELDS) {
+        const path = key === 'body' ? '/body' : `/metadata/${['kind', 'why', 'how', 'pinned'].includes(key) ? `memory_${key}` : key}`;
+        if (patch.path === path || patch.path.startsWith(`${path}/`)) changed.add(key);
+      }
+      if (patch.path.startsWith('/metadata/dependencies')) graphEdits.add(entries.length - 1 - position);
+    }
   }
   const created = await creationMetadata(store, item.id);
   if (created?.memory_source === 'portable:policy-v1') {

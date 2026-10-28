@@ -1,13 +1,15 @@
 import { mkdir, readFile, rm, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { writeFileAtomic, commitItemMutations, commitWorkspaceTransaction, deriveMutationTransactionId, getHistoryPath, readHistoryEntries, hashHistoryStream, certifyCompleteListResult, WorkspaceTransactionInterruptedError, PmClient, isPmCliExpectedError } from '@unbrained/pm-cli/sdk';
+import { writeFileAtomic, commitWorkspaceTransaction, deriveMutationTransactionId, getHistoryPath, readHistoryEntries, hashHistoryStream, certifyCompleteListResult, WorkspaceTransactionInterruptedError, PmClient, isPmCliExpectedError } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
+import { commitPortableBatch, ownsWritten, validWriteReceipt, nativeProof } from './portable-write.ts';
+import type { WriteReceipt } from './portable-write.ts';
 import { replanNodes } from './portable-replan.ts';
 import { digest, MemoryError } from './core.ts';
 import type { PortableImportResult, PortableImportOptions } from './portable.ts';
 import type { Store } from './store.ts';
-import { guardedCompensation, rollbackImport, ownsCreation } from './portable-rollback.ts';
+import { rollbackImport } from './portable-rollback.ts';
 import { relationshipPatch, validOwnedTarget } from './portable-ownership.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
 import { creator, readTrackerOrigin, creatorMatchesOrigin, validOrigin } from './portable-origin.ts';
@@ -81,13 +83,7 @@ async function guardPlan(store: Store, plan: ImportPlan): Promise<void> {
     const mutation = plan.mutations.find(row => row.id === expected.id);
     if (mutation?.op === 'update' && (mutation.match?.key !== 'updated_at' || mutation.match.value !== expected.version)) throw new PlanMoved('Planned SDK CAS revision differs from its captured expectation');
     const unchanged = tail.length === 0 && (item === undefined ? null : String(item.updated_at)) === expected.version;
-    const creationOwned = mutation?.op === 'create' && expected.version === null && await ownsCreation(store, plan, expected.id);
-    const owned = tail.length > 0 && tail.every(entry => {
-      if (mutation?.op === 'create' && expected.version === null && entry.op === 'create') {
-        return creationOwned;
-      }
-      return entry.message?.startsWith(`bulk-item-transaction ${plan.transactionId} `) || entry.message?.startsWith(`bulk-item-transaction ${plan.transactionId}-snapshot `) || (entry.op === 'delete' && entry.author === plan.author && entry.message === `Compensate interrupted bulk transaction ${plan.transactionId}-nodes`);
-    });
+    const owned = tail.length > 0 && await ownsWritten(store, plan, expected.id);
     if (expected.version === null && item !== undefined && !owned) throw new PlanForeign('Foreign record occupies the reserved import id');
     if (expected.origin !== undefined && entries.length > 0) {
       const actual = creator(expected.id, entries[0], await readTrackerOrigin(store));
@@ -100,6 +96,12 @@ async function guardPlan(store: Store, plan: ImportPlan): Promise<void> {
 export interface ImportPlan {
   /** Plans predating immutable selection are compensated rather than replayed. */
   identityVersion?: 1;
+  /** Exact SDK native write receipts, independent of authors and history messages. */
+  writes?: WriteReceipt[];
+  /** Unique SDK attempt base; interrupted SDK journals resume their exact durable attempt. */
+  invocationId?: string;
+  /** A reserved SDK rollback identity locates exact compensation receipts. */
+  rollbackId?: string;
   /** Input bytes and metadata, independent of the target generation. */
   input: string;
   /** Attributed SDK operation identity. */
@@ -128,7 +130,7 @@ export interface ImportPlan {
   initial?: ExpectedTarget[];
   /** Monotonic rollback state retained when a refusal itself is interrupted. */
   refusing?: boolean;
-  /** Earlier attempt identities whose partial writes remain owned during recovery. */
+  /** Legacy diagnostic names, read for compatibility and never used to establish write ownership. */
   ownedTransactions?: string[];
   /** Receipt for the operation being recovered. */
   result: PortableImportResult;
@@ -214,6 +216,8 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
   try {
     plan = JSON.parse(value.payload) as ImportPlan;
     if (!IMPORT_ID.test(plan.transactionId) || typeof plan.input !== 'string' || typeof plan.author !== 'string' || !Array.isArray(plan.members) || !plan.members.every(id => typeof id === 'string')) throw new Error();
+    if (plan.writes !== undefined && (!Array.isArray(plan.writes) || !plan.writes.every(row => validWriteReceipt(row) && plan.expected.some(target => target.id === row.id)))) throw new Error();
+    if ([plan.invocationId, plan.rollbackId].some(value => value !== undefined && (typeof value !== 'string' || !IMPORT_ID.test(value)))) throw new Error();
     if (plan.identityVersion !== undefined && plan.identityVersion !== 1) throw new Error();
     if (plan.births !== undefined && (!Array.isArray(plan.births) || !plan.births.every(row => row !== null && typeof row === 'object' && typeof row.id === 'string' && typeof row.document === 'string' && (row.message === undefined || typeof row.message === 'string') && plan.expected.some(target => target.id === row.id)))) throw new Error();
     if (plan.nodesDone !== undefined && typeof plan.nodesDone !== 'boolean') throw new Error();
@@ -228,7 +232,8 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
   } catch { throw new MemoryError('history', 'Invalid portable import plan', 'Preserve and restore the pending import journal before retrying'); }
   intentTokens.set(plan, value.payload);
   if (plan.refusing) return drainRefusal(store, plan, onStep, onTransition);
-  const journal = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.transactionId}-snapshot.json`));
+  const legacyJournal = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.transactionId}-snapshot.json`));
+  const journal = plan.invocationId === undefined || plan.invocationId === plan.transactionId ? legacyJournal : await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.invocationId}-snapshot.json`));
   if (typeof journal === 'object' && journal !== null && 'status' in journal && journal.status === 'committed') { await onStep?.('recover-published'); return await removeIntent(store, plan) ? undefined : 'foreign'; }
   if (plan.identityVersion === undefined || plan.ownership === undefined || plan.ownership.some(target => target.relationships.some(edge => !plan.expected.some(row => row.id === edge.id)))) {
     // Older whole-record or incomplete read-set plans must compensate before the current adapter replans.
@@ -243,7 +248,7 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
       await captureBirths(store, plan);
       return await readGuardApply(store, plan, onStep, async expected => {
         const { snapshots: _snapshots, ...prior } = plan;
-        const next = { ...prior, expected, ownedTransactions: [...(plan.ownedTransactions ?? []), plan.transactionId], ...await importIdentity(store, plan.input), mutations: plan.mutations.map(row => ({ ...row, match: { key: 'updated_at', value: expected.find(target => target.id === row.id)!.version } })) };
+        const next = { ...prior, expected, ...await importIdentity(store, plan.input), mutations: plan.mutations.map(row => ({ ...row, match: { key: 'updated_at', value: expected.find(target => target.id === row.id)!.version } })) };
         intentTokens.set(next, token); return next;
       });
     } catch (error) {
@@ -255,7 +260,7 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
   return plan;
 }
 /** Replace only the lease-owned intent slot with the next complete recovery stage. */
-async function savePlan(store: Store, plan: ImportPlan): Promise<void> {
+export async function savePlan(store: Store, plan: ImportPlan): Promise<void> {
   const payload = JSON.stringify(plan);
   await store.fence(async () => {
     if (await ownsIntent(store, plan) === 'foreign') throw new ForeignIntent();
@@ -306,16 +311,20 @@ async function runImport(store: Store, plan: ImportPlan, options: PortableImport
   await savePlan(store, plan);
   await options.onStep?.('intent');
   /** Validate every target before writing, and let ordinary refusals compensate. */
-  const commit = async (transactionId: string, mutations: BulkItemMutation[]) => {
-    await readGuardApply(store, plan, options.onStep, async () => {
-      await store.fence(() => guardedCompensation(store, plan, () => commitItemMutations({ pmRoot: store.workspace, author: plan.author, transactionId, mutations, createCompensation: 'delete', onTransition: async event => {
-        await options.onTransition?.(event);
-        if (!event.transition.includes('compensat')) await guardPlan(store, plan);
-      } })));
-    });
+  const prior = plan.invocationId;
+  const statuses = prior === undefined ? [] : await Promise.all(['-nodes', '', '-snapshot'].map(async suffix => { const journal = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${prior}${suffix}.json`)); return typeof journal === 'object' && journal !== null && 'status' in journal ? journal.status : undefined; }));
+  // Publish exact deletion receipts before replacing the attempt that owns them.
+  if (statuses.some(status => status === 'compensated')) await rollbackImport(store, plan, options);
+  // Committed sub-batches still belong to the original unpublished invocation.
+  const resumable = statuses.some(status => status === 'applying' || status === 'compensating') || (!statuses.includes('compensated') && statuses.includes('committed'));
+  const invocation = prior === undefined ? plan.transactionId : resumable ? prior : (await importIdentity(store, plan.input)).transactionId;
+  const rollbackId = (await importIdentity(store, plan.input)).transactionId;
+  Object.assign(plan, { invocationId: invocation, rollbackId }); await savePlan(store, plan);
+  const commit = async (transactionId: string, phase: string, mutations: BulkItemMutation[]) => {
+    await commitPortableBatch(store, plan, transactionId, phase, mutations, () => savePlan(store, plan), () => readGuardApply(store, plan, options.onStep, async () => {}), options);
   };
   if (plan.nodes !== undefined && !plan.nodesDone) {
-    try { await commit(`${plan.transactionId}-nodes`, plan.nodes); }
+    try { await commit(`${invocation}-nodes`, 'nodes', plan.nodes); }
     catch (error) {
       if (!isPmCliExpectedError(error) || error.code !== 'item_identity_reserved') throw error;
       const next = await replanNodes(store, plan);
@@ -334,23 +343,23 @@ async function runImport(store: Store, plan: ImportPlan, options: PortableImport
     await savePlan(store, plan);
     await options.onStep?.('nodes');
   }
-  await commit(plan.transactionId, plan.mutations);
+  await commit(invocation, 'data', plan.mutations);
   await options.onStep?.('readback');
-  await readGuardApply(store, plan, options.onStep, () => store.fence(() => commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${plan.transactionId}-snapshot`, steps: plan.ownership!.map((target, index) => {
+  await readGuardApply(store, plan, options.onStep, () => store.fence(() => commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${invocation}-snapshot`, steps: plan.ownership!.map((target, index) => {
     const id = `${index + 1}-ownership-${target.id}`;
     return {
       id,
       /** SDK journal completion, rather than mutable native fields, proves publication. */
       inspect: async () => {
-        const journal = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.transactionId}-snapshot.json`)) as { results?: Record<string, WorkspaceTransactionJsonValue> } | undefined;
+        const journal = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${invocation}-snapshot.json`)) as { results?: Record<string, WorkspaceTransactionJsonValue> } | undefined;
         const result = journal?.results?.[id];
         return result === undefined ? { state: 'pending' } : { state: 'applied', result };
       },
       /** Retain the represented input without altering native bookkeeping or foreign values. */
-      apply: async () => JSON.parse(JSON.stringify({ owner: 'pm-memory-policy-ownership:1', targets: [target] })) as WorkspaceTransactionJsonValue,
+      apply: async () => { const proof = await nativeProof(store, target.id); await guardPlan(store, plan); return JSON.parse(JSON.stringify({ owner: 'pm-memory-policy-ownership:1', targets: [{ ...target, proof }] })) as WorkspaceTransactionJsonValue; },
       /** Ownership receipts have no domain mutation to undo; outer rollback restores data. */
       compensate: async () => {},
     };
-  }), onTransition: async event => { await options.onTransition?.(event); if (!event.transition.includes('compensat')) await guardPlan(store, plan); } })));
+  }), onTransition: async event => { await options.onTransition?.(event); if (event.transition === 'committing' || event.transition === 'committed') await guardPlan(store, plan); } })));
   return publishedImport(store, plan, options);
 }

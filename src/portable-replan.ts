@@ -37,5 +37,5 @@ export async function replanNodes(store: Store, plan: ImportPlan): Promise<Impor
   }));
   const expected = await expectedTargets(store, plan.expected.map(target => ({ id: ids.get(target.id)!, slug: target.slug, origin: target.origin })));
   const initial = (plan.initial ?? plan.expected).map(target => ({ ...target, id: ids.get(target.id)! }));
-  return { ...plan, ...identity, ownership, ownedTransactions: [...(plan.ownedTransactions ?? []), plan.transactionId], mutations, expected, initial, members: [...ids.values()], nodes: undefined, births: undefined, nodesDone: false, snapshots: undefined };
+  return { ...plan, ...identity, invocationId: undefined, rollbackId: undefined, writes: plan.writes?.filter(row => ids.get(row.id) === row.id), ownership, mutations, expected, initial, members: [...ids.values()], nodes: undefined, births: undefined, nodesDone: false, snapshots: undefined };
 }

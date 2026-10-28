@@ -1,4 +1,7 @@
-import { commitWorkspaceTransaction, runWithActiveExtensions, setActiveExtensionHooks, restore, deleteItem, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, verifyHistoryEntries, readSettings, resolveItemTypeRegistry, locateItem, readLocatedItem, PmClient, certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
+import { resolve } from 'node:path';
+import { commitWorkspaceTransaction, runWithActiveExtensions, setActiveExtensionHooks, restore, deleteItem, getItemAt, getHistoryPath, readHistoryEntries, PmClient, certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
+import { nativeProof, ownsWritten, writeWithProof } from './portable-write.ts';
+import { savePlan, importIdentity } from './portable-plan.ts';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { ImportPlan, ExpectedTarget } from './portable-plan.ts';
 import { type Store } from './store.ts';
@@ -27,23 +30,8 @@ export async function ownsCreation(store: Store, plan: ImportPlan, id: string): 
   } catch { return false; }
 }
 
-/** Immutable SDK history, rather than mutable content, identifies an owned write. */
-export async function ownsLatest(store: Store, plan: ImportPlan, id: string): Promise<boolean> {
-  try {
-    const expected = (plan.initial ?? plan.expected).find(target => target.id === id);
-    if (expected === undefined) return false;
-    const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
-    const last = entries.at(-1);
-    if (last?.author !== plan.author) return false;
-    const settings = await readSettings(store.workspace);
-    const located = await locateItem(store.workspace, id, settings.id_prefix, settings.item_format, resolveItemTypeRegistry(settings).type_to_folder);
-    if (located === null || !verifyHistoryEntries(entries, (await readLocatedItem(located)).document).ok) return false;
-    if (expected.version === null && !await ownsCreation(store, plan, id)) return false;
-    if (hashHistoryStream(entries.slice(0, expected.length)) !== expected.history) return false;
-    const tail = entries.slice(expected.length);
-    return tail.length > 0 && tail.every(entry => entry.author === plan.author && [plan.transactionId, ...(plan.ownedTransactions ?? [])].some(transaction => entry.message?.startsWith(`bulk-item-transaction ${transaction} `) || entry.message?.startsWith(`bulk-item-transaction ${transaction}-`)));
-  } catch { return false; }
-}
+/** Exact SDK document/history receipts, never message prefixes, prove the current write. */
+export async function ownsLatest(store: Store, plan: ImportPlan, id: string): Promise<boolean> { return ownsWritten(store, plan, id); }
 /** Keep the transitive support graph of every current peer-owned record. */
 async function protectedByPeer(store: Store, plan: ImportPlan, id: string): Promise<boolean> {
   const client = new PmClient({ pmRoot: store.workspace, noExtensions: true });
@@ -61,6 +49,7 @@ async function protectedByPeer(store: Store, plan: ImportPlan, id: string): Prom
 export async function guardedCompensation<T>(store: Store, plan: ImportPlan, run: () => Promise<T>): Promise<T> {
   return runWithActiveExtensions({ path: store.workspace, noExtensions: true }, async () => {
     const guard: BeforeMutationHook = async context => {
+      if (resolve(context.pm_root) !== resolve(store.workspace)) return;
       if (context.operation === 'create') {
         const expected = plan.births?.find(row => row.id === context.after!.metadata.id);
         if (expected !== undefined && expected.document !== birthDocument(context.after!)) return { allow: false, code: 'memory_import_birth_moved', message: 'SDK creation context changed after planning', remediation: 'Retry the portable import using the current schema and defaults; no unexpected creation was written' };
@@ -73,33 +62,38 @@ export async function guardedCompensation<T>(store: Store, plan: ImportPlan, run
     return run();
   });
 }
-/** Restore only import-owned documents; the SDK keeps an append-only compensation audit. */
+/** Restore one exact owned write inside the already held SDK workspace critical section. */
+export async function rollbackTarget(store: Store, plan: ImportPlan, target: ExpectedTarget, options: PortableImportOptions): Promise<string> {
+  const before = await nativeProof(store, target.id).catch(() => undefined);
+  if (before !== undefined && (before.hash === null || (before.length === target.length && before.history === target.history))) return 'unchanged';
+  if (before === undefined || !await ownsLatest(store, plan, target.id) || (target.version === null && await protectedByPeer(store, plan, target.id))) {
+    const skipped = { slug: target.slug, reason: 'superseded: native peer owns the current document or its reference graph' };
+    if (!plan.result.skipped.some(row => row.slug === skipped.slug && row.reason === skipped.reason)) plan.result.skipped.push(skipped);
+    return 'superseded';
+  }
+  await options.onStep?.('rollback-apply');
+  const receipt = { id: target.id, key: `rollback:${target.id}:${before.history}`, before, proposed: null };
+  const mutationOptions = { author: plan.author, force: true, message: `bulk-item-transaction ${plan.rollbackId ?? plan.transactionId}-rollback ${target.id} compensate` };
+  await writeWithProof(store, plan, receipt, () => savePlan(store, plan), async () => {
+    if (target.version === null) await deleteItem(target.id, mutationOptions, { pmRoot: store.workspace });
+    else await restore(target.id, Number.isSafeInteger(target.length) && target.length > 0 ? String(target.length) : target.version, mutationOptions, { pmRoot: store.workspace });
+  }, options.onStep);
+  return 'restored';
+}
+/** SDK inspection and application share its cross-process lock; each drain has a unique identity. */
 export async function rollbackImport(store: Store, plan: ImportPlan, options: PortableImportOptions): Promise<void> {
-  const client = new PmClient({ pmRoot: store.workspace, noExtensions: true });
-  const transactionId = `${plan.transactionId}-rollback`;
-  /** Classify current ownership and references again at every SDK recovery inspection. */
-  const pending = async (target: ExpectedTarget): Promise<boolean> => {
-    const items = certifyCompleteListResult(await client.listAllComplete({ includeBody: true })).items;
-    const item = items.find(row => row.id === target.id);
-    if (item === undefined || (target.version !== null && item.updated_at === target.version) || !await ownsLatest(store, plan, target.id)) return false;
-    if (target.version === null && await protectedByPeer(store, plan, target.id)) return false;
-    return true;
-  };
-  const steps = [...(plan.initial ?? plan.expected)].reverse().map(target => ({
+  const transactionId = `${plan.rollbackId ?? (await importIdentity(store, plan.input)).transactionId}-rollback`;
+  await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId, lockTtlSeconds: 3600, steps: [...(plan.initial ?? plan.expected)].reverse().map(target => ({
     id: `restore-${target.id}`,
-    /** Already restored, absent and peer-owned targets are complete rollback steps. */
-    inspect: async () => ({ state: await pending(target) ? 'pending' as const : 'applied' as const }),
-    /** Use native SDK restoration/deletion, protected again under its item lock. */
-    apply: async () => {
-      await options.onStep?.('rollback-apply');
-      if (!await pending(target)) return undefined;
-      const mutationOptions = { author: plan.author, force: true, message: `bulk-item-transaction ${transactionId} ${target.id} compensate` };
-      if (target.version === null) await deleteItem(target.id, mutationOptions, { pmRoot: store.workspace });
-      else await restore(target.id, target.version, mutationOptions, { pmRoot: store.workspace });
-      return undefined;
+    /** Re-read the actual target before deciding whether this drain has work. */
+    inspect: async () => {
+      const current = await nativeProof(store, target.id).catch(() => undefined);
+      if (current !== undefined && current.length === target.length && current.history === target.history) return { state: 'applied' as const, result: { owner: 'pm-memory-policy-rollback:1', id: target.id, outcome: 'unchanged', writes: [] } };
+      return { state: 'pending' as const };
     },
-    /** Rollback is monotonic: a restored version must never be reapplied on error. */
+    /** A second item-lock CAS protects native writers which do not take the workspace lock. */
+    apply: async () => ({ owner: 'pm-memory-policy-rollback:1', id: target.id, outcome: await rollbackTarget(store, plan, target, options), writes: JSON.parse(JSON.stringify(plan.writes?.filter(row => row.id === target.id) ?? [])) }),
+    /** A rollback never reintroduces state when its own drain fails or is interrupted. */
     compensate: async () => {},
-  }));
-  await store.fence(() => guardedCompensation(store, plan, () => commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId, steps, onTransition: options.onTransition })));
+  })), onTransition: options.onTransition });
 }

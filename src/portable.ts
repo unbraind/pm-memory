@@ -1,4 +1,5 @@
-import { getHistoryPath, readHistoryEntries, readSettings, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, DEPENDENCY_KIND_VALUES, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
+import { validRelationship } from './portable-relationships.ts';
+import { getHistoryPath, readHistoryEntries, readSettings, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, CommitItemMutationsOptions, Dependency } from '@unbrained/pm-cli/sdk';
 import { recoverInput, applyImport, expectedTargets, validateImportPlan, previewImport, importIdentity } from './portable-plan.ts';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
@@ -88,7 +89,7 @@ export interface PortableImportOptions extends MemoryOptions {
   from: Harness;
   /** Explicit email opt-in; secrets remain forbidden. */
   allowEmail?: boolean;
-  /** Package preparation and publication boundaries for deterministic diagnostics. */
+  /** Preparation/publication diagnostics; write-guard runs inside the item lock, so await competing writes only after its SDK transition. */
   onStep?: (step: string) => void | Promise<void>;
   /** SDK transaction transitions; throwing its interruption error simulates a crash. */
   onTransition?: CommitItemMutationsOptions['onTransition'];
@@ -170,9 +171,8 @@ export function parsePolicy(value: unknown): PortablePolicyManifest {
     if (!Array.isArray(row.relationships)) invalid();
     /** Validate both current and immutable relationship inventories identically. */
     const parseRelationships = (values: unknown[]): PortableRelationship[] => values.map((value: unknown) => {
-      if (value === null || typeof value !== 'object' || Array.isArray(value)) invalid();
+      if (!validRelationship(value, 'slug')) throw new MemoryError('relationship', 'Invalid portable relationship provenance', 'Restore the exported relationship fields; use string provenance, an SDK-supported created_at timestamp, and asserted/detected/legacy author_source');
       const edge = value as PortableRelationship;
-      if (Object.keys(edge).some(key => !['slug', 'kind', 'created_at', 'author', 'source_kind', 'author_source'].includes(key)) || !DEPENDENCY_KIND_VALUES.some(kind => kind === edge.kind)) invalid();
       slug(edge.slug);
       return edge;
     });

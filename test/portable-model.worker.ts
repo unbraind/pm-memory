@@ -206,7 +206,9 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           onStep: value => { if ((value === 'intent' && boundary === 0) || (value === 'readback' && boundary === count + 1) || (value === 'published' && boundary === count + 2)) throw new WorkspaceTransactionInterruptedError(); },
           onTransition: event => {
             if (!event.transactionId.endsWith('-snapshot') && event.transition === 'step_applied') {
-              const key = [...ids].find(([, id]) => event.stepId!.includes(`-${id}-`))![0];
+              const matches = [...ids].filter(([, id]) => event.stepId!.endsWith(`-${id}`) || event.stepId!.includes(`-${id}-`));
+              assert.equal(matches.length, 1, `Exactly one immutable target for SDK step ${event.stepId}`);
+              const key = matches[0][0];
               model = model.map(row => row.slug === key ? structuredClone(saved.desired.find(item => item.slug === key)!) : row);
             }
             if (++eventIndex === boundary) throw new WorkspaceTransactionInterruptedError();

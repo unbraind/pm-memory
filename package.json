@@ -25,7 +25,7 @@
     "build": "tsc",
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build && npm run build:test && node --test --test-concurrency=2 test/*.test.ts",
-    "test:install": "npm run build && node --test --test-concurrency=2 --test-reporter=spec test/install.acceptance.ts",
+    "test:install": "npm run build && node --test --test-concurrency=1 --test-reporter=spec test/install.acceptance.ts test/critical.acceptance.ts",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "check": "npm run typecheck",
