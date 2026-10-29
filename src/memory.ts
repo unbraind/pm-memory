@@ -1,3 +1,4 @@
+import { contentRevision } from './content.ts';
 import { isCanceled, statusRegistry } from './lifecycle.ts';
 import { randomBytes } from 'node:crypto';
 import { parseMutationReceipt, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
@@ -44,8 +45,9 @@ export async function remember(fact: string, options: RememberOptions): Promise<
       id = parseMutationReceipt(created).id;
     } else {
       await store.history(previous.id);
-      await store.client.update(previous.id, { title, body: fact, ...(isCanceled(previous) ? { status: (await statusRegistry(store.workspace)).open_status } : {}), ...(options.tags === undefined ? {} : itemDocumentToMutationOptions(JSON.stringify({ tags: options.tags }), 'update')), message: 'Revise durable agent memory' });
-      await store.fields(previous.id, fields); id = previous.id;
+      const revision: Record<string, unknown> = { title, body: fact, ...(isCanceled(previous) ? { status: (await statusRegistry(store.workspace)).open_status } : {}), ...(options.tags === undefined ? {} : itemDocumentToMutationOptions(JSON.stringify({ tags: options.tags }), 'update')), ...metadata(fields), message: 'Revise durable agent memory' };
+      if (!unchanged || previous.pinned !== pinned) contentRevision(revision);
+      await store.client.run('update', { id: previous.id, options: revision }); id = previous.id;
     }
     for (const target of targets) await store.link(id, target);
     return { id, slug: key, updated: previous !== undefined };

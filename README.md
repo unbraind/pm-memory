@@ -270,6 +270,13 @@ party that rewrites both the manifest and its markers can author a different pol
 
 ### Imports and rollback
 
+Import applies the complete desired state of each source-owned field. Removing a
+previously carried directive or wiki link removes that owned value through the SDK;
+native-only metadata and links absent from the portable ownership baseline survive.
+Content revisions update recency and invalidate previous verification in the same
+item write. Renewal evidence remains bound to its original content digest, so edited
+standing guidance requires explicit renewal.
+
 **Imports are forward-only; conflicts are reported, never rolled back.** Each
 item re-reads its current SDK document immediately before writing. Every field
 changed by the actual SDK mutation must still equal its saved base; otherwise the

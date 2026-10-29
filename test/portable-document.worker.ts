@@ -90,7 +90,10 @@ test(`complete document law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }
           const snapshot = JSON.parse(String(nativeBody ? actual.memory_policy_body : actual.memory_document)) as { original: string };
           assert.equal(Buffer.from(snapshot.original, 'base64').toString('utf8'), second, label);
           if (nativeBody) { const { body: _body, ...metadata } = original; assert.equal(actual.body, canonicalDocument({ metadata, body: second }).body, label); }
-          assert.deepEqual(actual, { ...original, ...(nativeBody ? { body: actual.body, memory_policy_body: actual.memory_policy_body } : { memory_document: actual.memory_document }), updated_at: actual.updated_at }, label);
+          const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = original;
+          assert.equal(actual.memory_verified_at, undefined, label); assert.equal(actual.memory_reason, undefined, label);
+          assert.ok(Date.parse(String(actual.memory_changed_at)) >= Date.parse(String(original.memory_changed_at)), label);
+          assert.deepEqual(actual, { ...preserved, ...(nativeBody ? { body: actual.body, memory_policy_body: actual.memory_policy_body } : { memory_document: actual.memory_document }), memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at }, label);
         }
       }
       const output = join(target.root, `case-${sequence}-b`); await exportDir(output, { ...target.options, to: from });

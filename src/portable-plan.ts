@@ -10,7 +10,7 @@ import type { PortableImportResult, PortableImportOptions } from './portable.ts'
 import type { Store } from './store.ts';
 import { relationshipPatch, validOwnedTarget } from './portable-ownership.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
-import { validOrigin } from './portable-origin.ts';
+import { validOrigin, creator, creatorMatchesOrigin, readTrackerOrigin } from './portable-origin.ts';
 import type { PortableOrigin } from './portable-origin.ts';
 import { previewOwnedItems, prepareImportNodes, captureBirths, sealBirths } from './portable-preview.ts';
 
@@ -174,8 +174,14 @@ export async function previewImport(store: Store, plan: ImportPlan, onStep?: Por
   try { await previewOwnedItems(store, plan, mutations, onStep); } catch (error) { return planError(error); }
 }
 /** Validate the immutable read-set shape before schema registration and SDK preview. */
-export async function validateImportPlan(_store: Store, plan: ImportPlan, _onStep?: PortableImportOptions['onStep']): Promise<void> {
+export async function validateImportPlan(store: Store, plan: ImportPlan, _onStep?: PortableImportOptions['onStep']): Promise<void> {
   if (!plan.expected.every(target => target.origin === undefined || validOrigin(target.origin)) || plan.mutations.some(row => !plan.expected.some(target => target.id === row.id))) throw new MemoryError('history', 'Incomplete portable import read set', 'Export the current inventory and retry');
+  const tracker = await readTrackerOrigin(store);
+  for (const target of plan.expected) if (target.version !== null) {
+    const entries = await readHistoryEntries(getHistoryPath(store.workspace, target.id), target.id);
+    const born = entries.length === 0 ? undefined : creator(target.id, entries[0], tracker);
+    if (born === undefined || target.origin !== undefined && !creatorMatchesOrigin(born, target.origin)) throw new MemoryError('conflict', 'Native creation lineage does not match the planned origin', 'Retain the native item and restore its verified origin history before retrying');
+  }
 }
 /** Count only actual forward writes and currently admitted no-op items, including partial success. */
 function forwardResult(plan: ImportPlan): PortableImportResult {

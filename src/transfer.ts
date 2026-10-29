@@ -1,3 +1,4 @@
+import { contentRevision } from './content.ts';
 import { importConflict } from './portable-write.ts';
 import { isCanceled } from './lifecycle.ts';
 import { lstat, readdir, readFile, mkdir, writeFile, mkdtemp, rename, rm, access, chmod } from 'node:fs/promises';
@@ -11,7 +12,7 @@ import { metadata, Store } from './store.ts';
 import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, policyPayload, policyParts, ownedMemories, closeSkips, appendImportSkips, parsePolicy, guidanceOrigin } from './portable.ts';
 import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship, LegacyPortableSource } from './portable.ts';
 import type { Harness, Memory, MemoryOptions } from './types.ts';
-import { ownershipPatch, portableFields, previousOwnership, creationMetadata, PORTABLE_FIELDS, validFields, projectSourceFields } from './portable-ownership.ts';
+import { ownershipPatch, portableFields, previousOwnership, creationMetadata, PORTABLE_FIELDS, validFields, projectSourceFields, projectSourceLinks, unsetSourceFields, exportedSource } from './portable-ownership.ts';
 import type { OwnedTarget, PortableFields } from './portable-ownership.ts';
 import { applyImport, expectedTargets, importIdentity, validateImportPlan, recoverInput, previewImport } from './portable-plan.ts';
 import { originCatalog, selectOrigin, sameOrigin, ensureTrackerOrigin } from './portable-origin.ts';
@@ -74,7 +75,7 @@ function referenceTarget(reference: string, memories: readonly Pick<Memory, 'id'
   const choices = exact.length > 0 ? exact : memories.filter(item => stemOf(item.path) === reference);
   return choices.length === 1 ? choices[0] : undefined;
 }
-/** Legacy wiki references own additions; absent text cannot prove deletion ownership. */
+/** Resolve source-carried wiki references; previous receipts distinguish owned removals from unknown edges. */
 function sourceRelationships(source: Source, memories: readonly Pick<Memory, 'id' | 'slug' | 'path'>[]): PortableRelationship[] {
   return source.links.flatMap(reference => {
     const target = referenceTarget(reference, memories);
@@ -82,14 +83,14 @@ function sourceRelationships(source: Source, memories: readonly Pick<Memory, 'id
   });
 }
 /** Project only fields the legacy document actually carries through the shared split. */
-function sourceOwnership(source: Source, before: Source, item: Memory, memories: readonly Pick<Memory, 'id' | 'slug' | 'path'>[]): PortableGuidance {
+function sourceOwnership(source: Source, before: Source, item: Memory, memories: readonly Pick<Memory, 'id' | 'slug' | 'path'>[], scope: readonly (keyof PortableFields)[]): PortableGuidance {
   const row = { ...item, ...source, pinned: item.pinned, tags: item.tags, relationships: sourceRelationships(source, memories), path: `memories/${item.slug}.md`, validity: null, renewals: [], snapshotHash: digest(source.original), baseline: { fields: portableFields({ ...item, ...before, pinned: item.pinned, tags: item.tags }, before.body), relationships: sourceRelationships(before, memories) } };
-  for (const field of ['title', 'description', 'kind', 'why', 'how'] as const) if (!source.represented.includes(field)) Object.assign(row, { [field]: item[field] });
+  for (const field of ['title', 'description', 'kind', 'why', 'how'] as const) if (!scope.includes(field)) Object.assign(row, { [field]: item[field] });
   return row;
 }
 /** Do not acquire authority over implicit defaults or native-only metadata. */
-function sourceReceipt(target: OwnedTarget, source: Source): OwnedTarget {
-  return { ...target, fields: Object.fromEntries(Object.entries(target.fields).filter(([key]) => key === 'body' || source.represented.some(field => field === key))), source: { original: source.original } };
+function sourceReceipt(target: OwnedTarget, source: Source, scope: readonly (keyof PortableFields)[] = source.represented): OwnedTarget {
+  return { ...target, fields: Object.fromEntries(Object.entries(target.fields).filter(([key]) => key === 'body' || scope.some(field => field === key))), source: { original: source.original } };
 }
 /** Creation history identifies a legacy source even after native-only identity edits. */
 function legacyOrigin(value: Awaited<ReturnType<typeof creationMetadata>>, source: Source, from: Harness): boolean {
@@ -142,10 +143,9 @@ async function importBoundLegacy(input: readonly { path: string; bytes: Buffer }
     const file = input.find(file => file.path === record.file);
     if (file === undefined) throw new MemoryError('origin_missing', 'An origin-bound legacy file is missing', 'Restore the complete exported inventory; absence does not delete a native origin');
     const source = sourceDocument(file.path, file.bytes, options.from); const row = structuredClone(record.guidance);
-    projectSourceFields(row, source, record.decoded);
+    projectSourceFields(row, source, record.decoded, exportedSource(row).present);
+    projectSourceLinks(row, source, record.links, references);
     const added = source.links.filter(link => !record.links.includes(link));
-    const additions = sourceRelationships({ ...source, slug: row.slug, links: added }, references);
-    for (const edge of additions) if (!row.relationships.some(prior => prior.slug === edge.slug && prior.kind === edge.kind)) row.relationships.push(edge);
     for (const link of added) if (referenceTarget(link, references) === undefined) unresolved++;
     files.push({ path: row.path, bytes: policyBody(row, source.body) });
     provenance.set(row.slug, { original: source.original, path: file.path, artifact: record.artifact, harness: options.from });
@@ -222,10 +222,12 @@ export async function importDir(path: string, options: PortableImportOptions): P
         mutations.push({ op: 'create', id, unique: { key: 'memory_slug', value: source.slug }, options: { title: source.title, body: source.body, description: source.description, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: graph }), 'create'), ...metadata(fields) } });
         ownership.push(sourceReceipt({ id, fields: portableFields({ ...source, pinned: false, tags: [] }, source.body), relationships: graph, graph, documentHash: digest(String(mutations.at(-1)!.options!.memoryDocument)) }, source)); result.imported++;
       } else {
-        const before = births.get(previous.id)!;
         const prior = await previousOwnership(store, previous, baselineIds);
-        const row = sourceOwnership(source, before, previous, references);
-        const patch = ownershipPatch(previous, row, source.body, baselineIds, baselineIds, prior, false, ['body', ...source.represented]);
+        const before = prior?.source === undefined ? births.get(previous.id)! : sourceDocument(source.path, Buffer.from(prior.source.original, 'base64'), options.from);
+        const scope = [...new Set<keyof PortableFields>(['body', ...source.represented, ...before.represented])];
+        const row = sourceOwnership(source, before, previous, references, scope);
+        const patch = ownershipPatch(previous, row, source.body, baselineIds, baselineIds, prior, true, scope);
+        patch.conflicts = [...new Set([...patch.conflicts, ...unsetSourceFields(patch.options, source, { present: before.represented, native: previous, metadata: corpus.find(item => item.id === id)!, fields: row.baseline!.fields, owned: prior?.fields })])];
         const next = { version: 1 as const, format: 'legacy' as const, harness: options.from, path: source.path, original: source.original };
         const current = previous.document ?? { ...next, original: prior?.source?.original ?? before.original };
         const unchangedDocument = Buffer.from(policyPayload({ ...previous, document: current })).toString('base64') === source.original;
@@ -243,10 +245,11 @@ export async function importDir(path: string, options: PortableImportOptions): P
           result.skipped.push({ slug: source.slug, reason, conflict: importConflict(id, patch.conflicts, patch.base, patch.current) });
           skipped.set(source.slug, reason); continue;
         }
-        if (Object.keys(patch.options).length === 0) { result.unchanged++; ownership.push(sourceReceipt(patch.ownership, source)); continue; }
+        if (Object.keys(patch.options).length === 0) { result.unchanged++; ownership.push(sourceReceipt(patch.ownership, source, scope)); continue; }
+        contentRevision(patch.options);
         await store.history(previous.id);
         const documentHash = document.options.memoryDocument !== undefined ? digest(String(document.options.memoryDocument)) : previous.document !== undefined && prior?.documentHash === digest(encodeDocument(previous.document)) ? prior.documentHash : undefined;
-        ownership.push(sourceReceipt({ ...patch.ownership, ...(documentHash === undefined ? {} : { documentHash }), ...(policyBodyHash === undefined ? {} : { policyBodyHash }) }, source)); result.updated++;
+        ownership.push(sourceReceipt({ ...patch.ownership, ...(documentHash === undefined ? {} : { documentHash }), ...(policyBodyHash === undefined ? {} : { policyBodyHash }) }, source, scope)); result.updated++;
         mutations.push({ op: 'update', id, match: { key: 'updated_at', value: corpus.find(item => item.id === id)!.updated_at }, options: patch.options });
       }
     }

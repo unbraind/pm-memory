@@ -69,10 +69,12 @@ test(`fidelity sequences ${START}-${START + COUNT - 1}`, { timeout: 600000 }, as
       const client = new PmClient({ pmRoot: workspace, author: 'memory-test', noExtensions: true });
       const options = { workspace, author: 'memory-test' }; const scenario = Math.floor(sequence / 2) % 8;
       if (scenario === 0) {
+        await client.update(alpha.id, { depRemove: [`id=${beta.id},kind=related`], dep: [`id=${beta.id},kind=supersedes`] });
         const changed = join(root, 'raw'); await cp(template.raw, changed, { recursive: true });
         await writeFile(join(changed, 'alpha.md'), '# Alpha\nText link removed');
         await importDir(changed, { ...options, from: to });
-        assert.equal((await client.get(alpha.id, { full: true })).item.dependencies!.length, 1, label);
+        const retained = (await client.get(alpha.id, { full: true })).item.dependencies!;
+        assert.equal(retained.length, 1, label); assert.equal(retained[0].kind, 'supersedes', label);
       }
       if (scenario === 1) await client.run('update', { id: alpha.id, options: { memorySlug: `renamed-${seed}` } });
       if (scenario === 2) {

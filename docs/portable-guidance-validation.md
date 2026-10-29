@@ -28,6 +28,42 @@ cooperating transactions, not ordinary native writers. See
 behavior at observed boundaries, not atomic native-writer isolation or an atomic
 multi-item import.
 
+## Source state and revision validation
+
+Source ownership includes previously carried fields: removing a directive unsets
+its registered native field. Absent unowned metadata and native-only relationships
+remain untouched. Raw, companion and canonical payloads share the same projection;
+only source-carried wiki edges grant text-based removal authority. Baselines record
+the actual exported field presence and wiki references, rather than trusting an older
+legacy snapshot after native body edits. Older exports grant only proven removal scope.
+Canonical receipts
+do not widen a later raw document’s field ownership. Explicit default and empty
+values retain removal authority independently of their decoded logical defaults. Ambiguous native
+relationship namespaces require an explicit manifest selection.
+
+Every forward content write updates content recency and clears the prior verdict,
+verification timestamp and stale reason in that same SDK mutation. Semantic hashes
+and utility revision keys derive from the current SDK content. Historical renewal
+evidence remains intact and bound to its original digest. Unedited snapshots retain
+their timestamps on creation; an edited portable snapshot receives current recency.
+Native creation lineage is checked through the SDK birth entry before schema writes.
+
+`test/import-state.test.ts` adds 500 seeded source-edit/import/recall/round-trip
+sequences (master `0x1363f014`, 1,500 source edits and round trips) across raw, companion and canonical forms. It checks
+owned fields, tags, pinning, explicit links, unknown source evidence, native Task
+links and priority through SDK read-back. Fixed controls cover directives acquired
+after a plain birth and content aged 0, 29, 30, 31 and 400 days. Freshness tests also
+require body and content-derived metadata to appear in the same native history write.
+Fresh-target tests also check complete source bytes, including unknown frontmatter,
+when deciding whether to retain an exported content timestamp.
+Existing companion conflict tests now require whole-item preservation before an
+explicitly reconciled retry; all original successful-retry assertions remain. The
+complete-document law additionally asserts recency and verification invalidation.
+
+Behavioral reverts reproduce retained obsolete instructions, stale revision evidence,
+and missing lineage rejection; restored controls pass. The full local suite runs on
+Node 26 with a fresh HOME, isolated Git configuration and two workers before pushing.
+
 ## Reproducible tests
 
 - `test/portable-forward.test.ts`: fixed A/B/C publication failure, legacy

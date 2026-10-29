@@ -51,7 +51,7 @@ test('unchanged remember preserves stale verification, import bytes and reimport
   await remember(imported.body, { ...options, kind: 'project', update: imported.slug, pin: true });
   const changed = (await store.read()).find(row => row.id === imported.id)!;
   assert.equal(changed.verdict, 'unknown'); assert.equal(changed.edited, true);
-  assert.equal((await client.get(imported.id, { full: true })).item.memory_verified_at, '');
+  assert.equal((await client.get(imported.id, { full: true })).item.memory_verified_at, undefined);
 });
 
 test('export rejects reserved and nested case-folded names before publication', async t => {

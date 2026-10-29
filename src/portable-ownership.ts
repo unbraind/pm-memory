@@ -13,7 +13,7 @@ import type { Store } from './store.ts';
 import { digest, MemoryError } from './core.ts';
 import type { PortableOrigin } from './portable-origin.ts';
 import { birthDocument } from './portable-preview.ts';
-import { sourceDocument } from './portable-source.ts';
+import { sourceDocument, stemOf } from './portable-source.ts';
 import type { Source } from './portable-source.ts';
 
 const relationshipKinds = createRelationshipKindRegistry();
@@ -32,6 +32,10 @@ export interface PortableBaseline {
   policyBodyHash?: string;
   /** SDK-normalized source projection of the actual exported file, independent of native overrides. */
   sourceFields?: PortableFields;
+  /** Explicit fields and wiki references in the actual exported payload, not an older source snapshot. */
+  sourcePresence?: Source['represented'];
+  /** Only these text references grant source-removal authority. */
+  sourceLinks?: string[];
   /** Immutable originating subject and tracker namespace; aliases never select a target. */
   origin?: PortableOrigin;
   /** Original native identity distinguishes source edits from unrelated slug collisions. */
@@ -90,9 +94,63 @@ export function portableFields(row: Parameters<typeof canonicalProvenance>[0], b
   return Object.fromEntries(PORTABLE_FIELDS.map(key => [key, digest(JSON.stringify(values[key]))])) as PortableFields;
 }
 /** Both full policy payloads and legacy companions project only explicit source edits onto native fields. */
-export function projectSourceFields(row: PortableGuidance, source: Source, baseline: PortableFields): void {
+export function projectSourceFields(row: PortableGuidance, source: Source, baseline: PortableFields, before?: readonly Source['represented'][number][]): void {
   const decoded = portableFields({ ...source, pinned: false, tags: [] }, source.body);
-  for (const field of source.represented) if (decoded[field] !== baseline[field]) Object.assign(row, { [field]: source[field] });
+  for (const field of ['title', 'description', 'kind', 'why', 'how'] as const) if (decoded[field] !== baseline[field] || before?.includes(field) && !source.represented.includes(field)) Object.assign(row, { [field]: source[field] });
+}
+/** Older exports grant body-derived removal authority only when their source snapshot matches the exported body. */
+export function exportedSource(row: PortableGuidance): { present: Source['represented']; links: string[] } {
+  if (row.baseline?.sourcePresence !== undefined && row.baseline.sourceLinks !== undefined) return { present: row.baseline.sourcePresence, links: row.baseline.sourceLinks };
+  if (row.document?.format !== 'legacy') return { present: [], links: [] };
+  const source = sourceDocument(row.document.path, Buffer.from(row.document.original, 'base64'), row.document.harness);
+  const fields = portableFields({ ...source, pinned: false, tags: [] }, source.body);
+  if (fields.body === (row.baseline?.sourceFields ?? row.baseline?.fields)?.body) return { present: source.represented, links: source.links };
+  const prefix = Buffer.from(row.document.original, 'base64').toString('utf8').slice(0, -source.body.length || undefined);
+  return { present: sourceDocument(row.document.path, Buffer.from(prefix), row.document.harness).represented, links: [] };
+}
+/** Source-carried wiki edges own removals; snapshot-only and native-only edges remain untouched. */
+export function projectSourceLinks(row: PortableGuidance, source: Source, before: readonly string[], inventory: readonly { slug: string; path: string }[]): void {
+  const resolve = (links: readonly string[]) => links.flatMap(link => {
+    const exact = inventory.filter(target => target.slug === link);
+    const choices = exact.length > 0 ? exact : inventory.filter(target => stemOf(target.path) === link);
+    return choices.length === 1 && choices[0].slug !== row.slug ? [choices[0].slug] : [];
+  });
+  const old = resolve(before); const next = resolve(source.links);
+  for (const slug of old.filter(slug => !next.includes(slug))) if (row.relationships.filter(edge => edge.slug === slug && edge.kind === 'related').length > 1) throw new MemoryError('conflict', 'Source relationship namespace is ambiguous', 'Edit the explicit manifest relationships to select a namespace; source text cannot remove multiple native namespaces');
+  row.relationships = row.relationships.filter(edge => edge.kind !== 'related' || !old.includes(edge.slug) || next.includes(edge.slug));
+  for (const slug of next) if (!old.includes(slug) && !row.relationships.some(edge => edge.slug === slug && edge.kind === 'related')) row.relationships.push({ slug, kind: 'related' });
+}
+/** SDK base for a source-field removal whose logical default did not change. */
+export interface SourceRemovalBase {
+  /** Exact prior source establishes presence independently of decoded defaults. */
+  present: readonly Source['represented'][number][];
+  /** Current SDK-decoded semantic fields. */
+  native: Memory;
+  /** Complete current SDK metadata distinguishes absent fields from empty values. */
+  metadata: Record<string, unknown>;
+  /** Saved SDK-normalized field bases, never values adopted from a peer. */
+  fields: PortableFields;
+  /** Last positively retained field values, if available. */
+  owned?: Partial<PortableFields>;
+}
+/** Translate proven source absences into SDK unsets, reporting moved field bases. */
+export function unsetSourceFields(options: Record<string, unknown>, source: Source, base?: SourceRemovalBase): string[] {
+  const removed: string[] = []; const conflicts: string[] = [];
+  const native = base === undefined ? undefined : portableFields(base.native, base.native.body);
+  const desired = portableFields({ ...source, pinned: false, tags: [] }, source.body);
+  for (const field of ['description', 'kind', 'why', 'how'] as const) {
+    if (source.represented.includes(field)) continue;
+    const option = field === 'description' ? field : `memory${field[0].toUpperCase()}${field.slice(1)}`; const key = field === 'description' ? field : `memory_${field}`;
+    if (Object.hasOwn(options, option)) { if (field !== 'description') { delete options[option]; removed.push(key); } }
+    else if (base?.present.includes(field) && base.metadata[key] !== undefined) {
+      if (field === 'description' && native![field] === desired[field]) continue;
+      if (base.owned?.[field] === native![field] || base.fields[field] === native![field]) {
+        if (field === 'description') options.description = source.description; else removed.push(key);
+      } else conflicts.push(field);
+    }
+  }
+  if (removed.length > 0) options.unset = [...(options.unset as string[] | undefined ?? []), ...removed];
+  return conflicts;
 }
 /** Reject malformed baselines rather than silently widening import ownership. */
 export function validFields(value: unknown): value is PortableFields {

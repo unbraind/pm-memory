@@ -56,8 +56,10 @@ async function freshGraph(t: Parameters<typeof tracker>[0], source: Awaited<Retu
   return graph(target);
 }
 
-test('legacy export carries a relationship retained after harness link removal', async t => {
+test('legacy export carries a native relationship retained after harness link removal', async t => {
   const source = await tracker(t); const files = await legacyFiles(source, true);
+  const ids = new Map((await source.client.listAllComplete()).items.map(row => [row.memory_slug, row.id]));
+  await source.client.update(ids.get('alpha')!, { depRemove: [`id=${ids.get('beta')},kind=related`], dep: [`id=${ids.get('beta')},kind=supersedes`] });
   await writeFile(join(files, 'alpha.md'), '# Alpha\nReference removed from text'); await importDir(files, { ...source.options, from: 'claude-code' });
   const expected = await graph(source); assert.equal(expected.find(row => row.slug === 'alpha')!.links.length, 1);
   assert.deepEqual(await freshGraph(t, source), expected);

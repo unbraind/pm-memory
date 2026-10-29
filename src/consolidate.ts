@@ -1,3 +1,4 @@
+import { contentRevision } from './content.ts';
 import { isCanceled, statusRegistry } from './lifecycle.ts';
 import { jaccardSimilarity } from '@unbrained/pm-cli/sdk';
 import { active, DUPLICATE_THRESHOLD } from './memory.ts';
@@ -166,7 +167,9 @@ export async function consolidate(options: MemoryOptions & SemanticOptions & { a
             receipt = { target: target.slug, body, changed_at, source_revision: revision(older), target_before: revision(current), target_after: revision({ ...current, body: body.trim(), updated: changed_at }) };
             await store.fields(older.id, { merge: JSON.stringify(receipt) });
           }
-          await store.client.run('update', { id: target.id, options: { body: receipt.body, ...metadata({ edited: true, verdict: 'unknown', verified_at: '', changed_at: receipt.changed_at }), message: 'Retain merged memory content' } });
+          const revisionOptions = { body: receipt.body, memoryEdited: true, message: 'Retain merged memory content' };
+          contentRevision(revisionOptions, receipt.changed_at);
+          await store.client.run('update', { id: target.id, options: revisionOptions });
           await store.client.update(older.id, { status: (await statusRegistry(store.workspace)).canceled_status, closeReason: `Merged context linked to ${target.slug}; content retained`, message: 'Consolidate duplicate memory' });
           await store.fields(older.id, { merge: '' });
         }

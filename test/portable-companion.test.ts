@@ -63,7 +63,13 @@ test('bound legacy edits use snapshot identities preserve native edits and skip 
   await source.client.run('update', { id: beta.id, options: { memorySlug: 'renamed-beta' } });
   await writeFile(join(output, 'alpha.md'), '---\nname: Alpha revised\ndescription: Portable description\n---\n# Alpha\nSee [[beta]], [[not-in-inventory]]');
   await writeFile(join(output, 'foreign.md'), 'Uninventoried file retained');
+  const before = (await source.client.get(alpha.id, { full: true })).item;
   const result = await importDir(output, { ...source.options, from: 'claude-code' }); assert.ok('skipped' in result);
+  assert.deepEqual((await source.client.get(alpha.id, { full: true })).item, before);
+  assert.ok(result.skipped.some(row => row.conflict?.fields.includes('description')));
+  // Reconcile the conflicting input before applying its other fields as one forward item write.
+  await writeFile(join(output, 'alpha.md'), '---\nname: Alpha revised\n---\n# Alpha\nSee [[beta]], [[not-in-inventory]]');
+  assert.equal((await importDir(output, { ...source.options, from: 'claude-code' })).updated, 1);
   assert.ok(result.skipped.some(row => row.slug === 'foreign.md')); assert.equal(result.unresolved_links, 1);
   const actual = (await source.client.get(alpha.id, { full: true })).item;
   assert.equal(actual.memory_slug, 'renamed-alpha'); assert.equal(actual.description, 'Native description'); assert.equal(actual.title, 'Alpha revised');

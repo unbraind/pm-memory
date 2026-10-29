@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { exportDir, importDir, remember, renew, MemoryError } from '../index.ts';
 import { parsePolicy } from '../src/portable.ts';
-import { previousOwnership, resolvedRelationships, legacyBirth, creationMetadata } from '../src/portable-ownership.ts';
+import { previousOwnership, resolvedRelationships, legacyBirth, creationMetadata, exportedSource } from '../src/portable-ownership.ts';
 import { expectedTargets, importIdentity, validateImportPlan, type ImportPlan } from '../src/portable-plan.ts';
 import { tracker, snapshot, exportedPolicy, importText } from './helpers.ts';
 
@@ -44,11 +44,19 @@ test('CAS lineage validation refuses malformed immutable SDK birth origins witho
   const { manifest } = await exportedPolicy(source);
   const target = await tracker(t); await target.store.register();
   await target.client.run('create', { options: { title: 'Malformed origin', body: 'Retain this', type: 'Knowledge', memorySlug: 'bad', memoryKind: 'reference', memorySource: 'native:item', memoryOrigin: 'not-json' } });
-  const row = (await target.client.listAllComplete()).items[0]; const before = await snapshot(target.workspace);
+  const row = (await target.client.listAllComplete()).items[0];
+  const compatible = await remember('Compatible native origin', { ...target.options, slug: 'compatible', kind: 'reference', forceNew: true });
+  const before = await snapshot(target.workspace);
   await target.store.write(async () => {
     const expected = await expectedTargets(target.store, [{ id: row.id, slug: 'bad', origin: manifest.guidance[0].origin }]);
     const plan: ImportPlan = { ...(await importIdentity(target.store, 'lineage-validation')), input: 'lineage-validation', author: 'memory-test', members: [row.id], expected, mutations: [{ op: 'update', id: row.id, match: { key: 'updated_at', value: expected[0].version! }, options: { body: 'Must not write' } }], result: { imported: 0, updated: 1, unchanged: 0, unresolved_links: 0, skipped: [] } };
     await assert.rejects(validateImportPlan(target.store, plan), error => error instanceof MemoryError && error.code === 'conflict');
+    const missing = 'memory-test-missing-origin';
+    await assert.rejects(validateImportPlan(target.store, { ...plan, members: [missing], expected: [{ ...expected[0], id: missing }], mutations: [{ ...plan.mutations[0], id: missing }] }), error => error instanceof MemoryError && error.code === 'conflict');
+    const unbound = await expectedTargets(target.store, [{ id: compatible.id, slug: 'compatible' }]);
+    const permitted = { ...plan, members: [compatible.id], expected: unbound, mutations: [{ ...plan.mutations[0], id: compatible.id }] };
+    await validateImportPlan(target.store, permitted);
+    await assert.rejects(validateImportPlan(target.store, { ...permitted, expected: [{ ...unbound[0], origin: manifest.guidance[0].origin }] }), error => error instanceof MemoryError && error.code === 'conflict');
   });
   assert.deepEqual(await snapshot(target.workspace), before);
 });
@@ -140,4 +148,42 @@ test('legacy birth authority preserves foreign records on import retry and expor
   const historical = (await allowed.client.listAllComplete()).items.find(item => item.memory_slug === 'historical-alias')!;
   const authority = await legacyBirth(allowed.store, historical.id, (await creationMetadata(allowed.store, historical.id))!);
   assert.ok(authority?.fields.body); assert.equal(authority.fields.title, undefined, 'Source metadata cannot claim a differing native birth field');
+});
+
+
+test('new imports bind content time to edited full source bytes and preserve untouched snapshot ages', async t => {
+  const source = await tracker(t); const raw = await importText(source, 'alpha.md', '---\nname: alpha\ncustom: old-value\n---\nAlpha');
+  const row = (await source.client.listAllComplete()).items[0];
+  for (const age of [0, 29, 30, 31, 400]) {
+    const old = new Date(Date.now() - age * 86400000).toISOString();
+    await source.client.run('update', { id: row.id, options: { memoryChangedAt: old } });
+    const exported = await exportedPolicy(source, `aged-${age}`);
+    const untouched = await tracker(t); await importDir(exported.path, { ...untouched.options, from: 'agents-md' });
+    assert.equal((await untouched.client.listAllComplete()).items[0].memory_changed_at, old);
+    const file = join(exported.path, exported.manifest.guidance[0].path); const content = await readFile(file, 'utf8');
+    await writeFile(file, content.replace('custom: old-value', 'custom: new-value'));
+    const target = await tracker(t); const before = Date.now(); await importDir(exported.path, { ...target.options, from: 'agents-md' });
+    const actual = (await target.client.listAllComplete({ includeBody: true })).items[0];
+    assert.ok(Date.parse(String(actual.memory_changed_at)) >= before); assert.equal(actual.body, 'Alpha');
+    assert.match(Buffer.from(JSON.parse(String(actual.memory_document)).original, 'base64').toString('utf8'), /custom: new-value/);
+  }
+  assert.match(await readFile(raw, 'utf8'), /custom: old-value/);
+});
+
+test('exported representation baselines validate before writes and older snapshots grant only proven scope', async t => {
+  const target = await tracker(t); await importText(target, 'alpha.md', '---\ndescription: Hook\n---\n# Alpha\n**How to apply:** Apply\n[[beta]]');
+  const { manifest } = await exportedPolicy(target); const row = manifest.guidance[0];
+  assert.deepEqual(exportedSource(row), { present: ['title', 'description', 'how'], links: ['beta'] });
+  for (const [key, values] of Object.entries({ sourcePresence: [null, {}, [1], ['bogus'], ['title', 'title']], sourceLinks: [null, {}, [1], ['has space'], ['beta', 'beta']] })) for (const value of values) {
+    const invalid = structuredClone(manifest); Object.assign(invalid.guidance[0].baseline!, { [key]: value });
+    assert.throws(() => parsePolicy(invalid), MemoryError);
+  }
+  delete row.baseline!.sourcePresence; delete row.baseline!.sourceLinks;
+  assert.deepEqual(exportedSource(row).links, ['beta']);
+  const sourceFields = row.baseline!.sourceFields; delete row.baseline!.sourceFields;
+  assert.deepEqual(exportedSource(row).links, ['beta']);
+  row.baseline!.sourceFields = { ...sourceFields!, body: '0'.repeat(64) };
+  assert.deepEqual(exportedSource(row), { present: ['description'], links: [] });
+  delete row.document; assert.deepEqual(exportedSource(row), { present: [], links: [] });
+  delete row.baseline; assert.deepEqual(exportedSource(row), { present: [], links: [] });
 });

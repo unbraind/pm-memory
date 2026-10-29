@@ -53,7 +53,9 @@ test('legacy harness adapters preserve native metadata and natively removed wiki
     const { body: _body, updated_at: _time, ...untouched } = actual;
     const { body: _oldBody, updated_at: _oldTime, ...expected } = before;
     const document = JSON.stringify({ format: 'legacy', harness: from, original: Buffer.from(`${text}\nHarness revision`).toString('base64'), path: 'alpha.md', version: 1 });
-    assert.deepEqual(untouched, { ...expected, memory_document: document }); assert.equal(actual.body, `${text}\nHarness revision`);
+    const { memory_verified_at: _verification, memory_reason: _reason, ...retained } = expected;
+    assert.deepEqual(untouched, { ...retained, memory_document: document, memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown' });
+    assert.equal(actual.memory_verified_at, undefined); assert.equal(actual.memory_reason, undefined); assert.ok(Date.parse(String(actual.memory_changed_at)) >= Date.parse(String(before.memory_changed_at))); assert.equal(actual.body, `${text}\nHarness revision`);
     assert.equal((await importDir(source, { ...target.options, from })).unchanged, 2);
   }
 });

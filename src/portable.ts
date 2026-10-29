@@ -1,3 +1,4 @@
+import { contentRevision } from './content.ts';
 import { isCanceled } from './lifecycle.ts';
 import { validRelationship } from './portable-relationships.ts';
 import { getHistoryPath, readHistoryEntries, readSettings, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
@@ -9,7 +10,7 @@ import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
 import type { GuidanceWindow, Harness, HarnessDocument, Memory, MemoryKind, MemoryOptions } from './types.ts';
 import { readDocument, documentPatch, encodeDocument, sourceDocument, frontmatter } from './portable-source.ts';
-import { portableFields, validFields, ownershipPatch, previousOwnership, resolvedRelationships, creationMetadata, legacyBirth, recordedCreation, projectSourceFields } from './portable-ownership.ts';
+import { portableFields, validFields, ownershipPatch, previousOwnership, resolvedRelationships, creationMetadata, legacyBirth, recordedCreation, projectSourceFields, projectSourceLinks, unsetSourceFields, exportedSource } from './portable-ownership.ts';
 import type { PortableBaseline, OwnedTarget, PortableFields } from './portable-ownership.ts';
 import { itemOrigin, validOrigin, originCatalog, selectOrigin, sameOrigin, creatorMatchesOrigin } from './portable-origin.ts';
 import type { PortableOrigin } from './portable-origin.ts';
@@ -201,9 +202,14 @@ export function parsePolicy(value: unknown): PortablePolicyManifest {
       const hasId = row.baseline !== null && typeof row.baseline === 'object' && 'id' in row.baseline;
       const hasSlug = row.baseline !== null && typeof row.baseline === 'object' && 'slug' in row.baseline;
       const hasOrigin = row.baseline !== null && typeof row.baseline === 'object' && 'origin' in row.baseline;
-      const snapshots = row.baseline !== null && typeof row.baseline === 'object' ? ['bodyHash', 'documentHash', 'policyBodyHash', 'sourceFields'].filter(key => Object.hasOwn(row.baseline!, key)) : [];
+      const snapshots = row.baseline !== null && typeof row.baseline === 'object' ? ['bodyHash', 'documentHash', 'policyBodyHash', 'sourceFields', 'sourcePresence', 'sourceLinks'].filter(key => Object.hasOwn(row.baseline!, key)) : [];
       const fields = shape(row.baseline, ['fields', 'relationships', ...(hasId ? ['id'] : []), ...(hasSlug ? ['slug'] : []), ...(hasOrigin ? ['origin'] : []), ...snapshots]);
-      for (const key of snapshots) if (key === 'sourceFields' ? !validFields(fields[key]) : typeof fields[key] !== 'string' || !/^[a-f0-9]{64}$/.test(fields[key])) invalid();
+      for (const key of snapshots) {
+        const value = fields[key];
+        if (key === 'sourcePresence' || key === 'sourceLinks') {
+          if (!Array.isArray(value) || new Set(value).size !== value.length || !value.every(entry => typeof entry === 'string' && (key === 'sourcePresence' ? ['title', 'description', 'kind', 'why', 'how'].includes(entry) : /^[a-z0-9_-]+$/.test(entry)))) invalid();
+        } else if (key === 'sourceFields' ? !validFields(value) : typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) invalid();
+      }
       if (!validFields(fields.fields) || !Array.isArray(fields.relationships)) invalid();
       if (hasId && (typeof fields.id !== 'string' || fields.id.length === 0 || /[\r\n/\\\0]/.test(fields.id))) invalid();
       if (hasSlug && fields.slug !== key) throw new MemoryError('format', 'Portable identities cannot be renamed by editing the manifest', 'Restore the exported slug and path; rename native guidance explicitly, then export again');
@@ -243,7 +249,7 @@ export async function policyRecord(store: Store, item: Memory, memories?: readon
   row.origin = await itemOrigin(store, item.id, origins);
   const payload = policyPayload(item);
   const source = item.document?.format === 'legacy' ? sourceDocument(item.document.path, Buffer.from(payload), item.document.harness) : undefined;
-  row.baseline = { ...(source === undefined ? {} : { sourceFields: portableFields({ ...source, pinned: false, tags: [] }, source.body) }), bodyHash: digest(payload), ...(item.document === undefined ? {} : { documentHash: digest(encodeDocument(item.document)) }), ...(item.policyBody === undefined ? {} : { policyBodyHash: digest(encodeDocument(item.policyBody)) }), id: item.id, slug: item.slug, origin: row.origin, fields: portableFields(row, item.body), relationships };
+  row.baseline = { ...(source === undefined ? {} : { sourceFields: portableFields({ ...source, pinned: false, tags: [] }, source.body), sourcePresence: source.represented, sourceLinks: [...new Set(source.links)] }), bodyHash: digest(payload), ...(item.document === undefined ? {} : { documentHash: digest(encodeDocument(item.document)) }), ...(item.policyBody === undefined ? {} : { policyBodyHash: digest(encodeDocument(item.policyBody)) }), id: item.id, slug: item.slug, origin: row.origin, fields: portableFields(row, item.body), relationships };
   return parsePolicy({ version: 1, format: 'pm-memory-policy', harness: 'agents-md', guidance: [row] }).guidance[0];
 }
 /** Retain local typed edges; excluded targets are reported in the export receipt. */
@@ -319,7 +325,8 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     if (!provenance.has(row.slug) && row.document?.format === 'legacy') {
       const before = sourceDocument(row.document.path, Buffer.from(row.document.original, 'base64'), row.document.harness);
       const source = sourceDocument(row.document.path, Buffer.from(payload), row.document.harness);
-      projectSourceFields(row, source, row.baseline?.sourceFields ?? portableFields({ ...before, pinned: false, tags: [] }, before.body));
+      projectSourceFields(row, source, row.baseline?.sourceFields ?? portableFields({ ...before, pinned: false, tags: [] }, before.body), exportedSource(row).present);
+      projectSourceLinks(row, source, exportedSource(row).links, manifest.guidance.map(target => ({ slug: target.slug, path: target.document?.path ?? target.path })));
       const edited = row.baseline?.bodyHash === undefined ? payload !== Buffer.from(row.document.original, 'base64').toString('utf8') : digest(payload) !== row.baseline.bodyHash;
       provenance.set(row.slug, { harness: row.document.harness, path: row.document.path, original: source.original, artifact: false, document: edited ? { ...row.document, original: source.original } : row.document });
       return source.body;
@@ -390,6 +397,11 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
         if (previous.document !== undefined && owned?.documentHash === digest(encodeDocument(previous.document))) documentHash = owned.documentHash;
         if (previous.policyBody !== undefined && owned?.policyBodyHash === digest(encodeDocument(previous.policyBody))) policyBodyHash = owned.policyBodyHash;
         update = ownershipPatch(previous, row, body, ids, baselineIds, owned);
+        if (wire !== undefined) {
+          const before = row.document?.format === 'legacy' ? sourceDocument(row.document.path, Buffer.from(row.document.original, 'base64'), row.document.harness) : undefined;
+          const base = before === undefined ? undefined : { present: exportedSource(row).present, native: previous, metadata: corpus.find(item => item.id === id)!, fields: row.baseline?.fields ?? portableFields({ ...before, pinned: false, tags: [] }, before.body), owned: owned?.fields };
+          update.conflicts = [...new Set([...update.conflicts, ...unsetSourceFields(update.options, sourceDocument(wire.path, Buffer.from(wire.original, 'base64'), wire.harness), base)])];
+        }
         if (document !== undefined) {
           const patch = documentPatch(previous, document, wire === undefined ? document.original : row.document?.original ?? owned?.source?.original ?? previous.original, owned?.sourceEdited, documentHash ?? row.baseline?.documentHash);
           Object.assign(update.options, patch.options); if (patch.conflict) { update.conflicts.push('document'); update.base.document = documentHash ?? row.baseline?.documentHash; update.current.document = previous.document === undefined ? undefined : digest(encodeDocument(previous.document)); }
@@ -407,9 +419,11 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
           skipped.set(row.slug, reason); continue;
         }
         if (Object.keys(update.options).length === 0) { decisions.set(row.slug, 'unchanged'); ownership.push(update.ownership); continue; }
+        contentRevision(update.options);
         decisions.set(row.slug, 'updated');
       } else decisions.set(row.slug, 'imported');
-      const fields = { ...(document === undefined ? {} : { document: encodeDocument(document) }), ...(policyBody === undefined ? {} : { policy_body: encodeDocument(policyBody) }), slug: row.slug, kind: row.kind, why: row.why, how: row.how, pinned: row.pinned, source: wire === undefined ? 'portable:policy-v1' : `${wire.harness}:relative-file`, original: wire?.original ?? Buffer.from(JSON.stringify([row, body])).toString('base64'), path: wire?.path ?? row.path, edited: false, artifact: wire?.artifact ?? false, changed_at: row.updated, renewals: JSON.stringify(row.renewals), ...(guidanceOrigin(row) === undefined ? {} : { origin: JSON.stringify(guidanceOrigin(row)) }), ...(row.validity === null ? {} : { validity: JSON.stringify(row.validity) }) };
+      const changedSource = row.baseline?.bodyHash !== undefined && digest(wire === undefined ? payloads[index] : Buffer.from(wire.original, 'base64').toString('utf8')) !== row.baseline.bodyHash;
+      const fields = { ...(document === undefined ? {} : { document: encodeDocument(document) }), ...(policyBody === undefined ? {} : { policy_body: encodeDocument(policyBody) }), slug: row.slug, kind: row.kind, why: row.why, how: row.how, pinned: row.pinned, source: wire === undefined ? 'portable:policy-v1' : `${wire.harness}:relative-file`, original: wire?.original ?? Buffer.from(JSON.stringify([row, body])).toString('base64'), path: wire?.path ?? row.path, edited: false, artifact: wire?.artifact ?? false, changed_at: !changedSource && snapshotDigest(row, body, row.relationships) === row.snapshotHash ? row.updated : new Date().toISOString(), renewals: JSON.stringify(row.renewals), ...(guidanceOrigin(row) === undefined ? {} : { origin: JSON.stringify(guidanceOrigin(row)) }), ...(row.validity === null ? {} : { validity: JSON.stringify(row.validity) }) };
       // Stable create ids and payloads let the SDK resume an interrupted batch without duplicates.
       const creating = previous === undefined;
       const relationships = resolvedRelationships(row.relationships, ids);

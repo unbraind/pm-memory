@@ -347,8 +347,12 @@ test('raw imports synchronize owned policy bytes and retain foreign exact-body e
     const foreign = { ...cache, original: Buffer.from('Peer exact-body bytes').toString('base64') };
     await target.client.run('update', { id: item.id, options: { memoryPolicyBody: JSON.stringify(foreign), author: 'peer-agent' } });
     await writeFile(file, revised.replace('custom: C', 'custom: D').replace('Body C', 'Body D'));
+    const before = (await target.client.get(item.id, { full: true })).item;
     const result = await importDir(file, { ...target.options, from });
-    assert.equal(result.updated, 1); assert.ok('skipped' in result && result.skipped.some(row => row.reason.includes('body')));
+    assert.equal(result.updated, 0); assert.ok('skipped' in result && result.skipped.some(row => row.reason.includes('body')));
+    assert.deepEqual((await target.client.get(item.id, { full: true })).item, before);
+    await writeFile(file, revised.replace('custom: C', 'custom: D').replace('\nBody C  \n', 'Body C'));
+    assert.equal((await importDir(file, { ...target.options, from })).updated, 1);
     const actual = (await target.client.get(item.id, { full: true })).item;
     assert.equal(actual.body, 'Body C'); assert.deepEqual(JSON.parse(String(actual.memory_policy_body)), foreign);
     assert.equal(Buffer.from((await nativeDocument(target, 'alpha')).original, 'base64').toString('utf8').includes('custom: D'), true);
@@ -390,7 +394,8 @@ test('released source ownership survives canonical handoffs and snapshot-free co
   assert.equal((await importDir(policy, { ...target.options, from: 'claude-code' })).updated, 1);
   assert.equal((await importDir(legacy, { ...target.options, from: 'agents-md' })).updated, 1);
   const after = (await target.client.get(id, { full: true })).item;
-  assert.deepEqual(after, { ...original, body: 'Body', updated_at: after.updated_at });
+  assert.ok(Date.parse(String(after.memory_changed_at)) >= Date.parse(String(original.memory_changed_at)));
+  assert.deepEqual(after, { ...original, body: 'Body', memory_changed_at: after.memory_changed_at, updated_at: after.updated_at });
 });
 
 test('snapshot-free legacy adapters bind native origins without inventing prior source receipts', async t => {
@@ -404,5 +409,8 @@ test('snapshot-free legacy adapters bind native origins without inventing prior 
   assert.equal((await importDir(directory, { ...target.options, from: 'agents-md' })).updated, 1);
   const actual = (await target.client.get(item.id, { full: true })).item;
   const document = JSON.stringify({ format: 'legacy', harness: 'agents-md', original: Buffer.from('Alpha revised').toString('base64'), path: 'alpha.md', version: 1 });
-  assert.deepEqual(actual, { ...before, body: 'Alpha revised', title: 'Alpha revised', memory_document: document, updated_at: actual.updated_at });
+  const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = before;
+  assert.deepEqual([actual.memory_reason, actual.memory_verified_at], [undefined, undefined]);
+  assert.ok(Date.parse(String(actual.memory_changed_at)) >= Date.parse(String(before.memory_changed_at)));
+  assert.deepEqual(actual, { ...preserved, body: 'Alpha revised', title: 'Alpha revised', memory_document: document, memory_changed_at: actual.memory_changed_at, updated_at: actual.updated_at });
 });
