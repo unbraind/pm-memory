@@ -8,7 +8,6 @@ import { policyBody } from '../src/portable.ts';
 import { tracker, snapshot, crashAtStep, assertSkippedUnchanged, exportedPolicy, editIntent, crashAfterCompensation, assertOriginRefused, importText } from './helpers.ts';
 import { WorkspaceTransactionInterruptedError, commitItemMutations, commitWorkspaceTransaction, sealHistoryRecord, appendHistoryEntry, type WorkspaceTransactionJsonValue, getHistoryPath, readHistoryEntries, getItemPath, canonicalDocument, serializeItemDocument, resolveItemTypeRegistry, readSettings } from '@unbrained/pm-cli/sdk';
 import type { ImportPlan } from '../src/portable-plan.ts';
-import { replanNodes } from '../src/portable-replan.ts';
 import { creationMetadata, recordedCreation } from '../src/portable-ownership.ts';
 
 /** Prepare one real bounded export for wire-validation and compatibility regressions. */
@@ -63,15 +62,15 @@ test('legacy creation and updates use the same crash recovery and revision guard
   const target = await tracker(t); const source = join(target.root, 'legacy'); await mkdir(source);
   const file = join(source, 'alpha.md'); await writeFile(file, 'Alpha A');
   await assert.rejects(importDir(source, { ...target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
-  await assert.rejects(importDir(file, { ...target.options, from: 'claude-code' }), error => error instanceof MemoryError && error.code === 'conflict');
   assert.equal((await importDir(source, { ...target.options, from: 'agents-md' })).imported, 1);
+  assert.equal((await importDir(source, { ...target.options, from: 'agents-md' })).unchanged, 1);
   await writeFile(file, 'Alpha B');
   const alpha = (await target.client.listAllComplete()).items[0];
-  await assert.rejects(importDir(source, { ...target.options, from: 'agents-md', onStep: async step => { if (step === 'read') await target.client.update(alpha.id, { body: 'Native C' }); } }), error => error instanceof MemoryError && error.code === 'conflict');
+  const moved = await importDir(source, { ...target.options, from: 'agents-md', onStep: async step => { if (step === 'read') await target.client.update(alpha.id, { body: 'Native C' }); } }); assert.ok('skipped' in moved); assert.equal(moved.skipped[0].conflict?.code, 'import_conflict');
   assert.equal((await target.client.get(alpha.id, { full: true })).item.body, 'Native C');
   const compensated = await tracker(t);
   await assert.rejects(importDir(file, { ...compensated.options, from: 'agents-md', onTransition: crashAfterCompensation }), WorkspaceTransactionInterruptedError);
-  assert.equal((await importDir(file, { ...compensated.options, from: 'agents-md' })).imported, 1);
+  assert.equal((await importDir(file, { ...compensated.options, from: 'agents-md' })).unchanged, 1);
   const recovered = (await compensated.client.listAllComplete({ includeBody: true })).items;
   assert.equal(recovered.length, 1); assert.equal(recovered[0].body, 'Alpha B');
 });
@@ -104,38 +103,29 @@ test('malformed ownership baselines refuse before every tracker write', async t 
   for (const baseline of invalid) {
     const changed = structuredClone(manifest); changed.guidance[0].baseline = baseline as typeof original;
     await writeFile(join(path, POLICY_MANIFEST), JSON.stringify(changed));
-    await assert.rejects(importDir(path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'validity');
+    await assert.rejects(importDir(path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && ['validity', 'relationship'].includes(error.code));
     assert.deepEqual(await snapshot(target.workspace), before);
   }
 });
 
-test('older frozen clearing plans compensate before the current ownership-aware replan', async t => {
-  const { target, path, manifest } = await policyScenario(t);
-  await importDir(path, { ...target.options, from: 'agents-md' });
-  const policy = (await target.client.listAllComplete()).items[0]; const task = await target.client.create({ title: 'Retained native Task' });
-  await target.store.link(policy.id, task.item.id);
+test('older frozen clearing plans are discarded without executing clearDeps', async t => {
+  const { target, path, manifest } = await policyScenario(t); await importDir(path, { ...target.options, from: 'agents-md' });
+  const policy = (await target.client.listAllComplete()).items[0]; const task = await target.client.create({ title: 'Retained native Task' }); await target.store.link(policy.id, task.item.id);
   const original = (await target.client.get(policy.id, { full: true })).item;
   await writeFile(join(path, manifest.guidance[0].path), policyBody(manifest.guidance[0], 'Harness B'));
   await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
-  const file = join(target.workspace, 'runtime', 'memory-policy-import.json');
-  const older = await editIntent(file, ({ ownership: _ownership, initial: _initial, ...older }) => ({ ...older, mutations: older.mutations.map(row => ({ ...row, options: { ...row.options, clearDeps: true } })) }));
-  await assert.rejects(target.store.write(() => replanNodes(target.store, older)), error => error instanceof MemoryError && error.code === 'history');
-  await assert.rejects(commitItemMutations({ ...older, pmRoot: target.workspace, createCompensation: 'delete', onTransition: event => { if (event.transition === 'step_recorded') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
-  assert.deepEqual((await target.client.get(policy.id, { full: true })).item.dependencies ?? [], []);
+  await editIntent(join(target.workspace, 'runtime', 'memory-policy-import.json'), plan => { delete plan.forwardOnly; delete plan.ownership; plan.mutations = plan.mutations.map(row => ({ ...row, options: { ...row.options, clearDeps: true } })); return plan; });
   assert.equal((await importDir(path, { ...target.options, from: 'agents-md' })).updated, 1);
-  const actual = (await target.client.get(policy.id, { full: true })).item;
-  assert.equal(actual.body, 'Harness B'); assert.deepEqual(actual.dependencies, original.dependencies);
+  const actual = (await target.client.get(policy.id, { full: true })).item; assert.equal(actual.body, 'Harness B'); assert.deepEqual(actual.dependencies, original.dependencies);
 });
 
-test('older staged nodes without original revisions are compensated before recreation', async t => {
+test('older staged nodes retain their immutable identities during current-state replanning', async t => {
   const { target, path } = await policyScenario(t);
   await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onStep: crashAtStep('nodes') }), WorkspaceTransactionInterruptedError);
   const oldId = (await target.client.listAllComplete()).items[0].id;
-  const file = join(target.workspace, 'runtime', 'memory-policy-import.json');
-  await editIntent(file, ({ ownership: _ownership, initial: _initial, ...older }) => older);
-  assert.equal((await importDir(path, { ...target.options, from: 'agents-md' })).imported, 1);
-  const items = (await target.client.listAllComplete()).items;
-  assert.equal(items.length, 1); assert.notEqual(items[0].id, oldId);
+  await editIntent(join(target.workspace, 'runtime', 'memory-policy-import.json'), plan => { delete plan.forwardOnly; delete plan.ownership; return plan; });
+  assert.equal((await importDir(path, { ...target.options, from: 'agents-md' })).unchanged, 1);
+  const items = (await target.client.listAllComplete()).items; assert.equal(items.length, 1); assert.equal(items[0].id, oldId);
 });
 
 test('legacy imports skip malformed foreign records and every dependent source', async t => {
@@ -157,7 +147,9 @@ test('foreign ownership receipts never authorize a later native edit to be overw
   await importDir(path, { ...target.options, from: 'agents-md', onStep: async step => {
     if (step === 'published') {
       const intent = JSON.parse(JSON.parse(await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload) as ImportPlan;
-      journalPath = join(target.workspace, 'transactions', 'sdk', `${intent.transactionId}-snapshot.json`);
+      const policy = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'policy')!;
+      const message = (await readHistoryEntries(getHistoryPath(target.workspace, policy.id), policy.id)).at(-1)!.message!;
+      journalPath = join(target.workspace, 'transactions', 'sdk', `${/^bulk-item-transaction (\S+) /.exec(message)![1].replace(/-nodes$/, '')}-snapshot.json`);
     }
   } });
   const journal = JSON.parse(await readFile(journalPath, 'utf8')) as { status: string; results: Record<string, { owner: string; targets: NonNullable<ImportPlan['ownership']> }> };
@@ -285,9 +277,9 @@ test('repeated foreign SDK transaction markers grant no portable field ownership
   ] });
   row.description = 'Harness description';
   await writeFile(join(path, POLICY_MANIFEST), JSON.stringify(manifest)); await writeFile(join(path, row.path), policyBody(row, 'Portable body B'));
-  assert.equal((await importDir(path, { ...source.options, from: 'agents-md' })).updated, 1);
+  const refused = await importDir(path, { ...source.options, from: 'agents-md' }); assert.equal(refused.updated, 0); assert.ok('skipped' in refused); assert.equal(refused.skipped[0].conflict?.code, 'import_conflict');
   const current = (await source.client.get(id, { full: true })).item;
-  assert.equal(current.description, 'Native second edit'); assert.equal(current.body, 'Portable body B');
+  assert.equal(current.description, 'Native second edit'); assert.equal(current.body, 'Baseline policy A');
 });
 
 test('legacy field locality preserves native edits, source bookkeeping and unrelated metadata', async t => {
@@ -299,14 +291,14 @@ test('legacy field locality preserves native edits, source bookkeeping and unrel
   const before = (await target.client.get(id, { full: true })).item;
   await writeFile(file, first.replace('Original body', 'Harness body B'));
   const result = await importDir(file, { ...target.options, from: 'claude-code' });
-  assert.equal(result.updated, 1); assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /description/);
+  assert.equal(result.updated, 1); assert.ok(!('skipped' in result) || result.skipped.length === 0);
   const actual = (await target.client.get(id, { full: true })).item;
   assert.equal(actual.body, 'Harness body B');
   assert.deepEqual(JSON.parse(String(actual.memory_document)), { version: 1, format: 'legacy', harness: 'claude-code', path: 'alpha.md', original: Buffer.from(first.replace('Original body', 'Harness body B')).toString('base64') });
   const bodyOnly = { ...before, body: actual.body, memory_document: actual.memory_document, updated_at: actual.updated_at };
   assert.deepEqual(actual, bodyOnly);
   const saved = await snapshot(target.workspace);
-  await assert.rejects(importDir(file, { ...target.options, from: 'claude-code' }), error => error instanceof MemoryError && error.code === 'conflict');
+  assert.equal((await importDir(file, { ...target.options, from: 'claude-code' })).unchanged, 1);
   assert.deepEqual(await snapshot(target.workspace), saved);
   await target.store.fields(id, { source: 'foreign:tool' });
   await assertSkippedUnchanged(() => importDir(file, { ...target.options, from: 'claude-code' }), target.workspace, 2);
@@ -333,7 +325,7 @@ test('malformed immutable creation provenance is skipped without adopting a pack
   }
 });
 
-test('compensated mixed imports remap new nodes while retaining native external links', async t => {
+test('interrupted mixed imports retain node identities and native external links', async t => {
   for (const linked of [false, true]) {
     const source = await tracker(t); const target = await tracker(t);
     const alpha = await remember('Alpha original', { ...source.options, slug: 'alpha', kind: 'project' });
@@ -361,14 +353,14 @@ test('single-file legacy imports guard represented targets outside the input and
   const file = join(target.root, 'alpha.md'); await writeFile(file, 'Alpha references [[beta]]');
   await assert.rejects(importDir(file, { ...target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
   const intent = join(target.workspace, 'runtime', 'memory-policy-import.json');
-  await editIntent(intent, older => ({ ...older, expected: older.expected.filter(row => row.id !== beta.id), initial: older.initial!.filter(row => row.id !== beta.id) }));
+  await editIntent(intent, older => ({ ...older, expected: older.expected.filter(row => row.id !== beta.id) }));
   assert.equal((await importDir(file, { ...target.options, from: 'agents-md' })).imported, 1);
   const alpha = (await target.client.listAllComplete({ includeBody: true })).items.find(row => row.memory_slug === 'alpha')!;
   assert.deepEqual(alpha.dependencies!.map(edge => edge.id), [beta.id]);
   await writeFile(file, 'Alpha updated [[beta]]');
   let changed = false;
-  await assert.rejects(importDir(file, { ...target.options, from: 'agents-md', onTransition: async event => { if (!changed && event.transition === 'step_applied') { changed = true; await target.client.update(beta.id, { body: 'Native beta C' }); } } }), error => error instanceof MemoryError && error.code === 'conflict');
-  assert.equal((await target.client.get(alpha.id, { full: true })).item.body, alpha.body);
+  await importDir(file, { ...target.options, from: 'agents-md', onTransition: async event => { if (!changed && event.transition === 'step_applied') { changed = true; await target.client.update(beta.id, { body: 'Native beta C' }); } } });
+  assert.equal((await target.client.get(alpha.id, { full: true })).item.body, 'Alpha updated [[beta]]');
   assert.equal((await target.client.get(beta.id, { full: true })).item.body, 'Native beta C');
 });
 

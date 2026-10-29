@@ -26,6 +26,11 @@ async function fixture(root: string, files = FIXTURE): Promise<string> {
   return source;
 }
 
+/** Require a typed native-field skip while keeping the source import API successful. */
+async function assertNativeConflict(source: string, options: Parameters<typeof importDir>[1]): Promise<void> {
+  const result = await importDir(source, options); assert.ok('skipped' in result); assert.ok(result.skipped.some(row => row.conflict?.code === 'import_conflict'));
+}
+
 test('Claude Code import is idempotent and exports every original file byte-identically after recall and verify metadata changes', async t => {
   const { root, options, store } = await tracker(t); const source = await fixture(root);
   const result = await importDir(source, { ...options, from: 'claude-code' });
@@ -48,7 +53,7 @@ test('Claude Code import is idempotent and exports every original file byte-iden
   assert.equal((await importDir(source, { ...options, from: 'claude-code' })).updated, 1);
   await assert.rejects(exportDir(exported, { ...options, to: 'claude-code' }), /overwrite/);
   await remember('Revised build instructions', { ...options, kind: 'project', update: 'build' });
-  await assert.rejects(importDir(source, { ...options, from: 'claude-code' }), /independently edited/);
+  await assertNativeConflict(source, { ...options, from: 'claude-code' });
   const revised = join(root, 'revised'); await exportDir(revised, { ...options, to: 'claude-code' });
   assert.match(await readFile(join(revised, 'memories/build.md'), 'utf8'), /Revised build instructions/);
 });
@@ -134,7 +139,7 @@ test('native semantic changes refuse re-import and empty source files round-trip
   assert.equal((await readFile(join(output, 'memories/empty.md'), 'utf8')).split('\n').slice(1).join('\n'), '');
   const item = (await store.read()).find(row => row.slug === 'note')!;
   await store.client.update(item.id, { body: 'Changed through another pm surface' });
-  await assert.rejects(importDir(source, { ...options, from: 'claude-code' }), /independently edited/);
+  await assertNativeConflict(source, { ...options, from: 'claude-code' });
   const revised = join(root, 'native-revised'); await exportDir(revised, { ...options, to: 'claude-code' });
   assert.match(await readFile(join(revised, 'memories/note.md'), 'utf8'), /Changed through another pm surface/);
 });

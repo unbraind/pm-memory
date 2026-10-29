@@ -40,14 +40,14 @@ else {
     "await client.update(id,{...(target?{dep:['id='+target+',kind=depends_on']}:{body:'Peer native C',priority:1}),message:'bulk-item-transaction '+prefix+' copied-prefix apply'});"
   ].join('\n'));
   let injected = false; let peer; let peerBefore;
-  await assert.rejects(importDir(output, { ...options, from: 'agents-md', onTransition: async event => {
-    if (!injected && event.transition === 'step_recorded' && !/-nodes$|-snapshot$|-rollback$/.test(event.transactionId)) {
+  await importDir(output, { ...options, from: 'agents-md', onTransition: async event => {
+    if (!injected && event.transition === 'step_recorded' && event.transactionId.endsWith('-snapshot')) {
       injected = true;
       peerBefore = (await client.get(item.id, {full:true})).item;
       const child = spawnSync(process.execPath, [worker, workspace, item.id, event.transactionId], { encoding: 'utf8', timeout: 60000, env: { ...process.env, PATH: root, GIT_CEILING_DIRECTORIES: root } });
       assert.equal(child.error, undefined); assert.equal(child.status, 0, child.stderr); peer = (await client.get(item.id, { full: true })).item;
     }
-  } }), error => error instanceof MemoryError && error.code === 'conflict');
+  } });
   assert.equal(injected, true);
   async function checkPeer() {
     const actual = (await client.get(item.id, {full:true})).item;
@@ -59,17 +59,18 @@ else {
   const task = (await client.create({title:'Native dependent task'})).item.id;
   let referenced = false; let gammaId; let runPrefix;
   await assert.rejects(importDir(gamma, {...options, from:'agents-md', onStep:async step => {
-    if(step !== 'rollback-apply' || referenced) return;
+    if(step !== 'publication' || referenced) return;
     gammaId = (await client.listAllComplete()).items.find(row => row.memory_slug === 'gamma').id;
     const child = spawnSync(process.execPath,[worker,workspace,task,runPrefix,gammaId],{encoding:'utf8',timeout:60000,env:{...process.env,PATH:root,GIT_CEILING_DIRECTORIES:root}});
-    assert.equal(child.error,undefined); assert.equal(child.status,0,child.stderr); referenced = true;
+    assert.equal(child.error,undefined); assert.equal(child.status,0,child.stderr); referenced = true; throw new Error('Interrupt gamma after its successful forward write');
   }, onTransition:event => {
     runPrefix = event.transactionId;
-    if(event.transactionId.endsWith('-snapshot') && event.transition === 'step_recorded') throw new Error('Refuse gamma publication');
+
   }}), error => error instanceof MemoryError);
   assert.ok(referenced); const retained = (await client.listAllComplete()).items;
-  assert.equal(retained.find(row => row.id === gammaId).status,'canceled');
+  assert.equal(retained.find(row => row.id === gammaId).status,'open');
   assert.ok(retained.find(row => row.id === task).dependencies.some(edge => edge.id === gammaId));
+  assert.equal((await importDir(gamma,{...options,from:'agents-md'})).unchanged,1);
   for(const row of retained) for(const edge of row.dependencies ?? []) assert.ok(retained.some(target => target.id === edge.id),'dangling consumer edge');
   const invalid = new PmClient({ pmRoot: invalidWorkspace, author: options.author, noExtensions: true });
   await invalid.init('critical-invalid', { defaults: true, agentGuidance: 'skip', mergeFence: false });

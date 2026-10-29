@@ -173,7 +173,7 @@ test('pre-identity recovery plans compensate and reselect immutable origins', as
   const expected = await source.store.write(() => expectedTargets(source.store, [{ id: replacement.id, slug: 'alpha' }]));
   const older = await editIntent(intent, plan => {
     delete plan.identityVersion;
-    plan.expected = expected; plan.initial = expected; plan.members = [replacement.id];
+    plan.expected = expected; delete plan.forwardOnly; plan.members = [replacement.id];
     plan.ownership = plan.ownership!.map(row => ({ ...row, id: replacement.id }));
     plan.mutations = plan.mutations.map(row => ({ ...row, id: replacement.id, match: { key: 'updated_at', value: expected[0].version } }));
     return plan;

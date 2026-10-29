@@ -46,7 +46,7 @@ class FencedClient extends PmClient {
     return lease === undefined ? this.delegate.run(action, args) : lease.fence(() => this.delegate.run(action, args));
   }
 }
-/** Tracker-bound native SDK client and serializable memory mutation boundary. */
+/** Tracker-bound native SDK client and cooperating package mutation boundary. */
 export class Store {
   /** Per-operation ownership context also isolates simultaneous writes on one Store. */
   readonly leases = new AsyncLocalStorage<LockLease>();
@@ -62,7 +62,7 @@ export class Store {
     const client = options.client === undefined ? new PmClient({ pmRoot: this.workspace, ...(options.author === undefined ? {} : { author: options.author }), noExtensions: true }) : new HostClient(options.client, options.author);
     this.client = new FencedClient(client, this.leases);
   }
-  /** Serialize read-modify-write operations across independent processes and clients. */
+  /** Serialize cooperating package writers across processes; native writers may bypass this lease. */
   async write<T>(run: () => Promise<T>): Promise<T> {
     const lease = await writerLock(this.workspace, this.author);
     try { return await this.leases.run(lease, run); } finally { await lease.release(); }

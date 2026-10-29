@@ -33,7 +33,7 @@ export type { ViewField, ConsentPolicy, ConsentLedger, ViewSource, ViewManifest,
 
 /** Versioned portable policy metadata and validated recoverable import contracts. */
 export { POLICY_MANIFEST, parsePolicy } from './src/portable.ts';
-export type { PortableRelationship, PortableGuidance, PortablePolicyManifest, PortableImportOptions, PortableImportResult, PortableExportResult, PortableLossyField } from './src/portable.ts';
+export type { PortableRelationship, PortableGuidance, PortablePolicyManifest, PortableImportOptions, PortableImportResult, ImportConflict, PortableExportResult, PortableLossyField } from './src/portable.ts';
 /** Immutable portable ownership metadata used by selective harness updates. */
 export type { PortableBaseline, PortableFields } from './src/portable-ownership.ts';
 
@@ -41,6 +41,3 @@ export type { PortableBaseline, PortableFields } from './src/portable-ownership.
 export { LEGACY_ORIGINS, parseLegacyOrigins } from './src/transfer.ts';
 export type { LegacyOriginManifest, LegacyOriginRecord } from './src/transfer.ts';
 export type { PortableOrigin } from './src/portable-origin.ts';
-
-/** Field-local rollback outcomes retained by recoverable import journals. */
-export type { RollbackReceipt } from './src/portable-rollback.ts';

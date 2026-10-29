@@ -157,7 +157,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           for (const key of ['title', 'description', 'body', 'why', 'how', 'kind', 'pinned', 'tags'] as const) {
             if (isDeepStrictEqual(row[key], wanted[key])) continue;
             if ((!dirty.has(key) && owned !== undefined && isDeepStrictEqual(row[key], owned[key])) || (!isDeepStrictEqual(wanted[key], exported[key]) && isDeepStrictEqual(row[key], exported[key]))) Object.assign(next, { [key]: structuredClone(wanted[key]) });
-            else refused = true;
+            else if (!isDeepStrictEqual(wanted[key], exported[key])) refused = true;
           }
           const edgeKey = (edge: NodeModel['relationships'][number]) => `${edge.slug}:${edge.kind}`;
           const relation = new Map(row.relationships.map(edge => [edgeKey(edge), edge]));
@@ -170,10 +170,11 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
             } else if (desired !== before) refused = true;
           }
           next.relationships = [...relation.values()].sort((a, b) => a.slug.localeCompare(b.slug) || a.kind.localeCompare(b.kind));
+          if (isDeepStrictEqual(next, row) && !['title', 'description', 'body', 'why', 'how', 'kind', 'pinned', 'tags'].some(key => !isDeepStrictEqual(wanted[key as keyof NodeModel], exported[key as keyof NodeModel])) && isDeepStrictEqual(wanted.relationships, exported.relationships) && ['title', 'description', 'body', 'why', 'how', 'kind', 'pinned', 'tags'].some(key => !isDeepStrictEqual(row[key as keyof NodeModel], wanted[key as keyof NodeModel]))) refused = true;
           if (!isDeepStrictEqual(next, row)) changes.set(row.slug, next);
-          if (refused) { conflicts.add(row.slug); if (!changes.has(row.slug)) skipped.add(row.slug); }
+          if (refused) { conflicts.add(row.slug); skipped.add(row.slug); changes.delete(row.slug); }
         }
-        // Only refused records close dependencies; a field conflict does not erase unrelated edits.
+        // A field conflict skips the entire item, then closes the dependent component.
         let changed = true;
         while (changed) {
           changed = false;
@@ -184,6 +185,10 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         assert.deepEqual([...new Set(result.skipped.map(row => row.slug))].sort(), [...new Set([...skipped, ...conflicts])].sort(), `seed=${seed} operation=${operation}: independent-edit classification`);
         for (const row of saved.desired) if (!skipped.has(row.slug) && changes.has(row.slug)) { baseline.set(row.slug, structuredClone(row)); nativeEdits.delete(row.slug); }
 
+      };
+      /** Commit one independently predicted item, retaining dirty scope on other records. */
+      const acceptItem = (saved: SavedModel, slug: string): void => {
+        const desired = structuredClone(saved.desired.find(row => row.slug === slug)!); Object.assign(model.find(row => row.slug === slug)!, desired); baseline.set(slug, desired); nativeEdits.delete(slug);
       };
       /** Advance the reference only after a no-edit interrupted batch has recovered. */
       const acceptRecovery = (saved: SavedModel): void => { model = structuredClone(saved.desired); for (const row of model) baseline.set(row.slug, structuredClone(row)); nativeEdits.clear(); };
@@ -205,7 +210,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         await assert.rejects(importDir(saved.path, { ...options, from: to,
           onStep: value => { if ((value === 'intent' && boundary === 0) || (value === 'readback' && boundary === count + 1) || (value === 'published' && boundary === count + 2)) throw new WorkspaceTransactionInterruptedError(); },
           onTransition: event => {
-            if (!event.transactionId.endsWith('-snapshot') && event.transition === 'step_applied') {
+            if (event.stepId?.includes('-data-') && event.transition === 'step_applied') {
               const matches = [...ids].filter(([, id]) => event.stepId!.endsWith(`-${id}`) || event.stepId!.includes(`-${id}-`));
               assert.equal(matches.length, 1, `Exactly one immutable target for SDK step ${event.stepId}`);
               const key = matches[0][0];
@@ -250,40 +255,43 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         await recreate(restoreB, 'recreated generation');
         const midBase = await save(); const midInput = await variant(midBase, `Atomic alpha ${random()}`);
         const midBeta = `Atomic beta ${random()}`; await writeBody(midInput.path, midBeta, 'beta'); midInput.desired.find(row => row.slug === 'beta')!.body = midBeta;
-        operation = 'mid-batch precondition refusal leaves memories unchanged';
-        const midPeer = `Atomic peer policy ${random()}`; let midInjected = false; let midRefusal: unknown;
-        try { await importDir(midInput.path, { ...options, from: to, onTransition: async event => {
+        operation = 'mid-batch unrelated peer write preserves successful forward items';
+        const midPeer = `Forward peer policy ${random()}`; let midInjected = false;
+        await importDir(midInput.path, { ...options, from: to, onTransition: async event => {
           if (!midInjected && event.transition === 'step_applied') { midInjected = true; await client.update(ids.get('policy')!, { body: midPeer }); }
-        } }); } catch (error) { midRefusal = error; }
+        } });
+        for (const slug of ['alpha', 'beta']) acceptItem(midInput, slug);
         model.find(row => row.slug === 'policy')!.body = midPeer; nativeEdits.set('policy', new Set(['body'])); await check();
-        assert.ok(midRefusal instanceof MemoryError && midRefusal.remedy.length > 0);
-        operation = 'retry mid-batch refusal'; await apply(midInput); await check();
-        // Sample EVERY shared-helper read/guard/apply boundary in all three paths.
-        const mode = ['fresh', 'interrupted', 'compensated'][sequence % 3];
-        const boundary = Math.floor(sequence / 3) % (mode === 'interrupted' ? 4 : 6);
-        const raceBase = await save(); const raceInput = await variant(raceBase, `Recovery boundary ${random()}`);
-        operation = 'prepare recovery boundary';
-        if (mode === 'interrupted') await assert.rejects(importDir(raceInput.path, { ...options, from: to, onStep: step => { if (step === 'intent') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
-        if (mode === 'compensated') await assert.rejects(importDir(raceInput.path, { ...options, from: to, onTransition: event => {
-          if (event.transition === 'step_recorded') throw new Error('Begin model compensation');
-          if (event.transition === 'compensated') throw new WorkspaceTransactionInterruptedError();
-        } }), WorkspaceTransactionInterruptedError);
+        operation = 'retry retained mid-batch writes'; await apply(midInput); await check();
+        const mode = ['fresh', 'intent', 'written'][sequence % 3];
+        const boundaries = ['intent', 'item-read', 'written', 'publication', 'readback', 'published'];
+        const boundary = Math.floor(sequence / 3) % boundaries.length;
+        const raceBase = await save(); let raceInput = await variant(raceBase, `Recovery boundary ${random()}`);
+        operation = 'prepare forward recovery boundary';
+        if (mode !== 'fresh') await assert.rejects(importDir(raceInput.path, { ...options, from: to, onStep: step => { if (step === mode) throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+        if (mode === 'written') {
+          acceptItem(raceInput, 'alpha');
+          raceInput = await variant(raceInput, `Next forward boundary ${random()}`);
+        }
         await check();
-        operation = `peer edit at ${mode} read guard CAS boundary ${boundary}`;
-        const peerSlug = sequence % 2 === 0 ? 'policy' : 'alpha'; const peerBody = `Peer recovery C ${random()}`; let casIndex = 0; let injected = false;
-        await assert.rejects(importDir(raceInput.path, { ...options, from: to, onStep: async step => {
-          if (step.startsWith('cas-') && casIndex++ === boundary) { await client.update(ids.get(peerSlug)!, { body: peerBody }); injected = true; }
-        } }), error => error instanceof MemoryError && error.remedy.length > 0);
+        operation = `peer edit at ${mode} forward boundary ${boundary}`;
+        const peerSlug = sequence % 2 === 0 ? 'policy' : 'alpha'; const peerBody = `Peer recovery C ${random()}`; let injected = false;
+        const result = await importDir(raceInput.path, { ...options, from: to, onStep: async step => {
+          if (!injected && step === boundaries[boundary]) { injected = true; await client.update(ids.get(peerSlug)!, { body: peerBody }); }
+        } });
         assert.equal(injected, true, `seed=${seed} mode=${mode} boundary=${boundary}`);
-        model.find(row => row.slug === peerSlug)!.body = peerBody; nativeEdits.set(peerSlug, new Set(['body'])); await check();
-        operation = 'retry after compensated refusal'; await apply(raceInput); await check();
+        if (peerSlug !== 'alpha' || boundary >= 2) acceptItem(raceInput, 'alpha');
+        model.find(row => row.slug === peerSlug)!.body = peerBody; nativeEdits.set(peerSlug, new Set(['body']));
+        if (peerSlug === 'alpha' && boundary < 2) { assert.ok('skipped' in result); assert.ok(result.skipped.some(row => row.slug === 'alpha')); }
+        await check();
+        operation = 'retry after retained forward writes'; await apply(raceInput); await check();
         operation = 'export recovery rebase'; const recoveredBase = await save(); await check();
         operation = 'import recovery rebase'; await apply(recoveredBase); await check();
         // Multi-target crash/recovery: every mutation and both commits are sampled.
         operation = 'export crash base'; const crashBase = await save(); await check();
         operation = 'multi-target crash input'; const crashInput = await variant(crashBase, `Crash alpha ${random()}`);
         for (const slug of ['beta', 'policy']) { const body = `Crash ${slug} ${random()}`; await writeBody(crashInput.path, body, slug); crashInput.desired.find(row => row.slug === slug)!.body = body; } await check();
-        operation = 'crash every multi-target journal boundary'; await crash(crashInput, sequence % 21, 18); await check();
+        operation = 'crash every multi-target journal boundary'; await crash(crashInput, sequence % 18, 15); await check();
         operation = 'recover multi-target journal'; await importDir(crashInput.path, { ...options, from: to }); acceptRecovery(crashInput); await check();
         // Fixed foreign-target case, with a dependent that must inherit its refusal.
         operation = 'native dependent edge'; await client.update(ids.get('beta')!, { dep: [`id=${ids.get('alpha')!},kind=related`], replaceDeps: true }); const betaModel = model.find(row => row.slug === 'beta')!; nativeEdits.set('beta', new Set([...betaModel.relationships.map(edge => `relationship:${edge.slug}:${edge.kind}`), 'relationship:alpha:related'])); betaModel.relationships = [{ slug: 'alpha', kind: 'related' }]; await check();
@@ -294,7 +302,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         // Fixed intent/edit/retry case plus every data/provenance boundary. Only
         // policy changes here; unrelated rows already equal this input or skip.
         operation = 'native-race input'; const raced = await variant(owned, `Raced policy ${random()}`, 'policy'); await check();
-        operation = 'crash before newer native edit'; await crash(raced, sequence % 13, 10); await check();
+        operation = 'crash before newer native edit'; await crash(raced, sequence % 8, 5); await check();
         operation = 'newer native edit after crash'; const node = model.find(row => row.slug === 'policy')!;
         const newer = `${node.title}\nNative wins ${random()}`;
         if (sequence % 2 === 0) await remember(newer, { ...options, update: 'policy', kind: 'project' }); else await client.update(ids.get('policy')!, { body: newer });
@@ -310,8 +318,9 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           const workspace = join(root, 'fresh-pm'); await cp(emptyTemplate, workspace, { recursive: true });
           const client = new PmClient({ pmRoot: workspace, noExtensions: true, author: 'memory-test' });
           const options = { workspace, author: 'memory-test' }; let freshModel: NodeModel[] = [];
-          const input = seeds.get(to)!; const inventory = JSON.parse(await readFile(join(input.path, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
-          const freshIndex = sequence / 5; const boundary = freshIndex % 31; const moved = boundary >= 9 && freshIndex % 2 === 0;
+          const input = seeds.get(to)!;
+          // Retain all original foreign-takeover schedules; removed inverse phases map to publication.
+          const freshIndex = sequence / 5; const boundary = Math.min(freshIndex % 31, 23); const moved = boundary >= 9 && freshIndex % 2 === 0;
           /** Check native IDs as well as semantic state on the fresh tracker. */
           const freshCheck = async () => {
             const actual = await readState(client);
@@ -320,12 +329,15 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           };
           await freshCheck(); let eventIndex = 0;
           await assert.rejects(importDir(input.path, { ...options, from: to,
-            onStep: step => { if ((step === 'intent' && boundary === 0) || (step === 'nodes' && boundary === 28) || (step === 'readback' && boundary === 29) || (step === 'published' && boundary === 30)) throw new WorkspaceTransactionInterruptedError(); },
-            onTransition: event => {
-              if (event.transition === 'step_applied' && !event.transactionId.endsWith('-snapshot')) {
-                const slug = inventory.guidance[Number(event.stepId!.split('-')[0]) - 1].slug;
+            onStep: step => { if ((step === 'intent' && boundary === 0) || (step === 'nodes' && boundary === 21) || (step === 'readback' && boundary === 22) || (step === 'published' && boundary === 23)) throw new WorkspaceTransactionInterruptedError(); },
+            onTransition: async event => {
+              if (event.transition === 'step_applied') {
+                const current = (await client.listAllComplete({ includeBody: true })).items;
+                const written = current.find(row => event.stepId!.endsWith(`-${row.id}`));
+                assert.ok(written, `Native SDK step target must exist: ${event.stepId}`);
+                const slug = String(written.memory_slug);
                 const desired = structuredClone(input.desired.find(row => row.slug === slug)!);
-                if (event.transactionId.endsWith('-nodes')) { desired.relationships = []; freshModel.push(desired); }
+                if (event.stepId!.includes('-nodes-')) { desired.relationships = []; freshModel.push(desired); }
                 else freshModel = freshModel.map(row => row.slug === slug ? desired : row);
               }
               if (++eventIndex === boundary) throw new WorkspaceTransactionInterruptedError();
@@ -342,16 +354,9 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           /** Complete an untouched plan or retain the foreign component verbatim. */
           const retryFresh = async () => {
             if (moved) {
-              // Before the node-stage readback, a moved reserved creation refuses
-              // the entire reserved plan; its later fresh retry can admit policy.
-              const refusedReservation = boundary === 9 && freshModel.some(row => row.slug === 'beta');
-              let completed = false;
-              try { const result = await importDir(input.path, { ...options, from: to }); assert.ok('skipped' in result); assert.deepEqual(result.skipped.map(row => row.slug).sort(), refusedReservation ? ['alpha', 'beta', 'policy'] : ['alpha', 'beta']); assert.ok(result.skipped.every(row => row.reason.includes('Foreign'))); completed = !refusedReservation; }
-              catch (error) { assert.ok(error instanceof MemoryError && error.code === 'conflict'); }
-              // Refusal cancels owned creations, retaining their native identities and graph;
-              // a later fresh retry may admit the independent policy as well.
-              const fullyCommitted = boundary === 27 || boundary === 30;
-              if (!fullyCommitted && completed && !freshModel.some(row => row.slug === 'policy')) freshModel.push(structuredClone(input.desired.find(row => row.slug === 'policy')!));
+              const result = await importDir(input.path, { ...options, from: to }); assert.ok('skipped' in result);
+              assert.deepEqual(result.skipped.map(row => row.slug).sort(), ['alpha', 'beta']); assert.ok(result.skipped.every(row => row.reason.includes('Foreign')));
+              if (!freshModel.some(row => row.slug === 'policy')) freshModel.push(structuredClone(input.desired.find(row => row.slug === 'policy')!));
               const native = (await client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!;
               assert.equal(native.memory_source, 'foreign:model');
             } else {

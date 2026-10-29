@@ -3,6 +3,7 @@ import { validRelationship } from './portable-relationships.ts';
 import { getHistoryPath, readHistoryEntries, readSettings, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, CommitItemMutationsOptions, Dependency } from '@unbrained/pm-cli/sdk';
 import { recoverInput, applyImport, expectedTargets, validateImportPlan, previewImport, importIdentity } from './portable-plan.ts';
+import { importConflict } from './portable-write.ts';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
@@ -95,6 +96,23 @@ export interface PortableImportOptions extends MemoryOptions {
   /** SDK transaction transitions; throwing its interruption error simulates a crash. */
   onTransition?: CommitItemMutationsOptions['onTransition'];
 }
+/** Typed per-item conflict; base/current contain safe fingerprints of SDK-normalized values. */
+export interface ImportConflict {
+  /** Stable machine-readable skip class. */
+  code: 'import_conflict';
+  /** Immutable target id, including for dependent skips. */
+  item: string;
+  /** Fields whose saved bases no longer match. */
+  fields: string[];
+  /** SDK-normalized saved-base fingerprints. */
+  base: Record<string, string>;
+  /** SDK-normalized current-value fingerprints. */
+  current: Record<string, string>;
+  /** Explicit reconciliation action. */
+  remedy: string;
+  /** Root target whose conflict caused this dependent item to be skipped. */
+  dependency?: string;
+}
 /** Counts and safe reasons, with no full guidance echoed to agent output. */
 export interface PortableImportResult {
   /** Newly created records. */
@@ -106,7 +124,7 @@ export interface PortableImportResult {
   /** Wiki-link resolution is not required by policy body files. */
   unresolved_links: number;
   /** Foreign records left untouched. */
-  skipped: { slug: string; reason: string }[];
+  skipped: { slug: string; reason: string; conflict?: ImportConflict }[];
 }
 /** Exact semantic field names that an export can explicitly report as unrepresentable. */
 export type PortableLossyField = keyof PortableFields | 'slug' | 'artifact' | 'document' | 'relationships' | 'relationships.author_source';
@@ -268,6 +286,13 @@ export function closeSkips(rows: readonly Pick<PortableGuidance, 'slug' | 'relat
     }
   }
 }
+/** Preserve the root typed refusal while closing planning skips over dependent identities. */
+export function appendImportSkips(result: PortableImportResult, skipped: ReadonlyMap<string, string>, ids: ReadonlyMap<string, string>): void {
+  for (const [slug, reason] of skipped) if (!result.skipped.some(row => row.slug === slug)) {
+    const root = result.skipped.find(row => row.reason === reason && row.conflict !== undefined)?.conflict;
+    result.skipped.push({ slug, reason, ...(root === undefined ? {} : { conflict: { ...root, item: ids.get(slug)!, dependency: root.dependency ?? root.item } }) });
+  }
+}
 /** Resolve one validated immutable lineage, independently of optional ownership baselines. */
 export function guidanceOrigin(row: Pick<PortableGuidance, 'origin' | 'baseline'>): PortableOrigin | undefined { return row.origin ?? row.baseline?.origin; }
 /** Reserve planned identities without adopting an unrelated native record. */
@@ -367,21 +392,21 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
         update = ownershipPatch(previous, row, body, ids, baselineIds, owned);
         if (document !== undefined) {
           const patch = documentPatch(previous, document, wire === undefined ? document.original : row.document?.original ?? owned?.source?.original ?? previous.original, owned?.sourceEdited, documentHash ?? row.baseline?.documentHash);
-          Object.assign(update.options, patch.options); if (patch.conflict) update.conflicts.push('document');
+          Object.assign(update.options, patch.options); if (patch.conflict) { update.conflicts.push('document'); update.base.document = documentHash ?? row.baseline?.documentHash; update.current.document = previous.document === undefined ? undefined : digest(encodeDocument(previous.document)); }
           if (patch.options.memoryDocument !== undefined) documentHash = digest(encodeDocument(document));
         }
         if (policyBody !== undefined && !update.conflicts.includes('body')) {
           const expectedBody = policyBodyHash ?? row.baseline?.policyBodyHash;
           const patch = documentPatch({ document: previous.policyBody }, policyBody, undefined, owned?.bodyEdited || (previous.policyBody !== undefined && expectedBody === undefined), expectedBody);
-          if (patch.conflict) { delete update.options.body; update.conflicts.push('body'); }
+          if (patch.conflict) { delete update.options.body; update.conflicts.push('policy_body'); update.base.policy_body = expectedBody; update.current.policy_body = previous.policyBody === undefined ? undefined : digest(encodeDocument(previous.policyBody)); }
           if (patch.options.memoryDocument !== undefined) { update.options.memoryPolicyBody = patch.options.memoryDocument; policyBodyHash = digest(encodeDocument(policyBody)); }
         }
         if (update.conflicts.length > 0) {
-          const reason = `Independently edited native content retained: ${update.conflicts.join(', ')}`;
-          if (Object.keys(update.options).length === 0) { skipped.set(row.slug, reason); continue; }
-          result.skipped.push({ slug: row.slug, reason });
+          const reason = `import_conflict: Independently edited native content retained: ${update.conflicts.join(', ')}`;
+          result.skipped.push({ slug: row.slug, reason, conflict: importConflict(id, update.conflicts, update.base, update.current) });
+          skipped.set(row.slug, reason); continue;
         }
-        if (Object.keys(update.options).length === 0) { decisions.set(row.slug, 'unchanged'); continue; }
+        if (Object.keys(update.options).length === 0) { decisions.set(row.slug, 'unchanged'); ownership.push(update.ownership); continue; }
         decisions.set(row.slug, 'updated');
       } else decisions.set(row.slug, 'imported');
       const fields = { ...(document === undefined ? {} : { document: encodeDocument(document) }), ...(policyBody === undefined ? {} : { policy_body: encodeDocument(policyBody) }), slug: row.slug, kind: row.kind, why: row.why, how: row.how, pinned: row.pinned, source: wire === undefined ? 'portable:policy-v1' : `${wire.harness}:relative-file`, original: wire?.original ?? Buffer.from(JSON.stringify([row, body])).toString('base64'), path: wire?.path ?? row.path, edited: false, artifact: wire?.artifact ?? false, changed_at: row.updated, renewals: JSON.stringify(row.renewals), ...(guidanceOrigin(row) === undefined ? {} : { origin: JSON.stringify(guidanceOrigin(row)) }), ...(row.validity === null ? {} : { validity: JSON.stringify(row.validity) }) };
@@ -392,13 +417,13 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
       mutations.push({ op: creating ? 'create' : 'update', id: previous?.id ?? id, ...(creating ? { unique: { key: 'memory_slug', value: row.slug } } : { match: { key: 'updated_at', value: corpus.find(item => item.id === previous.id)!.updated_at } }), options: creating ? { title: row.title, description: row.description, body, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, ...itemDocumentToMutationOptions(JSON.stringify({ tags: row.tags, dependencies: relationships }), 'create'), ...metadata(fields) } : update!.options });
     }
     closeSkips(manifest.guidance, skipped);
-    for (const [slug, reason] of skipped) result.skipped.push({ slug, reason });
+    appendImportSkips(result, skipped, ids);
     const admitted = manifest.guidance.filter(row => !skipped.has(row.slug));
     const planned = mutations.filter(mutation => admitted.some(row => ids.get(row.slug) === mutation.id));
     for (const row of admitted) result[decisions.get(row.slug)!]++;
     if (planned.length === 0) return result;
     const expected = await expectedTargets(store, admitted.map(row => ({ id: ids.get(row.slug)!, slug: selected.get(row.slug)?.slug ?? row.slug, origin: guidanceOrigin(row) })), corpus);
-    const plan = { identityVersion: 1 as const, pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, ...identity, mutations: planned, ownership: ownership.filter(target => planned.some(row => row.id === target.id)), input: inputHash, result, expected, initial: expected, members: admitted.map(row => ids.get(row.slug)!) };
+    const plan = { identityVersion: 1 as const, pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, ...identity, mutations: planned, outcomes: Object.fromEntries(admitted.map(row => [ids.get(row.slug)!, decisions.get(row.slug)!])), ownership: ownership.filter(target => admitted.some(row => ids.get(row.slug) === target.id)), input: inputHash, result, expected, members: admitted.map(row => ids.get(row.slug)!) };
     await validateImportPlan(store, plan, options.onStep);
     await store.register(options.onStep);
     await previewImport(store, plan, options.onStep);

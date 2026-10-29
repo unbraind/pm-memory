@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { TestContext } from 'node:test';
@@ -22,6 +22,7 @@ export function consumerFixture(t: TestContext) {
   const packed = JSON.parse(execute(repository, ['pack', '--json', '--pack-destination', scratch, '--ignore-scripts'], 'npm', env)) as { filename: string; integrity: string; files: { path: string }[] }[];
   const allowed = /^(dist\/|manifest\.json$|package\.json$|README\.md$|ARCHITECTURE\.md$|LICENSE$|CHANGELOG\.md$)/;
   assert.ok(packed[0].files.every(file => allowed.test(file.path)), 'Packed file allowlist'); assert.ok(packed[0].files.some(file => file.path === 'dist/index.js'));
+  assert.ok(packed[0].files.filter(file => file.path.startsWith('dist/')).every(file => existsSync(join(repository, file.path.replace(/^dist\//, '').replace(/\.(?:js|d\.ts)(?:\.map)?$/, '.ts')))), 'Every packed module requires current TypeScript source; remove obsolete generated outputs and rebuild');
   return { repository, scratch, manifest, env, packed };
 }
 /** Install the same captured bytes through either package manager, preserving the pinned SDK. */

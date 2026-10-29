@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-10-21T22:03:10.834Z"
-updated_at: "2026-10-29T02:44:21.504Z"
+updated_at: "2026-10-29T06:37:40.746Z"
 author: codex-agent
 acceptance_criteria: Bounded guidance can round trip without becoming unbounded or silently losing evidence; imported windows are validated before writes.
 parent: pm-memory-0kwy
-comments[155]{created_at,author,text}:
+comments[170]{created_at,author,text}:
   "2026-10-25T01:04:43.613Z",codex-agent,"Claimed portable policy-window work. Design inspection: existing transfer refuses bounded guidance and sequential imports can partially publish. Investigating SDK transactions and existing lease/history surfaces before selecting an atomic import contract. Will preserve window evidence and renewal ancestry, reject broadened or removed bounds, and validate in non-git trackers with crash and competing-writer boundaries."
   "2026-10-25T01:15:25.678Z",codex-agent,"Implemented versioned policy inventory plus editable body files, exact window and renewal validation, full-batch SDK preview/commit, deterministic recovery ids, foreign-record skips, and staged export publication. Targeted suite: 24 passed before the final update/rollback and independent-export tests were added. Randomized sets cover both harnesses, mixed bounded/unbounded guidance, kinds, tags and renewal counts. Existing unbounded byte-preserving transfers remain supported. CI now invokes the explicit npm release:check gate as well as the existing Bun gate; local full release gates are intentionally deferred to CI on this saturated host."
   "2026-10-25T01:17:54.916Z",codex-agent,"Read-only public-copy validation passed: 17 public items, 6 nonempty bodies, 232693 projected input bytes; 17 derived scenario guidance records, 34 renewal records retained per harness, 19 exported files per harness, all 17 unchanged on identical retries, zero lost windows/evidence, edited bodies needs-renewal. Every source file was permission-protected and its aggregate fingerprint remained unchanged. Evidence: docs/portable-guidance-validation.md. The first unrestricted read created only SDK runtime metadata caches, so the measured run used an independently extracted read-only copy."
@@ -167,7 +167,22 @@ comments[155]{created_at,author,text}:
   "2026-10-29T02:40:04.029Z",codex-agent,"Additional isolated behavioral reverts all exited 1 on real SDK fixtures: restoring only isCanceled to a status-name literal makes the migrated canceled item active (missing expected get refusal); restoring only nativeProof to its default-schema read rejects the valid custom canceled status; restoring previousOwnership to the intended birth graph drops the edge on compensated recovery; removing only writeWithProof checkProposal lets SDK cancellation erase peer-native assignee. Together with the two rollbackTarget reverts already recorded (dangling Task dependency and description B retained instead of A), six counterexamples fail on revert. No production checkout was reverted. The fixed lifecycle and birth-graph controls, assigned-peer case and 12-root suite pass. Field restoration reads SDK-normalized values, checks current hashes/history immediately before update, and refuses SDK side effects on unowned fields. This narrows but does not eliminate the native re-read-to-write gap documented by upstream 1576/1620."
   "2026-10-29T02:44:12.564Z",codex-agent,"Rebuilt shipped-artifact validation passed: node --test --test-concurrency=1 test/critical.acceptance.ts, 1/1 root, native Node and Bun from one archive, four same-author OS peers, two rollback cancellations preserving Task references, and four compact JSON/TOON CLI refusals before durable writes. Final integrity: sha512-lYlnMdrtq9Pt/AKNXyYGF1fEWfjmJl6RoSrDBSG5ScBzJrfcDamJLCkeLn1diu0CxhgkrqzpXgxatjoIDTJcYQ==. Read-only public-copy validation reran successfully against public commit fc05dfd0495e15946ca31b6c93250eaf704689c3: 17 items, six bodies, 232693 SDK input bytes; each harness retained 17 guidance records, 34 renewals, 19 files and 17 unchanged retries, with edited guidance needs-renewal. Source fingerprint stayed 652fd875763b57b52c1fb7af1a98e8d655511188a9129f5b8c7fa56a73c22fb7. Final test-helper extraction retained every assertion and its four controls passed. Typecheck, lint, build, 42-file/155-declaration documentation and zero duplication across 112 sources pass. No ignored build output or binary artifact is staged."
   "2026-10-29T02:44:17.294Z",codex-agent,"Model evidence remains bounded honestly: the 500-sequence stateful contract and 500-per-law suites are unchanged. One focused batch, sequences 50-54 under master 0x1363cafe, passed 230 SDK read-back comparisons with seeds 4198076704, 2557545177, 917013650, 3571449419, 1930917892. The final repeat completed 50/51 before the unchanged 600-second parent timeout; sequence 52 then saw fixture cleanup during an in-flight read and did not complete. That repeat is not a passing batch or a product-state counterexample. The full current-head models and unchanged 100/100/100/100 coverage remain CI evidence. SDK follow-up pm-memory-sdk-transaction-reader is enriched with native expectedItemHash and transaction-only coordination limitations (upstream 1576/1620), remains open and has no claim. All current import, CLI, JSON/TOON, companion, non-git and packed-consumer paths share cancellation/field ownership. Final-head CI URLs and counts will be reported in PR 15 and its stable checks page https://github.com/unbraind/pm-memory/pull/15/checks ; latest instructions cap this round at 45 minutes of CI observation. Release this agent claim without closing the feature."
-files[73]:
+  "2026-10-29T03:48:15.661Z",codex-agent,"Round 13: replace import compensation with forward-only, per-item guarded writes. Remove rollback-only receipts and restoration paths; discard owned legacy intents with a durable reason and replan current state. Preserve peer edits, report typed import_conflict with dependency closure, and test every import/crash boundary on non-git trackers. Previous head full CI failed (503 passed, 11 failed); those recovery contracts are included in this redesign. Branch is current with main; no merge needed."
+  "2026-10-29T04:12:10.115Z",codex-agent,"Round 13 implementation: removed portable-rollback.ts and portable-replan.ts, inverse writes, forced restoration and rollback-only proof APIs. Forward publication evidence is per item and never restores a value. Three fixed regressions passed: A/B/C publication failure retains C and retry is unchanged; an older clearDeps intent is discarded with SDK workspace audit while retaining the native Task edge; conflicting alpha closes the skip over beta with typed field-base fingerprints. The boundary property caught stale updated_at matching in semantic preview; preview now uses the same direct mutation projection as apply, while the SDK pre-write hook enforces saved normalized field bases. Full peer/crash schedules and compatibility roots are running with one worker per focused command."
+  "2026-10-29T05:37:34.125Z",codex-agent,"Round 13 implementation: removed rollback/replan modules, inverse writes, forced restoration and compensated-origin recreation. Import writes are forward-only per item, use SDK-normalized saved bases plus immutable history in the actual pre-write hook, return typed import_conflict receipts and close dependent skips. Interrupted publication records only an exact successful history append; legacy intents are retired with an append-only audit reason and replanned. Current static checks pass: typecheck, lint, zero duplication across 111 sources, 40 files / 150 documented declarations. Independent same-author peer and crash properties are running with at most two test workers. Native SDK write isolation is not claimed; the documented remaining window is tracked by upstream #1576/#1620."
+  "2026-10-29T05:47:07.861Z",codex-agent,"Round 13 fixed controls now pass individually in the focused run: A/B/C publication keeps C, legacy clearDeps intent retirement preserves the native Task dependency, whole-item/dependent typed conflicts, truthful peer completion, native ABA refusal, foreign alias preservation, custom canceled-role preservation, and foreign intent token retention. Model audit retained 500 sequences and 22,933 SDK read-back checks, remapped removed inverse-phase coordinates to current forward publication, and resolves mutation targets from current SDK immutable ids rather than step ordinals. Both canonical and legacy/companion adapters share the same forward mutation boundary."
+  "2026-10-29T05:54:08.177Z",codex-agent,"Round 13 behavioral revert proof (saved-base rule): in a disposable source copy, replacing only assertBase with a no-op makes the fixed whole-item/dependent conflict regression fail (0 reported skips versus 2 required; exit 1, one failed test). The fixed implementation passes that case in the 11-root control run; the separate unchanged-dependent regression also passes. This proves the pre-write saved-base check is exercised rather than merely mirrored by the reference model. Production sources were never reverted. A pinned-pm rerun of the fixed controls will precede the commit."
+  "2026-10-29T05:59:51.469Z",codex-agent,"SDK capability verification for round 13: the pinned 2026.10.25 declaration previewItemMutations(options: Pick<CommitItemMutationsOptions, pmRoot | transactionId | author | mutations>) has no scoped projection parameter. Public expectedItemHash is absent from the installed mutation declarations. Upstream #1576 and #1620 are still open. Upstream #1597 and #1598 are now closed; their limitations are compatibility needs of this pinned SDK, not claims of unresolved current upstream defects. The dependency pin is unchanged per repository rules."
+  "2026-10-29T06:02:24.756Z",codex-agent,"Round 13 behavioral revert proofs (forward-only and legacy retirement): restoring the prior portable-plan/write/rollback/replan implementation in a disposable source copy, retaining the new fixed regressions, produces 0 pass / 2 fail (exit 1). A/B/C publication failure reads back alpha B instead of required Alpha C. The legacy clearDeps replay reads back no dependencies, so the required native Task edge check fails. These are behavioral SDK-state counterexamples, not module-load failures. The current implementation passes both fixed cases in the 11-root run. The old restoration/replay modules are removed, rather than patched again; a fixed pinned-pm rerun is scheduled before commit. Separately, the previously failing model sequence 200, seed 2931483526, has completed successfully; remaining batch sequences are still running."
+  "2026-10-29T06:07:10.523Z",codex-agent,"Round 13 focused stateful model passes: PM_MEMORY_MODEL_START=200 PM_MEMORY_MODEL_COUNT=5 node --test --test-concurrency=1 test/portable-model.worker.ts completed all five sequences and 230 SDK-read comparisons (6 test nodes passed, 0 failed/canceled/skipped). Master seed 0x1363cafe; sequence seeds 2931483526, 1290951999, 3945387768, 2304856241, 664324714. This includes the previous exact-head CI counterexample, sequence 200. Full 500-sequence completion remains CI evidence, not inferred from this focused batch."
+  "2026-10-29T06:10:19.887Z",codex-agent,"Round 13 read-only public-data validation passed on public source commit fc05dfd0495e15946ca31b6c93250eaf704689c3: 17 SDK items, 6 nonempty bodies, 232693 input projection bytes. Both harnesses retained 17 guidance records, 34 renewals and 19 exported files, with 17 unchanged on identical retries. AGENTS created 17; Claude into the same destination reported 0 created / 0 updated / 17 unchanged. Edited bodies were needs-renewal; no bounds/evidence were lost. All source files were permission-protected in a non-git copy; fingerprint before/after stayed 652fd875763b57b52c1fb7af1a98e8d655511188a9129f5b8c7fa56a73c22fb7. Original fleet state was untouched. Evidence: examples/validate-portable.ts and docs/portable-guidance-validation.md."
+  "2026-10-29T06:12:08.874Z",codex-agent,"Round 13 rebuilt packed acceptance passes: npm run build followed by node --test --test-concurrency=1 test/critical.acceptance.ts. One captured archive ran in native Node and Bun with 4 same-author OS peers, 2 retained interrupted forward identities and 4 pre-write JSON/TOON provenance refusals. Test nodes 1 pass / 0 fail / 0 canceled/skipped. Integrity sha512-0WOj17fByzVALLWQ/xqDqXhkFKSf+chdj0QoQja+A818qEwESiU7TByg7y73NwwVDqafwwvH36Ph7y0zH7PcXQ==. The artifact was built after current production changes; nothing was published. The full release gates remain CI evidence."
+  "2026-10-29T06:17:11.578Z",codex-agent,"Round 13 property revert proof: in a current disposable source copy, reverting only assertBase to a no-op fails the independent peer property (0 pass / 1 fail, no cancellations). Master seed 0x1363f013 (325316627), sequence seed 1590834154, update boundary 1:read, operation 0: SDK read-back is alpha B instead of peer body Peer 1590834154. The oracle reads actual native values, not importer ownership helpers. Restoring the former recovery implementation separately fails both fixed review cases (0 pass / 2 fail): C becomes B and legacy clearDeps removes the native dependency. The current fixed property and all four fixed controls are now rerunning through the pinned pm test runner; production sources were never mutated by these reverts."
+  "2026-10-29T06:23:06.844Z",codex-agent,"Round 13 creation peer property completed: seed 0x1363f013, 60 observed import boundaries, 240 independent same-author/copied-prefix OS-process schedules across body/description, priority/relationships, comments and native Task dependencies. Every peer-changed SDK-read field survives import and retries; graph closure and unique identities hold. Earlier update peer property completed 200 schedules across 50 boundaries; create/update crash properties completed 58/50 boundaries with convergent reruns. The stopped incomplete creation attempt is excluded; this is the completed replacement sweep. Bootstrap/recovery peer schedules and the pinned-pm fixed rerun are still running."
+  "2026-10-29T06:32:37.313Z",codex-agent,"Round 13 final forward-only properties pass: 240 creation peer schedules / 60 boundaries, 200 update peer schedules / 50 boundaries, 31 bootstrap boundaries and 47 recovery boundaries with both a peer edit and crash: 518 peer schedules total, seed 0x1363f013. Separate crash-only properties pass 58 creation and 50 update boundaries. SDK read-back preserves all peer-changed fields, links, comments and dependencies, with closed graphs, no duplicate memory identities and stable retries. The pinned pm test runner also passed all 5 selected roots (4 fixed controls plus the 200-schedule update property), exit 0, no failures/cancellations/skips, after the disposable behavioral reverts. Test result tracking follows project policy; this comment records its completed receipt."
+  "2026-10-29T06:35:56.766Z",codex-agent,"Round 13 final artifact supersedes the earlier digest: stale incremental compiler outputs for the deleted rollback/replan modules were detected by the new general packing admission rule (every emitted module must have current TypeScript source). With the 8 stale generated outputs present, critical.acceptance fails before installation; after removing only those obsolete outputs and rebuilding, it passes in native Node and Bun: 1 root, 4 same-author OS peers, 2 retained forward identities, 4 JSON/TOON refusals, zero failures/cancellations/skips. Final integrity sha512-TQCZ2Yfab4Hzc8eugA4OkLAc/e9+rjLrig3TptfJupQI730BLLRIyEUAe7azMbWIP1DyIrZNwblLtdaJoqsRGA==. Source and generated rollback modules are absent; no artifact was published."
+  "2026-10-29T06:37:39.724Z",codex-agent,"Delivery checks: typecheck, lint, docstrings (40 files / 150 declarations), zero duplication (111 sources), build and the cleaned packed Node/Bun acceptance all pass. Local strict pm health reports one managed-extension host-version skew (pinned CLI 2026.10.25 versus local pm-github 2026.10.28); storage, locks, integrity and history-drift checks pass. No dependency pin, extension installation or global configuration was changed. Fresh-checkout CI health and full npm/Bun release gates are the remaining exact-head evidence. The final run URL and per-gate counts will be maintained in PR 15 after pushing this tracker receipt; configured or pending checks are never counted as passed. Item remains in_progress; releasing this agent's claim for orchestrator verification."
+files[72]:
   - path: .github/workflows/ci.yml
     scope: project
   - path: index.ts
@@ -189,46 +204,43 @@ files[73]:
     scope: project
   - path: src/portable-origin.ts
     scope: project
-    note: Exact SDK receipts and early validation; cancellation and field-local rollback; transaction coordination does not exclude native writers
+    note: Forward-only item publication and current-state conflict detection; native SDK write race remains documented
   - path: src/portable-ownership.ts
     scope: project
-    note: Exact SDK receipts and early validation; cancellation and field-local rollback; transaction coordination does not exclude native writers
+    note: Forward-only item publication and current-state conflict detection; native SDK write race remains documented
   - path: src/portable-plan.ts
     scope: project
-    note: Exact SDK receipts and early validation; cancellation and field-local rollback; transaction coordination does not exclude native writers
+    note: Forward-only item publication and current-state conflict detection; native SDK write race remains documented
   - path: src/portable-preview.ts
     scope: project
-    note: Exact SDK receipts and early validation; cancellation and field-local rollback; transaction coordination does not exclude native writers
+    note: Forward-only item publication and current-state conflict detection; native SDK write race remains documented
   - path: src/portable-relationships.ts
     scope: project
-    note: Exact SDK receipts and early validation; cancellation and field-local rollback; transaction coordination does not exclude native writers
-  - path: src/portable-replan.ts
-    scope: project
-    note: Exact SDK receipts and early validation; cancellation and field-local rollback; transaction coordination does not exclude native writers
-  - path: src/portable-rollback.ts
-    scope: project
-    note: Exact SDK receipts and early validation; cancellation and field-local rollback; transaction coordination does not exclude native writers
+    note: Forward-only item publication and current-state conflict detection; native SDK write race remains documented
   - path: src/portable-source.ts
     scope: project
-    note: Exact SDK receipts and early validation; cancellation and field-local rollback; transaction coordination does not exclude native writers
+    note: Forward-only item publication and current-state conflict detection; native SDK write race remains documented
   - path: src/portable-write.ts
     scope: project
-    note: Exact SDK receipts and early validation; cancellation and field-local rollback; transaction coordination does not exclude native writers
+    note: Forward-only item publication and current-state conflict detection; native SDK write race remains documented
   - path: src/portable.ts
     scope: project
+    note: Forward-only item publication and current-state conflict detection; native SDK write race remains documented
   - path: src/store.ts
     scope: project
+    note: Forward-only compatibility and artifact admission; obsolete compiled modules cannot ship
   - path: src/transfer.ts
     scope: project
   - path: src/types.ts
     scope: project
+    note: Forward-only compatibility and artifact admission; obsolete compiled modules cannot ship
   - path: test/commands.test.ts
     scope: project
   - path: test/consent.test.ts
     scope: project
   - path: test/consumer-helpers.ts
     scope: project
-    note: SDK-native read-back and observed boundary coverage; no isolation against plain native writers
+    note: Forward-only compatibility and artifact admission; obsolete compiled modules cannot ship
   - path: test/critical-consumer-source.ts
     scope: project
     note: SDK-native read-back and observed boundary coverage; no isolation against plain native writers
@@ -243,8 +255,9 @@ files[73]:
     scope: project
   - path: test/install.acceptance.ts
     scope: project
-  - path: test/portable-cancellation.test.ts
+  - path: test/portable-admission.test.ts
     scope: project
+    note: Forward-only import regression coverage; SDK read-back and independent native peers
   - path: test/portable-companion.test.ts
     scope: project
   - path: test/portable-critical.test.ts
@@ -260,6 +273,9 @@ files[73]:
     scope: project
   - path: test/portable-fidelity.worker.ts
     scope: project
+  - path: test/portable-forward.test.ts
+    scope: project
+    note: Forward-only import regression coverage; SDK read-back and independent native peers
   - path: test/portable-grammar-law.test.ts
     scope: project
   - path: test/portable-grammar.test.ts
@@ -272,6 +288,9 @@ files[73]:
     scope: project
   - path: test/portable-laws.worker.ts
     scope: project
+  - path: test/portable-lifecycle.test.ts
+    scope: project
+    note: Forward-only import regression coverage; SDK read-back and independent native peers
   - path: test/portable-lossless.test.ts
     scope: project
   - path: test/portable-model.test.ts
@@ -292,8 +311,6 @@ files[73]:
   - path: test/portable-preview.test.ts
     scope: project
   - path: test/portable-review.test.ts
-    scope: project
-  - path: test/portable-rollback.test.ts
     scope: project
   - path: test/portable-tags.test.ts
     scope: project
@@ -329,7 +346,7 @@ files[73]:
     scope: project
   - path: test/validate-guidance.ts
     scope: project
-tests[34]:
+tests[27]:
   - command: node --test test/portable.test.ts test/transfer.test.ts test/guidance.test.ts
     scope: project
     provenance:
@@ -359,20 +376,6 @@ tests[34]:
     provenance:
       author: codex-agent
       created_at: "2026-10-25T08:45:50.404Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
-  - command: node --test --test-concurrency=1 test/portable.test.ts test/portable-plan.test.ts test/portable-review.test.ts test/portable-rollback.test.ts
-    scope: project
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-25T14:54:30.753Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
-  - command: "node --test --test-name-pattern=\"SDK compensation guards\" test/portable-rollback.test.ts"
-    scope: project
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-25T14:54:32.788Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
   - command: node --test test/review-r10.test.ts
@@ -471,17 +474,6 @@ tests[34]:
       created_at: "2026-10-27T09:39:52.941Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
-  - command: node --test --test-concurrency=2 --test-name-pattern='^copied creation bookkeeping|^creation authority requires|^raw intake refuses' test/portable-validation.test.ts test/portable-rollback.test.ts
-    scope: project
-    timeout_seconds: 3600
-    workspace_context_mode: source
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-27T11:35:26.715Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
-    updated_by: codex-agent
-    updated_at: "2026-10-27T11:57:19.218Z"
   - command: "node --test --test-concurrency=1 --test-name-pattern=\"^legacy birth authority|^ambiguous legacy export keys|^ambiguous legacy origins\" test/portable-validation.test.ts test/portable-ownership.test.ts"
     scope: project
     timeout_seconds: 1800
@@ -491,24 +483,6 @@ tests[34]:
       created_at: "2026-10-27T11:49:37.082Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
-  - command: "node --test --test-concurrency=1 --test-name-pattern=\"^creation ownership covers every planned scalar\" test/portable-rollback.test.ts"
-    scope: project
-    timeout_seconds: 3600
-    workspace_context_mode: source
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-27T13:57:03.534Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
-  - command: "./node_modules/.bin/c8 --include=src/portable-rollback.ts --reporter=json --report-dir=coverage/r7-compat-final node --test --test-concurrency=1 --test-name-pattern=\"^creation authority requires|^unplanned native metadata|^older frozen clearing plans|^older staged nodes\" test/portable-rollback.test.ts test/portable-ownership.test.ts"
-    scope: project
-    timeout_seconds: 3600
-    workspace_context_mode: source
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-27T13:57:03.534Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
   - command: node --test --test-concurrency=1 test/portable-tags.test.ts
     scope: project
     timeout_seconds: 1800
@@ -516,33 +490,6 @@ tests[34]:
     provenance:
       author: codex-agent
       created_at: "2026-10-27T13:57:03.534Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
-  - command: "./node_modules/.bin/c8 --include=src/portable-rollback.ts --include=src/portable-preview.ts --include=src/portable-origin.ts --include=src/portable-ownership.ts --include=src/portable-plan.ts --reporter=json --report-dir=coverage/r8-final node --test --test-concurrency=1 --test-name-pattern=\"^copied node markers|^legacy history identity|^unplanned native metadata|^creation authority requires|^older staged nodes|^older frozen clearing plans|^owned recovery plans|^foreign ownership receipts|^repeated foreign SDK transaction markers\" test/portable-rollback.test.ts test/portable-origin.test.ts test/portable-ownership.test.ts test/portable-plan.test.ts"
-    scope: project
-    timeout_seconds: 3600
-    workspace_context_mode: source
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-27T15:13:06.691Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
-  - command: "./node_modules/.bin/c8 --include=src/portable-rollback.ts --include=src/portable-preview.ts --include=src/portable-origin.ts --include=src/portable-ownership.ts --include=src/portable-plan.ts --reporter=json --report-dir=coverage/r8-complete node --test --test-concurrency=1 --test-name-pattern=\"^copied node markers|^legacy history identity|^unplanned native metadata|^creation authority requires|^creation ownership covers every planned scalar|^older staged nodes|^older frozen clearing plans|^owned recovery plans|^foreign ownership receipts|^repeated foreign SDK transaction markers|^modern creation admission|^birth evidence survives|^legacy birth authority preserves\" test/portable-rollback.test.ts test/portable-origin.test.ts test/portable-ownership.test.ts test/portable-plan.test.ts test/portable-validation.test.ts"
-    scope: project
-    timeout_seconds: 3600
-    workspace_context_mode: source
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-27T16:23:30.875Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
-  - command: "./node_modules/.bin/c8 --include=src/portable-rollback.ts --include=src/portable-plan.ts --reporter=json --report-dir=coverage/r8-proposals-final node --test --test-concurrency=1 --test-name-pattern=\"^SDK item-lock birth preconditions|^SDK compensation guards\" test/portable-rollback.test.ts"
-    scope: project
-    timeout_seconds: 1800
-    workspace_context_mode: source
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-27T17:53:11.883Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
   - command: "./node_modules/.bin/c8 --include=src/transfer.ts --reporter=json --report-dir=coverage/r8-raw-birth-race node --test --test-concurrency=1 --test-name-pattern=\"^raw planning retains a foreign SDK birth stream\" test/portable-origin.test.ts"
@@ -563,15 +510,6 @@ tests[34]:
       created_at: "2026-10-27T18:21:48.698Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
-  - command: ./node_modules/.bin/c8 --include=src/portable-source.ts --include=src/portable.ts --include=src/transfer.ts --include=src/portable-ownership.ts --include=src/portable-rollback.ts --reporter=json --report-dir=coverage/r9-linked node --test --test-concurrency=1 --test-name-pattern='^unknown frontmatter|^complete source|^full canonical|^exact policy|^older policy|^native |^complete document validation|^unrecognized|^document |^companion recovery|^policy snapshots|^raw imports|^released legacy|^compensation requires|^compensation treats|^SDK compensation guards' test/portable-document.test.ts test/portable-rollback.test.ts
-    scope: project
-    timeout_seconds: 1800
-    workspace_context_mode: source
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-27T22:19:31.958Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
   - command: ./node_modules/.bin/c8 --include=src/portable.ts --include=src/portable-source.ts --include=src/transfer.ts --reporter=json --report-dir=coverage/r10-linked node --test --test-concurrency=1 --test-name-pattern='^current |^legacy export frames literal|^raw and companion adapters|^newly introduced invalid|^released source ownership|^snapshot-free legacy adapters|^policy snapshots remove' test/portable-grammar.test.ts test/portable-document.test.ts
     scope: project
     timeout_seconds: 1800
@@ -579,24 +517,6 @@ tests[34]:
     provenance:
       author: codex-agent
       created_at: "2026-10-28T17:23:38.606Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
-  - command: node --test --test-concurrency=1 test/portable-rollback.test.ts
-    scope: project
-    timeout_seconds: 2400
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-29T01:00:56.602Z"
-      source_kind: local_mutation
-      source_ref: feat/portable-guidance-windows
-    updated_by: codex-agent
-    updated_at: "2026-10-29T01:03:39.310Z"
-  - command: node --test --test-concurrency=1 test/portable-cancellation.test.ts
-    scope: project
-    timeout_seconds: 1800
-    provenance:
-      author: codex-agent
-      created_at: "2026-10-29T01:38:58.659Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
   - command: node --test --test-concurrency=1 --test-name-pattern='^all relationship provenance|^malformed relationship timestamp|^native write hooks' test/portable-critical.test.ts
@@ -613,6 +533,38 @@ tests[34]:
     provenance:
       author: codex-agent
       created_at: "2026-10-29T01:41:41.704Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: node --test --test-concurrency=1 test/portable-forward.test.ts
+    scope: project
+    timeout_seconds: 14400
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T05:41:13.440Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"A B C publication|legacy clearDeps|a conflicted item\" test/portable-forward.test.ts"
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T05:41:44.734Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"^A B C publication|^legacy clearDeps|^a conflicted item|^an unchanged portable dependent|^forward-only update: seeded\" test/portable-forward.test.ts"
+    scope: project
+    timeout_seconds: 2400
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T06:15:06.838Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: node --test --test-concurrency=1 test/critical.acceptance.ts
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T06:35:55.665Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
 docs[4]{path,scope}:

@@ -2,10 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { link, mkdir, open, rm, readFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join } from 'node:path';
-import { hashHistoryStream, listMutationEvents, replayHistoryToTarget, writeFileAtomic, getHistoryPath, readHistoryEntries } from '@unbrained/pm-cli/sdk';
+import { hashHistoryStream, listMutationEvents, replayHistoryToTarget, writeFileAtomic } from '@unbrained/pm-cli/sdk';
 import type { Store } from './store.ts';
 import type { Memory } from './types.ts';
-import { validWriteReceipt } from './portable-write.ts';
 import { MemoryError } from './core.ts';
 type HistoryEntry = Parameters<typeof replayHistoryToTarget>[0][number];
 
@@ -23,8 +22,6 @@ export interface PortableOrigin {
 }
 /** One authoritative SDK creation subject, including subjects whose item was deleted. */
 export interface OriginCreator {
-  /** Failed, compensated creation is not an intentionally deleted origin. */
-  compensated?: boolean;
   /** Local SDK subject id. */
   id: string;
   /** Immutable native creation metadata. */
@@ -91,33 +88,18 @@ export function originCursor(page: Pick<Awaited<ReturnType<typeof listMutationEv
   return page.next_cursor;
 }
 /** Read every creation through SDK pagination, retaining tombstones without scanning files by hand. */
-export async function originCatalog(store: Store, liveIds?: ReadonlySet<string>, limit = 1000): Promise<{ tracker?: string; creators: OriginCreator[] }> {
+export async function originCatalog(store: Store, _liveIds?: ReadonlySet<string>, limit = 1000): Promise<{ tracker?: string; creators: OriginCreator[] }> {
   const tracker = await readTrackerOrigin(store); const creators: OriginCreator[] = []; let since: string | undefined;
   for (;;) {
     const page = await listMutationEvents({ pmRoot: store.workspace, type: 'create', full: true, limit, ...(since === undefined ? {} : { since }) });
     for (const event of page.events) if (event.entry !== undefined) {
       const row = creator(event.item_id, event.entry, tracker);
       if (row === undefined) continue;
-      if (liveIds !== undefined && !liveIds.has(row.id)) {
-        const last = (await readHistoryEntries(getHistoryPath(store.workspace, row.id), row.id)).at(-1);
-        row.compensated = last?.op === 'delete' && await compensatedOrigin(store, row.id, last.message);
-      }
       creators.push(row);
     }
     const next = originCursor(page, since); if (next === undefined) break; since = next;
   }
   return { tracker, creators };
-}
-/** Read legacy deletion receipts for backward compatibility; current rollback only cancels. */
-async function compensatedOrigin(store: Store, id: string, message: string | undefined): Promise<boolean> {
-  const hint = /^bulk-item-transaction (memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})-rollback) /.exec(message ?? '');
-  if (hint === null) return false;
-  try {
-    const journal = JSON.parse(await readFile(join(store.workspace, 'transactions', 'sdk', `${hint[1]}.json`), 'utf8')) as { status?: unknown; results?: Record<string, { owner?: unknown; id?: unknown; writes?: unknown[] }> };
-    if (journal.status !== 'committed' || journal.results === null || typeof journal.results !== 'object') return false;
-    const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
-    return Object.values(journal.results).some(result => result?.owner === 'pm-memory-policy-rollback:1' && result.id === id && Array.isArray(result.writes) && result.writes.some(value => validWriteReceipt(value) && value.id === id && value.after?.hash === null && value.after.length === entries.length && value.after.history === hashHistoryStream(entries)));
-  } catch { return false; }
 }
 /** Resolve an exported origin before considering aliases; known deleted identities need explicit recreation. */
 export function selectOrigin(origin: PortableOrigin, current: readonly Memory[], catalog: Awaited<ReturnType<typeof originCatalog>>, create: boolean): Memory | undefined {
@@ -125,7 +107,7 @@ export function selectOrigin(origin: PortableOrigin, current: readonly Memory[],
   const live = current.filter(item => matches.some(row => row.id === item.id));
   if (live.length > 1) throw new MemoryError('origin_missing', 'Origin has multiple live native copies', 'Export the intended native origin explicitly; aliases cannot resolve this ambiguity');
   if (live.length === 1) return live[0];
-  if (!create && (catalog.tracker === origin.tracker || matches.some(row => !row.compensated) || (catalog.tracker === undefined && catalog.creators.some(row => row.id === origin.id && row.origin.creation === origin.creation)))) throw new MemoryError('origin_missing', 'The exported origin no longer exists', 'Restore the original item, or use memory import --create to explicitly create a new copy');
+  if (!create && (catalog.tracker === origin.tracker || matches.length > 0 || (catalog.tracker === undefined && catalog.creators.some(row => row.id === origin.id && row.origin.creation === origin.creation)))) throw new MemoryError('origin_missing', 'The exported origin no longer exists', 'Restore the original item, or use memory import --create to explicitly create a new copy');
   return undefined;
 }
 /** Obtain an origin from immutable SDK creation history, never from a current display alias. */

@@ -12,6 +12,7 @@ export async function peerWriter(t: TestContext, root: string) {
   let token = 0;
   return (workspace: string, id: string, author: string, prefix: string, operation?: 'delete' | 'exact' | 'comment', options?: Record<string, unknown>) => {
     const current = ++token;
+    const witness: { before?: Record<string, unknown> } = {};
     let entered!: () => void; let entryFailed!: (error: Error) => void; let finish!: (item: unknown) => void; let fail!: (error: Error) => void;
     const started = new Promise<void>((resolve, reject) => { entered = resolve; entryFailed = reject; });
     const done = new Promise<unknown>((resolve, reject) => { finish = resolve; fail = reject; });
@@ -20,11 +21,11 @@ export async function peerWriter(t: TestContext, root: string) {
     const exited = (code: number | null, signal: string | null) => { const error = new Error(`Peer exited during request (${code ?? signal}): ${stderr}`); entryFailed(error); fail(error); child.off('message', receive); };
     child.once('exit', exited);
     /** Match this exact request without mixing two independent native transitions. */
-    const receive = (value: { token?: number; state: string; item?: unknown; message?: string }) => {
+    const receive = (value: { token?: number; state: string; item?: unknown; before?: Record<string, unknown>; message?: string }) => {
       if (value.token !== current) return;
       if (value.state === 'started') entered();
-      else { child.off('message', receive); child.off('exit', exited); if (value.state === 'done') finish(value.item); else { const error = new Error(value.message); entryFailed(error); fail(error); } }
+      else { child.off('message', receive); child.off('exit', exited); if (value.state === 'done') { witness.before = value.before; finish(value.item); } else { const error = new Error(value.message); entryFailed(error); fail(error); } }
     };
-    child.on('message', receive); child.send({ workspace, id, author, prefix, token: current, operation, options }); return { started, done };
+    child.on('message', receive); child.send({ workspace, id, author, prefix, token: current, operation, options }); return { started, done, witness };
   };
 }

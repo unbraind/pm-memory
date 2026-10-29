@@ -156,7 +156,7 @@ test('SDK transaction crashes at every transition resume without duplicate items
   const { source, valid } = await twoPolicies(t);
   const probe = await tracker(t); const boundaries: string[] = [];
   await importDir(source.path, { ...probe.options, from: 'agents-md', onTransition: event => { boundaries.push(`${event.transition}:${event.stepId ?? ''}`); } });
-  assert.equal(boundaries.length, 21);
+  assert.equal(boundaries.length, 10); // Two independent SDK item publications, five transitions each.
   for (let index = 0; index < boundaries.length; index++) {
     const target = await tracker(t); let step = 0;
     await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onTransition: () => { if (step++ === index) throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
@@ -171,7 +171,9 @@ test('SDK transaction crashes at every transition resume without duplicate items
 
 test('competing imports injected at every transaction boundary share one non-git tracker and report peer success', async t => {
   const source = await fixture(t);
-  for (let boundary = 0; boundary < 15; boundary++) {
+  const probe = await tracker(t); let total = 0; await importDir(source.path, { ...probe.options, from: 'agents-md', onTransition: () => { total++; } });
+  assert.equal(total, 5);
+  for (let boundary = 0; boundary < total; boundary++) {
     const target = await tracker(t); let step = 0; let peer: ReturnType<typeof importDir> | undefined;
     const first = await importDir(source.path, { ...target.options, from: 'agents-md', onTransition: () => { if (step++ === boundary) peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' }); } });
     assert.equal(first.imported, 1); assert.ok(peer);
@@ -252,10 +254,10 @@ test('missing manifests and foreign native records are refused or skipped with e
   assert.deepEqual(await importPolicy([{ path: POLICY_MANIFEST, bytes: Buffer.from(JSON.stringify({ version: 1, format: 'pm-memory-policy', harness: 'agents-md', guidance: [] })) }], { ...target.options, from: 'agents-md' }), { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [] });
 });
 
-test('updates recover and compensate at every SDK write boundary with no duplicate or lost evidence', async t => {
+test('updates recover forward at every SDK item boundary with no duplicate or lost evidence', async t => {
   const { source, valid } = await twoPolicies(t);
   const target = await tracker(t); await importDir(source.path, { ...target.options, from: 'agents-md' });
-  for (let boundary = 0; boundary < 14; boundary++) {
+  for (let boundary = 0; boundary < 10; boundary++) {
     const expected = `Policy harness edit ${boundary}`;
     for (const row of valid.guidance) await writeFile(join(source.path, row.path), policyBody(row, expected));
     let step = 0;
@@ -265,12 +267,12 @@ test('updates recover and compensate at every SDK write boundary with no duplica
     for (const row of valid.guidance) assert.equal((await get(row.slug, target.options)).body, expected);
   }
   const before = await get('policy', target.options); const history = await readHistoryEntries(getHistoryPath(target.workspace, before.id), before.id);
-  for (const row of valid.guidance) await writeFile(join(source.path, row.path), policyBody(row, 'Compensated edit'));
+  for (const row of valid.guidance) await writeFile(join(source.path, row.path), policyBody(row, 'Retained forward edit'));
   await assert.rejects(importDir(source.path, { ...target.options, from: 'agents-md', onTransition: event => { if (event.transition === 'step_recorded') throw new Error('Ordinary publication failure'); } }), error => error instanceof MemoryError && error.code === 'transaction');
-  assert.equal((await get('policy', target.options)).body, before.body);
+  assert.equal((await get('policy', target.options)).body, 'Retained forward edit');
   assert.deepEqual((await readHistoryEntries(getHistoryPath(target.workspace, before.id), before.id)).slice(0, history.length), history);
   await importDir(source.path, { ...target.options, from: 'agents-md' });
-  assert.equal((await get('policy', target.options)).body, 'Compensated edit');
+  assert.equal((await get('policy', target.options)).body, 'Retained forward edit');
 });
 
 test('independent trackers recognize identical export peer success and refuse differing peer publication', async t => {
@@ -304,7 +306,7 @@ test('foreign reserved identities are skipped and native provenance edits remain
     id = plan.mutations[0].id;
     await target.client.run('create', { options: { title: 'Foreign reserved identity', id, ...(portableMarker ? { memorySource: 'portable:policy-v1', memoryOriginal: 'foreign' } : {}) } });
   } });
-  assert.ok('skipped' in result); assert.match(result.skipped[0].reason, /reserved import id/);
+  assert.ok('skipped' in result); assert.equal(result.skipped[0].conflict?.code, 'import_conflict'); assert.ok(result.skipped[0].conflict?.fields.includes('id'));
   assert.equal((await target.client.get(id)).item.title, 'Foreign reserved identity');
   }
   const imported = await tracker(t); await importDir(source.path, { ...imported.options, from: 'agents-md' });

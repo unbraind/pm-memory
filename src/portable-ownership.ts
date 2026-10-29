@@ -162,36 +162,39 @@ export function relationshipPatch(before: readonly Dependency[], after: readonly
   return { ...(additions.length === 0 ? {} : itemDocumentToMutationOptions(JSON.stringify({ dependencies: additions }), 'update')), ...(selectors.length === 0 ? {} : { depRemove: selectors }) };
 }
 /** Three-way merge: an unchanged portable value cannot overwrite a native edit. */
-export function ownershipPatch(current: Memory, row: PortableGuidance, body: string, ids: ReadonlyMap<string, string>, baselineIds: ReadonlyMap<string, string>, prior?: PreviousOwnership, removeRepresented = true): { options: Record<string, unknown>; ownership: OwnedTarget; conflicts: string[] } {
+export function ownershipPatch(current: Memory, row: PortableGuidance, body: string, ids: ReadonlyMap<string, string>, baselineIds: ReadonlyMap<string, string>, prior?: PreviousOwnership, removeRepresented = true, fields: readonly (keyof PortableFields)[] = PORTABLE_FIELDS): { options: Record<string, unknown>; ownership: OwnedTarget; conflicts: string[]; base: Record<string, unknown>; current: Record<string, unknown> } {
   const incoming = portableFields(row, body); const native = portableFields(current, current.body);
   const baseline = row.baseline?.fields ?? prior?.fields ?? native;
-  const options: Record<string, unknown> = {}; const conflicts: string[] = [];
-  for (const key of PORTABLE_FIELDS) {
+  const options: Record<string, unknown> = {}; const conflicts: string[] = []; const baseValues: Record<string, unknown> = { ...baseline }; const currentValues: Record<string, unknown> = { ...native };
+  for (const key of fields) {
     if (incoming[key] === native[key]) continue;
     if (prior?.fields[key] === native[key] || (incoming[key] !== baseline[key] && native[key] === baseline[key])) {
       const name = ['kind', 'why', 'how', 'pinned'].includes(key) ? `memory${key[0].toUpperCase()}${key.slice(1)}` : key;
       options[name] = key === 'body' ? body : key === 'tags' ? itemDocumentToMutationOptions(JSON.stringify({ tags: row.tags }), 'update').tags : row[key];
-    } else conflicts.push(key);
+    } else if (incoming[key] !== baseline[key]) conflicts.push(key);
   }
   const desired = inheritEdges(resolvedRelationships(row.relationships, ids), current.relationships, true);
-  const exported = resolvedRelationships(row.baseline?.relationships ?? row.relationships, baselineIds);
+  const exported = inheritEdges(resolvedRelationships(row.baseline?.relationships ?? row.relationships, baselineIds), current.relationships, false);
   const previouslyOwned = prior?.relationships === undefined ? undefined : inheritEdges(prior.relationships, current.relationships, false);
   const scope = new Set([...ids.values(), ...exported.map(edge => edge.id)]);
   const graph = [...current.relationships];
   const keys = new Set([...graph, ...desired, ...exported, ...(previouslyOwned ?? [])].filter(edge => scope.has(edge.id)).map(edgeKey));
+  let requestedGraph = false;
   for (const key of keys) {
     const now = graph.find(edge => edgeKey(edge) === key); const next = desired.find(edge => edgeKey(edge) === key);
     const base = exported.find(edge => edgeKey(edge) === key); const old = previouslyOwned?.find(edge => edgeKey(edge) === key);
+    if ((next !== undefined || removeRepresented) && edgeHash(next) !== edgeHash(base)) requestedGraph = true;
     if (edgeHash(now) === edgeHash(next)) continue;
     if (next === undefined && !removeRepresented) continue;
     const nativeEdit = prior?.nativeRelationships?.some(changed => [now, next, old].some(edge => edge !== undefined && edge.id === changed.id && edge.kind === changed.kind && (edge.source_kind === undefined || edge.source_kind === changed.source_kind)));
     if ((previouslyOwned !== undefined && !nativeEdit && edgeHash(now) === edgeHash(old)) || (edgeHash(next) !== edgeHash(base) && edgeHash(now) === edgeHash(base))) {
       const position = graph.findIndex(edge => edgeKey(edge) === key); if (position !== -1) graph.splice(position, 1);
       if (next !== undefined) graph.push(next);
-    } else if (edgeHash(next) !== edgeHash(base)) conflicts.push(`relationship:${key}`);
+    } else if (edgeHash(next) !== edgeHash(base)) { const field = `relationship:${key}`; conflicts.push(field); baseValues[field] = edgeHash(base); currentValues[field] = edgeHash(now); }
   }
   Object.assign(options, relationshipPatch(current.relationships, graph));
-  return { options, conflicts, ownership: { id: current.id, fields: incoming, relationships: desired, graph } };
+  if (Object.keys(options).length === 0 && !requestedGraph && !fields.some(key => incoming[key] !== baseline[key])) for (const key of fields) if (incoming[key] !== native[key]) conflicts.push(key);
+  return { options, conflicts, base: baseValues, current: currentValues, ownership: { id: current.id, fields: incoming, relationships: desired, graph } };
 }
 /** Read one complete, committed package receipt; missing or foreign journals prove nothing. */
 async function committedReceipt(store: Store, transactionId: string, id: string): Promise<OwnedTarget | undefined> {

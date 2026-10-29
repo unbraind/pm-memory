@@ -270,45 +270,40 @@ party that rewrites both the manifest and its markers can author a different pol
 
 ### Imports and rollback
 
-Imports validate the complete manifest, every body, privacy and policy ancestry
-before registering fields. SDK preview and native mutation options are shared.
-Each attempt binds the input digest to a fresh UUID in its checksummed intent;
-completed attempts never suppress a later A/B/A replay. Interrupted work retains
-its invocation and captured native history positions through publication.
+**Imports are forward-only; conflicts are reported, never rolled back.** Each
+item re-reads its current SDK document immediately before writing. Every field
+changed by the actual SDK mutation must still equal its saved base; otherwise the
+whole item and its dependent plan entries are skipped. The typed `import_conflict`
+receipt names the immutable item, fields, base/current fingerprints and remedy.
+Unrepresented fields, relationships, comments and dependencies remain native.
 
-Rollback **cancels rather than deletes** items created by that import. It resolves
-the status registry's canceled role through the SDK, records the import run in the
-cancellation reason, and keeps every incoming and outgoing relationship intact.
-A native Task that references an incomplete import still points at an existing,
-explicitly canceled item. Portable retries retain that native lifecycle status;
-reactivation is an explicit native action. An item with a peer-owned status or assignee is left
-untouched and reported when cancellation would erase that value.
-For updates, rollback compares each changed field with the exact SDK-read value
-this run wrote. Only fields that still match are restored; peer-edited fields,
-relationships and annotations remain unchanged and appear in the rollback receipt.
-There is no forced deletion or forced restoration mode. Audit history is retained.
-Memory selectors and exports use the same SDK-resolved cancellation roles, so a
-custom canceled status stays inactive without replacing its native status id.
+Imports validate the complete manifest, bodies, privacy and policy ancestry before
+registering fields. Preview uses the same SDK mutation options as apply. A fresh
+UUID accompanies the input digest, so A/B/A replays cannot reuse committed attempts.
+An interrupted import keeps its successful writes. Reruns read current SDK values:
+already-applied items are unchanged, remaining items are planned again, and native
+conflicts are reported. Graph nodes are created before adding represented edges.
+No import recovery path deletes, cancels, restores or reactivates an item.
 
-`commitWorkspaceTransaction` journals recovery and serializes other workspace
-transactions; **it does not exclude ordinary `pm update` or SDK writers**. The
-last pre-write hook re-reads the document hash and immutable history position;
-a moved read retries compensation or reports `superseded`. The re-read-to-write
-window still exists because the SDK lacks an expected-hash precondition:
+Older owned intents, including plans without publication evidence, are discarded
+with an append-only SDK workspace audit reason. Their frozen mutations and inverse
+values are never executed. The import then re-plans from current state, preserving
+native dependencies absent from the portable inventory. Foreign intent records
+are retained with a skip reason. Only the exact package-owned intent is removed.
+
+Per-item publication evidence records the SDK-normalized proposal and immutable
+history position. It can finish recording a successful write after a crash; it
+never authorizes a restoration. Portable field receipts use the SDK normalizer
+and native history invalidates only values actually edited by a peer. Source
+round trips that change nothing perform no item writes.
+
+`commitWorkspaceTransaction` journals cooperating transactions; **it does not
+exclude ordinary native SDK/CLI writers**. The final SDK hook rechecks saved field
+bases and the current document hash, but the re-read-to-write window remains:
 [pm-cli#1576](https://github.com/unbraind/pm-cli/issues/1576) and
-[pm-cli#1620](https://github.com/unbraind/pm-cli/issues/1620).
-These are best-effort conflict checks, not lock-based isolation or a fully atomic
-batch against unrelated native writers. Readers may observe intermediate writes.
-The owned intent is removed after recovery; SDK failures return typed remedies.
-New graph members are created before their represented edges are added, and
-cancellation keeps those identities valid if publication fails.
-Portable ownership receipts are committed in a second recoverable SDK workspace
-transaction, outside native item fields. Their field fingerprints use the SDK storage
-normalizer. When an edge-free SDK creation has no later update marker, `getItemAt(id, "1")` supplies its immutable field baseline without inventing a graph receipt. Immutable history identifies later native changes per field and relationship identity, so an older
-manifest can still replay without adopting a native edit as portable state. No input
-bookkeeping, verification, utility, unknown fields or other native-only metadata is
-rewritten on existing records. An unchanged source round trip performs no item writes.
-Legacy adapters share this ownership split and the same recoverable SDK batch; implicit defaults and absent wiki links grant no deletion authority. Native identity and source bookkeeping remain unchanged when portable content is revised. Raw input whitespace is never compared with stored values to classify native edits.
+[pm-cli#1620](https://github.com/unbraind/pm-cli/issues/1620). These checks do not
+provide lock-based native-writer isolation or an atomic multi-item batch. Readers
+may see completed items before the rest of an import finishes.
 
 Unknown frontmatter and Markdown sections belong to the imported document. Raw,
 companion and canonical imports compare the complete UTF-8 document, including
@@ -333,13 +328,9 @@ new source frontmatter refuses before tracker writes. Native policy bodies whose
 metadata lives in the manifest retain their explicit Markdown body contract. Canonical exports explicitly report index artifacts and
 their document snapshots as lossy when those artifacts are outside the inventory.
 
-Actual write receipts capture complete SDK-canonical hashes and immutable history
-positions. Author, message prefix and timestamp never grant compensation authority.
-Creation admission requires the independently planned SDK birth document; hooks
-are scoped to the exact tracker. The `write-guard` observer marks the final check,
-not an atomic precondition. A competing write started in that SDK callback is
-awaited after its transition, while writes to unrelated items can finish there.
-
+Creation admission compares the SDK proposal with an independently planned native
+birth document. Hooks are scoped to the exact tracker. The `write-guard` observer
+marks the final best-effort check, not an atomic SDK precondition.
 
 Relationship validation checks the kind, target and every optional provenance field
 (`created_at`, `author`, `source_kind`, `author_source`) in the first pure pass,
@@ -356,7 +347,7 @@ agents-md --create` (SDK `createMissingOrigins: true`) explicitly recreates it, 
 its display alias is free. A never-seen remote origin can be first imported into a
 fresh tracker. Older unbound policy inventories require a new export or explicit
 creation; they never adopt a same-name native record. Recovery also guards immutable
-lineage and compensates older plans that predate this identity contract.
+lineage and discards older frozen plans before replanning from current state.
 
 Export reuses original legacy bytes only when their decoded defaults and slug reproduce
 every portable field, including kind, description, rationale, application, pinning
@@ -399,7 +390,7 @@ graph and reported as `omitted_links: [{slug, target, kind, reason}]` in the typ
 receipt. Neither export nor re-import treats these receipts as deletion instructions. Foreign
 records are excluded before decoding package metadata and reported as `skipped` entries.
 An occupied import ID grants no ownership by itself. Planning validates the
-full SDK birth; compensation additionally requires the exact native write receipt. An independent private tracker applies the intended
+full SDK birth; import recovery never reverses native writes. An independent private tracker applies the intended
 node request through the SDK; its complete read-back document and immutable creation message are frozen in the intent
 before native writes. The observed target never supplies expected metadata. Only
 SDK-generated creation/update timestamps are excluded from that comparison. Extra
@@ -407,9 +398,8 @@ priority, custom metadata or dependencies remain foreign even with a copied crea
 marker. The birth fingerprint also travels in immutable SDK creation history, so
 tracker clones retain it without disposable transaction journals. A native birth
 version makes missing or altered evidence a refusal rather than a legacy fallback. Edited retries
-keep foreign births skipped; older unsealed markers use their publication receipts. Older intents
-derive missing evidence through the same SDK path while retaining any frozen
-document. SDK mutation hooks check changed creation proposals immediately before persistence. Later edits
+keep foreign births skipped; older unsealed markers use their publication receipts. Older intents are retired with an audit reason and replanned from current SDK state;
+their frozen requests are never replayed. SDK mutation hooks check changed creation proposals immediately before persistence. Later edits
 still own only represented fields. Legacy history fingerprints remain valid after
 namespace initialization; explicit tracker namespaces and birth identities stay strict.
 Native tag creates and updates use the SDK serializer, preserving comma-containing,
@@ -422,24 +412,25 @@ Installed extension code stays outside item validation. When the tracker contain
 packages, preview builds a private disposable projection from SDK-certified item
 paths, admitted history streams and guarded SDK schema/settings, then runs the same
 SDK mutation preview. Package dependency links and foreign files remain untouched.
-Every projection boundary has crash and competing-native-edit coverage; final CAS
-still guards the original tracker. The pinned SDK has no preview path filter or
+Every projection boundary has crash and competing-native-edit coverage; the final saved-base
+check still guards the original tracker, subject to the documented native-writer race. The pinned SDK has no preview path filter or
 host-bound batch method (the latter is tracked by
 [pm-cli#1598](https://github.com/unbraind/pm-cli/issues/1598)).
 
 The existing CLI commands return compact host TOON or `--json` counts; policy imports
-also return `skipped: [{slug, reason}]`. Bodies and renewal histories are kept in files
+also return `skipped` entries with a slug, reason and optional typed `import_conflict`
+containing the item, fields, base/current fingerprints and remedy. Bodies and renewal histories are kept in files
 rather than echoed in the receipt. Refusals preserve their typed `code` and safe
 `required` remedy in the SDK host's JSON error, including `origin_missing` and its
 explicit `--create` option. SDK clients use `importDir`, `exportDir`,
-`PortableImportOptions`, `PortableImportResult`, `PortableExportResult`, `PortableGuidance`,
+`PortableImportOptions`, `PortableImportResult`, `ImportConflict`, `PortableExportResult`, `PortableGuidance`,
 `PortablePolicyManifest`, `PortableBaseline`, `PortableFields`, `PortableOrigin`,
 `LegacyOriginManifest`, `LegacyOriginRecord` and the pure `parsePolicy`/`parseLegacyOrigins` validators. See the [typed
 example](examples/portable-guidance.ts) and [public-tracker validation](docs/portable-guidance-validation.md). The state-machine property executes 500 independent seeded
 sequences (master seed `0x1363cafe`) with 22,933 SDK-read state checks over both
 harnesses, older-manifest replays, native body/field/relationship edits,
 whitespace/CRLF, link additions/removals, repeated delete/re-import generations,
-peer edits at every shared-helper recovery boundary and mixed bounded/unbounded guidance. Every
+peer edits at observed forward-publication and recovery boundaries and mixed bounded/unbounded guidance. Every
 journal boundary is sampled across the model, including intent, each mutation and
 the node, data and provenance commits. One hundred fresh-tracker branches include
 foreign ownership arriving after a creation crash. Newer native edits after crashes, foreign ownership and restoring an

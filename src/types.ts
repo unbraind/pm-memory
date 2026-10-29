@@ -63,7 +63,7 @@ export interface Memory {
   id: string;
   /** Encoded source consent and text-free output lineage; absence is legacy unscoped data. */
   consent?: string;
-  /** Digest of the SDK-read normalized imported state, used to detect independent edits. */
+  /** Legacy import digest retained for read compatibility; it grants no field ownership. */
   importSnapshot?: string;
   /** Latest evidence-backed policy window, if explicitly bounded. */
   validity?: GuidanceWindow;

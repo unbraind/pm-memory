@@ -7,7 +7,6 @@ import { remember, renew, exportDir, importDir, MemoryError, POLICY_MANIFEST } f
 import type { PortablePolicyManifest } from '../index.ts';
 import { digest } from '../src/core.ts';
 import { policyBody } from '../src/portable.ts';
-import { replanNodes } from '../src/portable-replan.ts';
 import { pendingImport, type ImportPlan } from '../src/portable-plan.ts';
 import { tracker, snapshot, crashAtStep, assertSkippedUnchanged } from './helpers.ts';
 
@@ -47,19 +46,6 @@ test('foreign intents are skipped and checksummed package corruption refuses wit
   }
 });
 
-test('a different input cannot bypass an interrupted plan and malformed SDK journals stay preserved', async t => {
-  const { target, path, intent , row } = await interruptedScenario(t);
-
-  const bodyPath = join(path, row.path); const body = await readFile(bodyPath);
-  await writeFile(bodyPath, policyBody(row, 'Different input'));
-  await assert.rejects(importDir(path, { ...target.options, from: 'agents-md' }), refused);
-  await writeFile(bodyPath, body);
-  const plan = JSON.parse(JSON.parse(await readFile(intent, 'utf8')).payload) as { transactionId: string };
-  await mkdir(join(target.workspace, 'transactions', 'sdk'), { recursive: true });
-  const journal = join(target.workspace, 'transactions', 'sdk', `${plan.transactionId}-snapshot.json`);
-  await writeFile(journal, '{'); await assert.rejects(pendingImport(target.store), refused); assert.equal(await readFile(journal, 'utf8'), '{');
-});
-
 test('a native edit after interruption cannot be stamped as imported provenance', async t => {
   const { target, path } = await pendingScenario(t);
   let id = '';
@@ -70,7 +56,7 @@ test('a native edit after interruption cannot be stamped as imported provenance'
       throw new WorkspaceTransactionInterruptedError();
     }
   } }), WorkspaceTransactionInterruptedError);
-  await assert.rejects(importDir(path, { ...target.options, from: 'agents-md' }), refused);
+  const retry = await importDir(path, { ...target.options, from: 'agents-md' }); assert.ok('skipped' in retry);
   assert.equal((await target.client.get(id, { full: true })).item.body, 'Native peer edit');
 });
 
@@ -90,39 +76,17 @@ test('relationship inventory rejects malformed local edges and reports external 
   assert.ok(exported.omitted_links?.some(row => row.target === foreign.item.id && row.reason === 'missing'));
 });
 
-test('owned recovery plans require every revision and SDK guard in all frozen phases', async t => {
-  const { target, path, intent } = await interruptedScenario(t);
-  const plan = JSON.parse(JSON.parse(await readFile(intent, 'utf8')).payload) as ImportPlan;
-  const invalid: unknown[] = [
-    { ...plan, identityVersion: 2 }, { ...plan, expected: null }, { ...plan, nodesDone: 'yes' }, { ...plan, refusing: 'yes' }, { ...plan, attempt: 3 }, { ...plan, attempt: 'invalid' },
-    ...[null, [null], [3], [{}], [{ id: 3, document: '' }], [{ id: plan.expected[0].id, document: 3 }], [{ id: plan.expected[0].id, document: '', message: 3 }], [{ id: 'foreign', document: '' }]].map(births => ({ ...plan, births })),
-    ...[null, [3], ['wrong']].map(ownedTransactions => ({ ...plan, ownedTransactions })),
-    ...[null, [null], [3], [{}], [{ id: 'other', version: null }], [{ id: plan.expected[0].id, version: 3 }]].map(initial => ({ ...plan, initial })),
-    ...[null, {}, { ...plan.expected[0], id: 3 }, { ...plan.expected[0], slug: null }, { ...plan.expected[0], version: 3 }, { ...plan.expected[0], length: -1 }, { ...plan.expected[0], length: 0.5 }, { ...plan.expected[0], history: null }, { ...plan.expected[0], origin: {} }].map(row => ({ ...plan, expected: [row] })),
-    ...[null, [], { op: 'close' }, { op: 'create', id: 3 }, { op: 'create', id: 'x', options: null }, { op: 'create', id: 'x', options: 3 },
-      { ...plan.mutations[0], unique: null }, { ...plan.mutations[0], unique: [] }, { ...plan.mutations[0], unique: { key: 'wrong', value: 'policy' } }, { ...plan.mutations[0], unique: { key: 'memory_slug', value: 3 } },
-      { ...plan.mutations[0], id: 'absent' }, { ...plan.mutations[0], op: 'update', match: { key: 'wrong', value: 'version' } },
-    ].map(row => ({ ...plan, mutations: [row] })),
-    { ...plan, nodes: {} }, { ...plan, snapshots: {} },
-    ...[null, [], [null], [[]], [3], [{}], [{ ...plan.ownership![0], id: 3 }], [{ ...plan.ownership![0], id: 'foreign' }], [{ ...plan.ownership![0], fields: null }], [{ ...plan.ownership![0], relationships: null }], [{ ...plan.ownership![0], relationships: [null] }], [{ ...plan.ownership![0], relationships: [[]] }], [{ ...plan.ownership![0], relationships: [{}] }], [{ ...plan.ownership![0], relationships: [{ id: 3, kind: 'related' }] }], [{ ...plan.ownership![0], relationships: [{ id: 'foreign', kind: 'invalid' }] }], [{ ...plan.ownership![0], graph: null }]].map(ownership => ({ ...plan, ownership })),
-  ];
-  for (const value of invalid) {
-    const payload = JSON.stringify(value); await writeFile(intent, JSON.stringify({ owner: 'pm-memory-policy-plan:1', payload, checksum: digest(payload) }));
-    await assert.rejects(pendingImport(target.store), refused);
-  }
-});
-
 test('SDK captured-revision refusals remain typed and never publish stale data', async t => {
   const { source, target, path } = await pendingScenario(t);
   const native = (await source.client.listAllComplete({ includeBody: true })).items[0];
   await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onTransition: async event => {
     if (event.transition === 'prepared') await commitItemMutations({ pmRoot: source.workspace, author: 'memory-test', transactionId: 'public-cas-refusal', mutations: [{ op: 'update', id: native.id, match: { key: 'updated_at', value: 'stale-revision' }, options: { body: 'Must not publish' } }] });
-  } }), error => error instanceof MemoryError && error.code === 'conflict' && error.remedy.length > 0);
+  } }), error => error instanceof MemoryError && ['conflict', 'transaction'].includes(error.code) && error.remedy.length > 0);
   assert.equal((await source.client.get(native.id, { full: true })).item.body, native.body);
   assert.equal((await target.client.listAllComplete()).items.length, 0);
 });
 
-test('failed provenance compensates the full import and retains later native edits on retry', async t => {
+test('failed publication keeps successful forward writes and retains later native edits on retry', async t => {
   for (const peer of [false, true]) {
     const { target, path, row } = await pendingScenario(t);
     await importDir(path, { ...target.options, from: 'agents-md' });
@@ -132,10 +96,10 @@ test('failed provenance compensates the full import and retains later native edi
       if (event.transactionId.endsWith('-snapshot') && event.transition === 'step_recorded') throw new Error('Provenance publication failure');
     } }), error => error instanceof MemoryError && error.code === 'transaction');
     const native = (await target.client.listAllComplete({ includeBody: true })).items[0];
-    assert.equal(native.body, 'Public review policy');
+    assert.equal(native.body, 'Retry B');
     if (peer) {
       await target.client.update(native.id, { body: 'Peer C' });
-      await assertSkippedUnchanged(() => importDir(path, { ...target.options, from: 'agents-md' }), target.workspace);
+      const before = (await target.client.listAllComplete({ includeBody: true })).items; const retry = await importDir(path, { ...target.options, from: 'agents-md' }); assert.ok('skipped' in retry); assert.equal(retry.skipped.length, 1); assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
     } else {
       await importDir(path, { ...target.options, from: 'agents-md' });
       assert.equal((await target.client.get(native.id, { full: true })).item.body, 'Retry B');
@@ -144,44 +108,12 @@ test('failed provenance compensates the full import and retains later native edi
   }
 });
 
-test('crashes at every data and provenance compensation boundary converge on retry', async t => {
-  for (const phase of ['nodes', 'data', 'snapshot']) for (const boundary of ['compensating', 'step_compensating', 'step_compensated', 'compensated']) {
-    const { target, path, row } = await pendingScenario(t);
-    if (phase !== 'nodes') await importDir(path, { ...target.options, from: 'agents-md' });
-
-    await writeFile(join(path, row.path), policyBody(row, `Recovered ${phase} ${boundary}`));
-    let interrupted = false;
-    await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onTransition: event => {
-      const actual = event.transactionId.endsWith('-nodes') ? 'nodes' : event.transactionId.endsWith('-snapshot') ? 'snapshot' : 'data';
-      if (actual !== phase) return;
-      if (event.transition === 'step_recorded') throw new Error('Begin SDK compensation');
-      if (event.transition === boundary) { interrupted = true; throw new WorkspaceTransactionInterruptedError(); }
-    } }));
-    assert.equal(interrupted, true, `${phase}:${boundary}`);
-    await importDir(path, { ...target.options, from: 'agents-md' });
-    const items = (await target.client.listAllComplete({ includeBody: true })).items;
-    assert.equal(items.length, 1); assert.equal(items[0].body, `Recovered ${phase} ${boundary}`);
-    assert.equal((await importDir(path, { ...target.options, from: 'agents-md' })).unchanged, 1);
-  }
-});
-
-test('reserved-node replanning validates owned payloads before any publication', async t => {
-  const { target, intent } = await interruptedScenario(t);
-  const plan = JSON.parse(JSON.parse(await readFile(intent, 'utf8')).payload) as ImportPlan;
-  const before = await snapshot(target.workspace);
-  for (const original of [3, ...['{', 'null', '{}', '[]', '[{},"body"]'].map(value => Buffer.from(value).toString('base64'))]) {
-    const changed = { ...plan, mutations: plan.mutations.map(row => ({ ...row, options: { ...row.options, memoryOriginal: original } })) };
-    await assert.rejects(target.store.write(() => replanNodes(target.store, changed)), error => error instanceof MemoryError && error.code === 'history');
-    assert.deepEqual(await snapshot(target.workspace), before);
-  }
-});
-
 test('foreign intent replacements at publication boundaries are retained and can be cleared by their owner', async t => {
-  for (const boundary of ['previewed', 'intent', 'nodes', 'readback', 'published', 'recover-published']) {
+  for (const boundary of ['previewed', 'intent', 'nodes', 'readback', 'published', 'retire-audit']) {
     const { target, path, row, intent } = await pendingScenario(t);
     await writeFile(join(path, row.path), policyBody(row, 'Harness B'));
     const foreign = JSON.stringify({ owner: 'foreign:tool', untouched: true }); let injected = false;
-    if (boundary === 'recover-published') await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onStep: step => { if (step === 'published') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+    if (boundary === 'retire-audit') await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onStep: step => { if (step === 'published') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
     const result = await importDir(path, { ...target.options, from: 'agents-md', onStep: async step => {
       if (step === boundary) { await writeFile(intent, foreign); injected = true; }
     } });

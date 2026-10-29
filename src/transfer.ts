@@ -1,3 +1,4 @@
+import { importConflict } from './portable-write.ts';
 import { isCanceled } from './lifecycle.ts';
 import { lstat, readdir, readFile, mkdir, writeFile, mkdtemp, rename, rm, access, chmod } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -7,7 +8,7 @@ import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDoc
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { digest, MemoryError, privacy } from './core.ts';
 import { metadata, Store } from './store.ts';
-import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, policyPayload, policyParts, ownedMemories, closeSkips, parsePolicy, guidanceOrigin } from './portable.ts';
+import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, policyPayload, policyParts, ownedMemories, closeSkips, appendImportSkips, parsePolicy, guidanceOrigin } from './portable.ts';
 import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship, LegacyPortableSource } from './portable.ts';
 import type { Harness, Memory, MemoryOptions } from './types.ts';
 import { ownershipPatch, portableFields, previousOwnership, creationMetadata, PORTABLE_FIELDS, validFields, projectSourceFields } from './portable-ownership.ts';
@@ -179,7 +180,7 @@ export async function importDir(path: string, options: PortableImportOptions): P
     const selected = new Map<string, Memory>(); const skipped = new Map<string, string>();
     const intakeOrigins = new Map<string, PortableOrigin>(); const births = new Map<string, Source>();
     for (const source of parsed) {
-      const creators = catalog.creators.filter(row => !row.compensated && legacyOrigin(row.metadata, source, options.from));
+      const creators = catalog.creators.filter(row => legacyOrigin(row.metadata, source, options.from));
       const unproven = initial.some(item => {
         if (!((item.source === `${options.from}:relative-file` && item.slug === source.slug) || creators.some(row => row.id === item.id))) return false;
         const original = origins.get(item.id)?.memory_original; if (typeof original !== 'string') return true;
@@ -205,7 +206,7 @@ export async function importDir(path: string, options: PortableImportOptions): P
     const baselineIds = new Map([...references.map(item => [item.slug, item.id] as const), ...ids]);
     for (const source of parsed) if (!selected.has(source.slug) && foreign.some(item => item.memory_slug === source.slug || legacyOrigin(origins.get(item.id), source, options.from))) skipped.set(source.slug, 'Foreign record has no package-owned source');
     closeSkips(parsed.map(source => ({ slug: source.slug, relationships: sourceRelationships(source, references) })), skipped);
-    const result = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [...foreign.filter(item => !parsed.some(source => source.slug === item.memory_slug && skipped.has(source.slug))).map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })), ...[...skipped].map(([slug, reason]) => ({ slug, reason }))] };
+    const result: PortableImportResult = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [...foreign.filter(item => !parsed.some(source => source.slug === item.memory_slug && skipped.has(source.slug))).map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })), ...[...skipped].map(([slug, reason]) => ({ slug, reason }))] };
     const mutations: BulkItemMutation[] = []; const ownership: OwnedTarget[] = [];
     for (const source of parsed) {
       if (skipped.has(source.slug)) continue;
@@ -224,35 +225,43 @@ export async function importDir(path: string, options: PortableImportOptions): P
         const before = births.get(previous.id)!;
         const prior = await previousOwnership(store, previous, baselineIds);
         const row = sourceOwnership(source, before, previous, references);
-        const patch = ownershipPatch(previous, row, source.body, baselineIds, baselineIds, prior, false);
+        const patch = ownershipPatch(previous, row, source.body, baselineIds, baselineIds, prior, false, ['body', ...source.represented]);
         const next = { version: 1 as const, format: 'legacy' as const, harness: options.from, path: source.path, original: source.original };
         const current = previous.document ?? { ...next, original: prior?.source?.original ?? before.original };
         const unchangedDocument = Buffer.from(policyPayload({ ...previous, document: current })).toString('base64') === source.original;
         const document = unchangedDocument ? { options: {}, conflict: false } : documentPatch(previous, next, prior?.source?.original ?? before.original, prior?.sourceEdited, prior?.documentHash);
-        Object.assign(patch.options, document.options); if (document.conflict) patch.conflicts.push('document');
+        Object.assign(patch.options, document.options); if (document.conflict) { patch.conflicts.push('document'); patch.base.document = prior?.documentHash; patch.current.document = previous.document === undefined ? undefined : digest(encodeDocument(previous.document)); }
         let policyBodyHash = previous.policyBody !== undefined && prior?.policyBodyHash === digest(encodeDocument(previous.policyBody)) ? prior.policyBodyHash : undefined;
         if (previous.policyBody !== undefined && !patch.conflicts.includes('body') && policyParts(previous).body !== source.body) {
           const body = { version: 1 as const, format: 'policy' as const, harness: options.from, path: source.path, original: Buffer.from(source.body).toString('base64') };
           const updated = documentPatch({ document: previous.policyBody }, body, undefined, prior?.bodyEdited || prior?.policyBodyHash === undefined, prior?.policyBodyHash);
-          if (updated.conflict) { delete patch.options.body; patch.conflicts.push('body'); }
+          if (updated.conflict) { delete patch.options.body; patch.conflicts.push('policy_body'); patch.base.policy_body = prior?.policyBodyHash; patch.current.policy_body = digest(encodeDocument(previous.policyBody)); }
           if (updated.options.memoryDocument !== undefined) { patch.options.memoryPolicyBody = updated.options.memoryDocument; policyBodyHash = digest(encodeDocument(body)); }
         }
         if (patch.conflicts.length > 0) {
-          if (Object.keys(patch.options).length === 0) throw new MemoryError('conflict', 'Import would overwrite an independently edited memory', 'Export or rename the source before retrying');
-          result.skipped.push({ slug: source.slug, reason: `Independently edited native fields retained: ${patch.conflicts.join(', ')}` });
+          const reason = `import_conflict: Independently edited native fields retained: ${patch.conflicts.join(', ')}`;
+          result.skipped.push({ slug: source.slug, reason, conflict: importConflict(id, patch.conflicts, patch.base, patch.current) });
+          skipped.set(source.slug, reason); continue;
         }
-        if (Object.keys(patch.options).length === 0) { result.unchanged++; continue; }
+        if (Object.keys(patch.options).length === 0) { result.unchanged++; ownership.push(sourceReceipt(patch.ownership, source)); continue; }
         await store.history(previous.id);
         const documentHash = document.options.memoryDocument !== undefined ? digest(String(document.options.memoryDocument)) : previous.document !== undefined && prior?.documentHash === digest(encodeDocument(previous.document)) ? prior.documentHash : undefined;
         ownership.push(sourceReceipt({ ...patch.ownership, ...(documentHash === undefined ? {} : { documentHash }), ...(policyBodyHash === undefined ? {} : { policyBodyHash }) }, source)); result.updated++;
         mutations.push({ op: 'update', id, match: { key: 'updated_at', value: corpus.find(item => item.id === id)!.updated_at }, options: patch.options });
       }
     }
+    closeSkips(parsed.map(source => ({ slug: source.slug, relationships: sourceRelationships(source, references) })), skipped);
+    appendImportSkips(result, skipped, ids);
+    for (let index = mutations.length - 1; index >= 0; index--) if (skipped.has(parsed.find(source => ids.get(source.slug) === mutations[index].id)!.slug)) {
+      result[mutations[index].op === 'create' ? 'imported' : 'updated']--; ownership.splice(ownership.findIndex(row => row.id === mutations[index].id), 1); mutations.splice(index, 1);
+    }
+    const admittedOwnership = ownership.filter(row => !skipped.has(parsed.find(source => ids.get(source.slug) === row.id)!.slug));
+    result.unchanged = admittedOwnership.filter(row => !mutations.some(mutation => mutation.id === row.id)).length;
     if (mutations.length === 0) { const { skipped: refusals, ...counts } = result; return refusals.length === 0 ? counts : result; }
     const readSet = new Map(parsed.filter(source => !skipped.has(source.slug)).map(source => [ids.get(source.slug)!, selected.get(source.slug)?.slug ?? source.slug]));
     for (const target of ownership) for (const edge of target.relationships) if (!readSet.has(edge.id)) readSet.set(edge.id, initial.find(item => item.id === edge.id)!.slug);
     const expected = await expectedTargets(store, [...readSet].map(([id, slug]) => ({ id, slug, origin: catalog.creators.find(row => row.id === id)?.origin })), corpus);
-    const plan = { identityVersion: 1 as const, ...identity, input: inputHash, author: resolveAuthorIdentity(options.author, settings.author_default).author, mutations, ownership, expected, initial: expected, members: expected.map(row => row.id), result };
+    const plan = { identityVersion: 1 as const, ...identity, input: inputHash, author: resolveAuthorIdentity(options.author, settings.author_default).author, mutations, outcomes: Object.fromEntries(parsed.filter(row => !skipped.has(row.slug)).map(row => { const mutation = mutations.find(mutation => mutation.id === ids.get(row.slug)); return [ids.get(row.slug)!, mutation === undefined ? 'unchanged' as const : mutation.op === 'create' ? 'imported' as const : 'updated' as const]; })), ownership: admittedOwnership, expected, members: expected.map(row => row.id), result };
     await validateImportPlan(store, plan, options.onStep); await store.register(options.onStep);
     await previewImport(store, plan, options.onStep);
     await options.onStep?.('previewed');

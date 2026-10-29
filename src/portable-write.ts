@@ -1,126 +1,172 @@
 import type { TrackerSchema } from './lifecycle.ts';
 import { trackerSchema } from './lifecycle.ts';
 import { resolve } from 'node:path';
-import { canonicalDocument, serializeItemDocument, readSettings, resolveItemTypeRegistry, locateItem, getItemPath, readLocatedItem, getHistoryPath, readHistoryEntries, hashHistoryStream, verifyHistoryEntries, runWithActiveExtensions, setActiveExtensionHooks, create, update, commitWorkspaceTransaction } from '@unbrained/pm-cli/sdk';
-import type { ItemDocument, BulkItemMutation } from '@unbrained/pm-cli/sdk';
-import type { BeforeMutationHook, OnWriteHook } from '@unbrained/pm-cli/sdk/authoring';
+import { canonicalDocument, serializeItemDocument, certifyCompleteListResult, getItemAt, readSettings, resolveItemTypeRegistry, locateItem, readLocatedItem, getHistoryPath, readHistoryEntries, hashHistoryStream, verifyHistoryEntries, runWithActiveExtensions, setActiveExtensionHooks, create, update, commitWorkspaceTransaction } from '@unbrained/pm-cli/sdk';
+import type { ItemDocument, BulkItemMutation, WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
+import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { ImportPlan } from './portable-plan.ts';
 import type { Store } from './store.ts';
-import type { PortableImportOptions } from './portable.ts';
-import { rollbackTarget } from './portable-rollback.ts';
+import { isDeepStrictEqual } from 'node:util';
+import { savePlan, importIdentity } from './portable-plan.ts';
+import type { OwnedTarget } from './portable-ownership.ts';
+import { foreignMemories, type ImportConflict, type PortableImportOptions } from './portable.ts';
 import { birthDocument } from './portable-preview.ts';
 import { digest, MemoryError } from './core.ts';
 
 /** Complete SDK document and immutable history position; no attribution is an ownership token. */
 export interface NativeProof { hash: string | null; history: string; length: number; version: string | null }
-/** Exact proposal retained before native publication and confirmed by the SDK write hook. */
-export interface WriteReceipt { id: string; key: string; before: NativeProof; proposed: string | null; after?: NativeProof }
 /** Hash both native reads and SDK hook documents through the identical SDK canonical serializer. */
 export function documentHash(document: ItemDocument | null, schema?: TrackerSchema): string | null { return document === null ? null : digest(serializeItemDocument(canonicalDocument(document, { schema }), { schema })); }
 /** Read the actual SDK document, rejecting a history/file disagreement rather than adopting it. */
-export async function nativeProof(store: Store, id: string): Promise<NativeProof> {
+export async function nativeState(store: Store, id: string): Promise<{ document: ItemDocument | null; proof: NativeProof }> {
   const settings = await readSettings(store.workspace); const schema = await trackerSchema(store.workspace);
   const located = await locateItem(store.workspace, id, settings.id_prefix, settings.item_format, resolveItemTypeRegistry(settings).type_to_folder);
   const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id);
   const document = located === null ? null : (await readLocatedItem(located, { schema })).document;
   if (!verifyHistoryEntries(entries, document ?? undefined).ok) throw new MemoryError('conflict', 'Native document and history disagree', 'Retain the native record and restore a verified history before retrying');
-  return { hash: documentHash(document, schema), history: hashHistoryStream(entries), length: entries.length, version: document?.metadata.updated_at ?? null };
+  return { document, proof: { hash: documentHash(document, schema), history: hashHistoryStream(entries), length: entries.length, version: document?.metadata.updated_at ?? null } };
 }
-/** Equality includes the monotonically growing SDK history position, detecting content ABA. */
-export function sameProof(a: NativeProof, b: NativeProof): boolean { return a.hash === b.hash && a.history === b.history && a.length === b.length; }
 /** Reject malformed native fingerprints before interpreting recovery or publication data. */
 export function validNativeProof(value: unknown): value is NativeProof {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const row = value as NativeProof;
   return (row.hash === null || typeof row.hash === 'string' && /^[a-f0-9]{64}$/.test(row.hash)) && typeof row.history === 'string' && /^[a-f0-9]{64}$/.test(row.history) && Number.isSafeInteger(row.length) && row.length >= 0 && (row.version === null || typeof row.version === 'string');
 }
-/** Validate an owned recovery receipt before it can authorize any write. */
-export function validWriteReceipt(value: unknown): value is WriteReceipt {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const row = value as Record<string, unknown>;
-  return typeof row.id === 'string' && typeof row.key === 'string' && validNativeProof(row.before) && (row.proposed === null || typeof row.proposed === 'string' && /^[a-f0-9]{64}$/.test(row.proposed)) && (row.after === undefined || validNativeProof(row.after));
+/** One in-flight forward publication, needed only to recognize a write interrupted before its receipt. */
+export interface Publication {
+  /** Immutable target and unique publication journal identity. */
+  id: string;
+  /** Unique per-write SDK receipt identity, never a content-only key. */
+  transactionId: string;
+  /** Stable native step used to finish this same publication after interruption. */
+  stepId: string;
+  /** Exact SDK history position before this forward write. */
+  before: NativeProof;
+  /** Exact SDK-normalized proposed document hash, persisted before the write. */
+  proposed: string;
+  /** Represented input whose successful forward write will be published. */
+  target: OwnedTarget;
 }
-/** A successful receipt, or its exact single SDK append after a crash, proves the current write. */
-export async function receiptMatches(store: Store, receipt: WriteReceipt): Promise<boolean> {
-  try {
-    const current = await nativeProof(store, receipt.id);
-    if (receipt.after !== undefined) return sameProof(current, receipt.after);
-    const entries = await readHistoryEntries(getHistoryPath(store.workspace, receipt.id), receipt.id);
-    return current.hash === receipt.proposed && current.length === receipt.before.length + 1 && hashHistoryStream(entries.slice(0, receipt.before.length)) === receipt.before.history;
-  } catch { return false; }
+/** Compact typed conflict values are fingerprints of SDK-normalized fields, never echoed bodies. */
+export function importConflict(item: string, fields: string[], base: Record<string, unknown>, current: Record<string, unknown>): ImportConflict {
+  const hashes = (values: Record<string, unknown>) => Object.fromEntries(fields.map(field => [field, digest(JSON.stringify({ present: Object.hasOwn(values, field), value: values[field] }))]));
+  return { code: 'import_conflict', item, fields, base: hashes(base), current: hashes(current), remedy: 'Export the current target and reconcile these fields before retrying; prior successful writes were retained' };
 }
-/** Only this transaction's exact current write may be compensated; native peer appends always win. */
-export async function ownsWritten(store: Store, plan: ImportPlan, id: string): Promise<boolean> {
-  const initial = (plan.initial ?? plan.expected).find(target => target.id === id);
-  if (initial === undefined) return false;
-  const entries = await readHistoryEntries(getHistoryPath(store.workspace, id), id).catch(() => []);
-  if (hashHistoryStream(entries.slice(0, initial.length)) !== initial.history) return false;
-  for (const receipt of [...(plan.writes ?? [])].reverse()) if (receipt.id === id && (receipt.after?.length ?? receipt.before.length + 1) > receipt.before.length && await receiptMatches(store, receipt)) return true;
-  return false;
+/** A moved item is a typed skip, not an instruction to undo preceding writes. */
+export class ImportMoved extends Error {
+  /** Public field-level conflict receipt. */
+  readonly conflict: ImportConflict;
+  /** Carry safe field fingerprints to the result. */
+  constructor(conflict: ImportConflict) { super('Portable import base changed'); this.conflict = conflict; }
 }
-/** Capture native publication and reread its hash/history immediately before the SDK write; a race window remains. */
-export async function writeWithProof<T>(store: Store, plan: ImportPlan, receipt: WriteReceipt, persist: () => Promise<void>, run: () => Promise<T>, onStep?: PortableImportOptions['onStep'], checkProposal?: (before: ItemDocument | null, after: ItemDocument | null) => void): Promise<T> {
-  return runWithActiveExtensions({ path: store.workspace, noExtensions: true }, async () => {
-    const schema = await trackerSchema(store.workspace);
-    let failure: unknown;
-    let observed = false;
+/** Compare only fields the actual SDK mutation changes, using SDK-normalized documents on both sides. */
+export function assertBase(id: string, base: ItemDocument | null, before: ItemDocument | null, after: ItemDocument | null): string[] {
+  const original = { ...base?.metadata, body: base?.body }; const current = { ...before?.metadata, body: before?.body }; const next = { ...after?.metadata, body: after?.body };
+  const from = new Map(Object.entries(original)); const now = new Map(Object.entries(current)); const to = new Map(Object.entries(next));
+  const fields = [...new Set([...now.keys(), ...to.keys()])].filter(key => !['updated_at', 'created_at'].includes(key) && !isDeepStrictEqual(now.get(key), to.get(key)));
+  const conflicts = fields.filter(key => !isDeepStrictEqual(now.get(key), from.get(key)));
+  if (base === null && before !== null || base !== null && before === null) conflicts.push('id');
+  if (before !== null && (before.metadata.type !== 'Knowledge' || typeof before.metadata.memory_slug !== 'string' || foreignMemories([{ ...before.metadata, type: String(before.metadata.type) }]).length > 0)) conflicts.push('type', 'memory_source');
+  if (base !== null && before !== null) for (const key of ['type', 'memory_source'] as const) if (!isDeepStrictEqual(base.metadata[key], before.metadata[key])) conflicts.push(key);
+  if (conflicts.length > 0) throw new ImportMoved(importConflict(id, conflicts, original, current));
+  return fields;
+}
+/** Recover only the exact SDK history append represented by the durable forward proposal. */
+async function publicationResult(store: Store, pending: Publication): Promise<{ owner: string; targets: OwnedTarget[] } | undefined> {
+  const entries = await readHistoryEntries(getHistoryPath(store.workspace, pending.id), pending.id); const length = pending.before.length + 1;
+  if (entries.length < length || hashHistoryStream(entries.slice(0, pending.before.length)) !== pending.before.history) return undefined;
+  const { document } = await getItemAt(pending.id, String(length), { pmRoot: store.workspace });
+  if (documentHash(document, await trackerSchema(store.workspace)) !== pending.proposed) return undefined;
+  const target = { ...pending.target, proof: { hash: pending.proposed, length, history: hashHistoryStream(entries.slice(0, length)), version: document.metadata.updated_at } };
+  return { owner: 'pm-memory-policy-ownership:1', targets: [target] };
+}
+/** Finish a proven forward publication before retiring its interrupted intent; never issue an inverse item write. */
+export async function publishPending(store: Store, plan: ImportPlan, options?: Pick<PortableImportOptions, 'onStep' | 'onTransition'>): Promise<void> {
+  const pending = plan.publication; if (pending === undefined) return;
+  await options?.onStep?.('recover-publication');
+  const result = await publicationResult(store, pending);
+  if (result !== undefined) await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${pending.transactionId}-snapshot`, steps: [{ id: pending.stepId, inspect: async () => ({ state: 'applied', result: JSON.parse(JSON.stringify(result)) as WorkspaceTransactionJsonValue }), apply: async () => JSON.parse(JSON.stringify(result)) as WorkspaceTransactionJsonValue, compensate: async () => {} }], onTransition: options?.onTransition });
+  delete plan.publication; await savePlan(store, plan); await options?.onStep?.('recover-recorded');
+}
+/** Read an input-keyed planned outcome without consulting inherited object properties. */
+function plannedOutcome(plan: ImportPlan, id: string): 'imported' | 'updated' | 'unchanged' | undefined { return plan.outcomes !== undefined && Object.hasOwn(plan.outcomes, id) ? plan.outcomes[id] : undefined; }
+/** Recheck a saved field base in the SDK's actual pre-write hook; plain writers can still race the later publication. */
+async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMutation, target: OwnedTarget, base: ItemDocument | null, options: PortableImportOptions, stepId: string): Promise<void> {
+  const identity = await importIdentity(store, plan.input); let completed: NativeProof | undefined;
+  await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${identity.transactionId}-snapshot`, steps: [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply: async () => {
+  const initial = await nativeState(store, mutation.id);
+  if (mutation.op === 'create' && initial.document !== null || mutation.op === 'update' && initial.document === null) throw new ImportMoved(importConflict(mutation.id, ['id'], { id: base?.metadata.id }, { id: initial.document?.metadata.id }));
+  await runWithActiveExtensions({ path: store.workspace, noExtensions: true }, async () => {
+    const schema = await trackerSchema(store.workspace); let failure: unknown;
     const guard: BeforeMutationHook = async context => {
-      if (resolve(context.pm_root) !== resolve(store.workspace) || (context.after?.metadata.id ?? context.before?.metadata.id) !== receipt.id) return;
+      if (resolve(context.pm_root) !== resolve(store.workspace) || (context.after?.metadata.id ?? context.before?.metadata.id) !== mutation.id) return;
       try {
-        await onStep?.('write-guard');
-        if (documentHash(context.before, schema) !== receipt.before.hash || !sameProof(await nativeProof(store, receipt.id), receipt.before)) throw new MemoryError('conflict', 'Native target moved since its captured SDK read', 'Retry the import; the peer revision was retained');
-        checkProposal?.(context.before, context.after);
-        const birth = plan.births?.find(row => row.id === receipt.id);
-        if (context.before === null && birth !== undefined && birth.document !== birthDocument(context.after!, schema)) throw new MemoryError('conflict', 'SDK creation defaults changed', 'Retry with the current native schema; no unexpected creation was written');
-        receipt.proposed = documentHash(context.after, schema); (plan.writes ??= []).push(receipt); observed = true;
-        await persist();
+        await options.onStep?.('write-guard');
+        const state = await nativeState(store, mutation.id);
+        if (context.before === null) {
+          const peers = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
+          if (peers.some(row => row.id !== mutation.id && row.memory_slug === mutation.options!.memorySlug)) throw new ImportMoved(importConflict(mutation.id, ['memory_slug'], { memory_slug: undefined }, { memory_slug: mutation.options!.memorySlug }));
+        }
+        const fields = assertBase(mutation.id, base, state.document, context.after);
+        const expected = plan.expected.find(row => row.id === mutation.id)!;
+        const entries = await readHistoryEntries(getHistoryPath(store.workspace, mutation.id), mutation.id);
+        const touched = fields.filter(field => { const path = field === 'body' ? '/body' : `/metadata/${field.replace(/~/g, '~0').replace(/\//g, '~1')}`; return entries.slice(expected.length).some(entry => entry.patch.some(patch => patch.path === path || patch.path.startsWith(`${path}/`))); });
+        if (touched.length > 0 || hashHistoryStream(entries.slice(0, expected.length)) !== expected.history) throw new ImportMoved(importConflict(mutation.id, [...touched, '$history'], { ...base?.metadata, body: base?.body, $history: expected.history }, { ...state.document?.metadata, body: state.document?.body, $history: state.proof.history }));
+        const birth = plan.births?.find(row => row.id === mutation.id);
+        if (context.before === null && birth !== undefined && birth.document !== birthDocument(context.after!, schema)) throw new ImportMoved(importConflict(mutation.id, ['birth'], { birth: birth.document }, { birth: birthDocument(context.after!, schema) }));
+        if (documentHash(context.before, schema) !== state.proof.hash) throw new ImportMoved(importConflict(mutation.id, ['revision'], { revision: documentHash(context.before, schema) }, { revision: state.proof.hash }));
+        plan.publication = { id: mutation.id, transactionId: identity.transactionId, stepId, before: state.proof, proposed: documentHash(context.after, schema)!, target };
+        await savePlan(store, plan);
       } catch (error) { failure = error; throw error; }
     };
-    const written: OnWriteHook = async context => {
-      if (context.item_id !== receipt.id || context.op.includes(':history')) return;
-      const settings = await readSettings(store.workspace); const type = context.item_type ?? context.after?.metadata.type ?? context.before?.metadata.type;
-      if (type === undefined || ![settings.item_format, 'toon' as const].some(format => resolve(getItemPath(store.workspace, type, receipt.id, format, resolveItemTypeRegistry(settings).type_to_folder)) === resolve(context.path))) return;
-      try {
-        const after = await nativeProof(store, receipt.id); Object.assign(receipt, { after });
-        if (context.op !== 'delete' && after.hash !== documentHash(context.after!, schema)) throw new Error('Native write proof disagrees with SDK publication');
-        await persist();
-      } catch (error) { failure = error; throw error; }
-    };
-    setActiveExtensionHooks({ beforeCommand: [], afterCommand: [], onRead: [], onIndex: [], beforeMutation: [{ layer: 'project', name: 'pm-memory-exact-write', run: guard }], onWrite: [{ layer: 'project', name: 'pm-memory-exact-receipt', run: written }] });
-    let result: T;
-    try { result = await run(); } catch (error) { throw failure === undefined ? error : failure; }
-    if (failure !== undefined) throw failure;
-    if (!observed) { receipt.proposed = receipt.before.hash; receipt.after = receipt.before; (plan.writes ??= []).push(receipt); await persist(); }
-    return result;
+    setActiveExtensionHooks({ beforeCommand: [], afterCommand: [], onRead: [], onIndex: [], onWrite: [], beforeMutation: [{ layer: 'project', name: 'pm-memory-forward-base', run: guard }] });
+    try {
+      const suffix = mutation.op === 'create' ? `-nodes ${mutation.id} create memory-birth-v1:${digest(plan.births!.find(row => row.id === mutation.id)!.document)}` : ` forward ${mutation.id}`;
+      const common = { ...mutation.options, author: plan.author, message: `bulk-item-transaction ${identity.transactionId}${suffix}` };
+      if (mutation.op === 'create') await create({ ...common, id: mutation.id }, { pmRoot: store.workspace });
+      else { const result = await update(mutation.id, common, { pmRoot: store.workspace }); if (result.changed_fields.length === 0 && plannedOutcome(plan, mutation.id) === 'updated') plan.outcomes![mutation.id] = 'unchanged'; }
+    } catch (error) { throw failure ?? error; }
   });
+  if (plannedOutcome(plan, mutation.id) !== 'unchanged') (plan.applied ??= []).push(mutation.id);
+  await options.onStep?.('written');
+  const result = plan.publication === undefined ? undefined : await publicationResult(store, plan.publication); completed = result?.targets[0].proof;
+  return JSON.parse(JSON.stringify(result ?? null)) as WorkspaceTransactionJsonValue;
+  }, compensate: async () => {} }], onTransition: options.onTransition });
+  if (completed !== undefined) Object.assign(plan.expected.find(row => row.id === mutation.id)!, { length: completed.length, history: completed.history, version: completed.version });
+  delete plan.publication; await savePlan(store, plan);
+  await options.onStep?.('publication');
 }
-/** Journal exact SDK steps; workspace coordination serializes transactions only, not ordinary native writers. */
-export async function commitPortableBatch(store: Store, plan: ImportPlan, transactionId: string, phase: string, mutations: BulkItemMutation[], persist: () => Promise<void>, guard: () => Promise<void>, options: PortableImportOptions): Promise<void> {
-  const checked = { done: false };
-  await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId, lockTtlSeconds: 3600, steps: mutations.map((mutation, index) => {
-    const key = `${phase}:${index}:${digest(JSON.stringify([mutation.op, mutation.id, mutation.options]))}`;
-    let before: NativeProof;
-    return {
-      id: `${index + 1}-${mutation.op}-${mutation.id.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
-      /** Decide from current native state, never a message marker; this does not exclude plain SDK writers. */
-      inspect: async () => {
-        if (!checked.done) { await guard(); Object.assign(checked, { done: true }); }
-        const receipt = plan.writes?.findLast(row => row.key === key);
-        if (receipt !== undefined && await receiptMatches(store, receipt)) return { state: 'applied' as const, result: { id: mutation.id, op: mutation.op } };
-        before = await nativeProof(store, mutation.id);
-        return { state: 'pending' as const };
-      },
-      /** Native hooks recheck the same read-set immediately before mutation; no atomic precondition is claimed. */
-      apply: async () => {
-        before = await nativeProof(store, mutation.id); await guard();
-        const receipt: WriteReceipt = { id: mutation.id, key, before, proposed: null };
-        await writeWithProof(store, plan, receipt, persist, () => mutation.op === 'create'
-          ? create({ ...mutation.options, author: plan.author, id: mutation.id }, { pmRoot: store.workspace })
-          : update(mutation.id, { ...mutation.options, author: plan.author, message: `bulk-item-transaction ${transactionId} ${key.slice(0, 24)} apply` }, { pmRoot: store.workspace }), options.onStep);
-        return { id: mutation.id, op: mutation.op };
-      },
-      /** Compensation cancels creations and restores only field values still equal to this run's write. */
-      compensate: async () => { const target = (plan.initial ?? plan.expected).find(row => row.id === mutation.id)!; await rollbackTarget(store, plan, target, options); },
-    };
-  }), onTransition: async event => { await options.onTransition?.(event); if (event.transition === 'committing' || event.transition === 'committed') await guard(); } });
+/** Close runtime skips over all represented dependencies and report every affected item. */
+function skipItem(plan: ImportPlan, id: string, conflict: ImportConflict): void {
+  const pending = [id];
+  while (pending.length > 0) {
+    const current = pending.shift()!;
+    if (plan.result.skipped.some(row => row.conflict?.item === current)) continue;
+    const slug = plan.expected.find(row => row.id === current)!.slug;
+    plan.result.skipped.push({ slug, reason: `import_conflict: Foreign or independently edited native content retained: ${conflict.fields.join(', ')}`, conflict: { ...conflict, item: current, ...(current === id ? {} : { dependency: id }) } });
+    for (const target of plan.ownership ?? []) if (target.graph.some(edge => edge.id === current)) pending.push(target.id);
+  }
+}
+/** Journal forward item steps with no domain compensation: interruptions retain every completed write. */
+export async function commitPortableBatch(store: Store, plan: ImportPlan, _transactionId: string, phase: string, mutations: BulkItemMutation[], options: PortableImportOptions): Promise<void> {
+  for (const [index, mutation] of mutations.entries()) {
+    if (plan.result.skipped.some(row => row.conflict?.item === mutation.id)) continue;
+    const target = plan.ownership!.find(target => target.id === mutation.id)!;
+    const base = plan.expected.find(row => row.id === mutation.id)!.document ?? null;
+    try {
+      await options.onStep?.('item-read');
+      if (phase !== 'nodes') for (const edge of target.relationships) {
+        const expected = plan.expected.find(row => row.id === edge.id); const actual = await nativeState(store, edge.id);
+        if (actual.document === null || actual.document.metadata.type !== 'Knowledge' || typeof actual.document.metadata.memory_slug !== 'string' || foreignMemories([{ ...actual.document.metadata, type: String(actual.document.metadata.type) }]).length > 0 || expected !== undefined && (actual.proof.length !== expected.length || actual.proof.history !== expected.history)) {
+          skipItem(plan, edge.id, importConflict(edge.id, ['revision'], { revision: expected?.history }, { revision: actual.proof.history })); break;
+        }
+      }
+      if (plan.result.skipped.some(row => row.conflict?.item === mutation.id)) continue;
+      await writeForward(store, plan, mutation, phase === 'nodes' ? { ...target, relationships: [], graph: [] } : target, base, options, `${index + 1}-${phase}-${mutation.id}`);
+    } catch (error) {
+      const conflict = error instanceof ImportMoved ? error.conflict : error instanceof MemoryError && error.code === 'conflict' ? importConflict(mutation.id, ['document'], { document: plan.expected.find(row => row.id === mutation.id)!.history }, { document: 'unverified native document' }) : undefined;
+      if (conflict === undefined) throw error;
+      skipItem(plan, mutation.id, conflict); await savePlan(store, plan);
+    }
+  }
 }

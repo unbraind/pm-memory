@@ -13,7 +13,7 @@ import { previousOwnership } from '../src/portable-ownership.ts';
 import { pendingImport } from '../src/portable-plan.ts';
 import { policyBody, parsePolicy } from '../src/portable.ts';
 import { validRelationship } from '../src/portable-relationships.ts';
-import { validNativeProof, validWriteReceipt } from '../src/portable-write.ts';
+import { validNativeProof } from '../src/portable-write.ts';
 import { tracker, clonedTracker, snapshot, assertClosedGraph, withoutGit } from './helpers.ts';
 
 /** Compare every value changed by the peer's real SDK write, excluding its derived write time. */
@@ -23,7 +23,7 @@ function assertPeerChanges(actual: Record<string, unknown>, before: Record<strin
 }
 
 /** A reusable native source/template pair, with independent tracker copies for each interleaving. */
-async function fixture(t: TestContext, mode: 'create' | 'update' | 'rollback') {
+async function fixture(t: TestContext, mode: 'create' | 'update') {
   const source = await tracker(t); await remember('Alpha A', { ...source.options, slug: 'alpha', kind: 'reference' });
   const initial = join(source.root, 'initial'); await exportDir(initial, { ...source.options, to: 'agents-md' });
   const template = await tracker(t); await importDir(initial, { ...template.options, from: 'agents-md' });
@@ -40,31 +40,30 @@ async function fixture(t: TestContext, mode: 'create' | 'update' | 'rollback') {
 }
 
 /** Inject one native edit at every observed boundary; the oracle is the peer's complete SDK read-back. */
-for (const mode of ['create', 'update', 'rollback'] as const) test(`cross-process exact ownership at every ${mode} boundary`, { timeout: 1200000 }, async t => {
+for (const mode of ['create', 'update'] as const) test(`cross-process exact ownership at every ${mode} boundary`, { timeout: 1200000 }, async t => {
   const base = await fixture(t, mode); withoutGit(t, base.template.root);
   const peer = await peerWriter(t, base.template.root);
   const boundaries: string[] = [];
   /** Run the real adapter while optionally injecting the one competing native transition. */
   const run = async (target: Awaited<ReturnType<typeof tracker>>, boundary?: number) => {
-    let index = 0; let injected = false; let inRollback = false; let pending: ReturnType<typeof peer> | undefined; const captured: { value?: unknown; before?: Record<string, unknown> } = {};
+    let index = 0; let injected = false; let pending: ReturnType<typeof peer> | undefined; const captured: { value?: unknown; before?: Record<string, unknown> } = {};
     /** The workspace transaction does not exclude plain native SDK writers. */
     const step = async (label: string, prefix = base.prefix) => {
-      if (mode === 'rollback' && !inRollback) return;
+
       if (boundary === undefined) { boundaries.push(label); return; }
       if (index++ !== boundary) return;
       injected = true;
-      try { const plan = JSON.parse(JSON.parse(await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload); prefix = plan.invocationId ?? plan.transactionId; } catch { /* Before intent, copy the existing committed import's prefix. */ }
+      try { const plan = JSON.parse(JSON.parse(await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload); prefix = plan.transactionId; } catch { /* Before intent, copy the existing committed import's prefix. */ }
       Object.assign(captured, { before: (await target.client.get(base.id, { full: true })).item });
       pending = peer(target.workspace, base.id, target.options.author, prefix); await pending.started;
       if (label !== 'write-guard') Object.assign(captured, { value: await pending.done });
     };
     const options: PortableImportOptions = { ...target.options, from: 'agents-md', onStep: step, onTransition: async event => {
       if (pending !== undefined && captured.value === undefined) Object.assign(captured, { value: await pending.done });
-      if (event.transactionId.endsWith('-rollback')) inRollback = true;
       await step(`${event.transition}:${event.stepId ?? ''}`, event.transactionId);
-      if (mode === 'rollback' && event.transactionId.endsWith('-snapshot') && event.transition === 'step_recorded') throw new Error('Refuse publication to exercise compensation');
+
     } };
-    try { await importDir(base.path, options); } catch (error) { if (boundary === undefined && mode !== 'rollback') throw error; assert.ok(error instanceof MemoryError || error instanceof WorkspaceTransactionInterruptedError, String(error)); }
+    try { await importDir(base.path, options); } catch (error) { if (boundary === undefined) throw error; assert.ok(error instanceof MemoryError || error instanceof WorkspaceTransactionInterruptedError, String(error)); }
     if (pending !== undefined) Object.assign(captured, { value: await pending.done });
     if (boundary !== undefined) {
       assert.equal(injected, true, `${mode} boundary ${boundary}: ${boundaries[boundary]}`);
@@ -101,18 +100,18 @@ test('all relationship provenance fields refuse in the pure first pass and prese
   }
   await writeFile(manifestPath, JSON.stringify(original)); assert.equal((await importDir(path, { ...template.options, from: 'agents-md' })).imported, 1);
   for (const value of [null, [], 3, {}, Object.create({ id: 'x', kind: 'related' }), { id: 'x', kind: 'related', created_at: {} }, { id: 'x', kind: 'related', author_source: ['legacy'] }]) assert.equal(validRelationship(value, 'id'), false);
-  for (const value of [null, [], {}, { hash: null, history: 'bad', length: 0, version: null }]) { assert.equal(validNativeProof(value), false); assert.equal(validWriteReceipt(value), false); }
+  for (const value of [null, [], {}, { hash: null, history: 'bad', length: 0, version: null }]) { assert.equal(validNativeProof(value), false); }
   t.diagnostic(`PROVENANCE_REFUSALS cases=${cases} before_schema_origin_history=true`);
 });
 
-test('same-author copied prefix never authorizes rollback after CAS refusal', async t => {
+test('same-author copied prefix never overwrites peer values after a successful forward write', async t => {
   const base = await fixture(t, 'update'); const target = base.template; withoutGit(t, target.root);
   const peer = await peerWriter(t, target.root); let captured: unknown; let injected = false;
-  await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md', onTransition: async event => {
-    if (!injected && event.transition === 'step_recorded' && !/-nodes$|-snapshot$|-rollback$/.test(event.transactionId)) {
+  await importDir(base.path, { ...target.options, from: 'agents-md', onTransition: async event => {
+    if (!injected && event.transition === 'step_recorded' && event.transactionId.endsWith('-snapshot')) {
       injected = true; captured = await peer(target.workspace, base.id, target.options.author, event.transactionId).done;
     }
-  } }), error => error instanceof MemoryError && error.code === 'conflict');
+  } });
   assert.equal(injected, true); assert.deepEqual((await target.client.get(base.id, { full: true })).item, captured);
   await importDir(base.path, { ...target.options, from: 'agents-md' });
   assert.deepEqual((await target.client.get(base.id, { full: true })).item, captured);
@@ -142,16 +141,16 @@ test('copied cancellation markers cannot recreate a natively deleted origin', as
   const base = await fixture(t, 'create'); const target = base.template; withoutGit(t, target.root);
   await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md', onTransition: event => { if (event.transactionId.endsWith('-snapshot') && event.transition === 'step_recorded') throw new Error('Ordinary refusal'); } }), MemoryError);
   const catalog = await originCatalog(target.store, new Set((await target.client.listAllComplete()).items.map(row => row.id)));
-  const beta = catalog.creators.find(row => row.metadata.memory_slug === 'beta')!; assert.equal(beta.compensated, undefined);
-  assert.equal((await target.client.get(beta.id, { full: true })).item.status, 'canceled');
+  const beta = catalog.creators.find(row => row.metadata.memory_slug === 'beta')!;
+  assert.equal((await target.client.get(beta.id, { full: true })).item.status, 'open');
   const deleted = (await readHistoryEntries(getHistoryPath(target.workspace, beta.id), beta.id)).at(-1)!;
   const prefix = /^bulk-item-transaction (\S+) /.exec(deleted.message!)![1];
   const peer = await peerWriter(t, target.root); await peer(target.workspace, base.id, target.options.author, prefix, 'delete').done;
   const current = await originCatalog(target.store, new Set((await target.client.listAllComplete()).items.map(row => row.id)));
-  const before = await snapshot(target.workspace);
+  const before = (await target.client.listAllComplete({ includeBody: true })).items;
   await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'origin_missing');
-  assert.equal(current.creators.find(row => row.id === base.id)!.compensated, false);
-  assert.deepEqual(await snapshot(target.workspace), before);
+  assert.ok(current.creators.some(row => row.id === base.id));
+  assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
 });
 
 test('native write hooks never borrow ownership from another tracker with the same id', async t => {
@@ -172,9 +171,9 @@ test('recovery of committed data retains publication ownership for later edits a
     await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md', onStep: step => {
       if (boundary === 'readback' && step === 'readback') throw new WorkspaceTransactionInterruptedError();
     }, onTransition: event => {
-      if (boundary === 'data-committed' && event.transition === 'committed' && !/-nodes$|-snapshot$|-rollback$/.test(event.transactionId)) throw new WorkspaceTransactionInterruptedError();
+      if (boundary === 'data-committed' && event.transition === 'committed' && event.transactionId.endsWith('-snapshot')) throw new WorkspaceTransactionInterruptedError();
     } }), WorkspaceTransactionInterruptedError);
-    assert.equal((await importDir(base.path, { ...target.options, from: 'agents-md' })).updated, 1);
+    assert.equal((await importDir(base.path, { ...target.options, from: 'agents-md' })).updated, 0);
     const manifest = JSON.parse(await readFile(join(base.path, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
     const row = manifest.guidance[0];
     for (const body of ['Alpha C', 'Alpha A']) {
@@ -188,15 +187,15 @@ test('recovery of committed data retains publication ownership for later edits a
 });
 
 test('native pre-write guard interruptions remain crash-recoverable', async t => {
-  for (const mode of ['create', 'update', 'rollback'] as const) {
+  for (const mode of ['create', 'update'] as const) {
     const base = await fixture(t, mode); const target = base.template; let rollingBack = false;
     await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md', onStep: step => {
-      if (step === 'write-guard' && (mode !== 'rollback' || rollingBack)) throw new WorkspaceTransactionInterruptedError();
+      if (step === 'write-guard' && (true)) throw new WorkspaceTransactionInterruptedError();
     }, onTransition: event => {
       if (event.transactionId.endsWith('-rollback')) rollingBack = true;
-      if (mode === 'rollback' && event.transactionId.endsWith('-snapshot') && event.transition === 'step_recorded') throw new Error('Exercise native rollback interruption');
+
     } }), WorkspaceTransactionInterruptedError);
-    assert.equal((await target.client.get(base.id, { full: true })).item.body, mode === 'rollback' ? 'Alpha B' : 'Alpha A');
+    assert.equal((await target.client.get(base.id, { full: true })).item.body, 'Alpha A');
     const result = await importDir(base.path, { ...target.options, from: 'agents-md' });
     assert.equal(result.imported, mode === 'create' ? 1 : 0); assert.equal(result.updated, mode === 'create' ? 0 : 1);
     assert.equal((await target.client.get(base.id, { full: true })).item.body, mode === 'create' ? 'Alpha A' : 'Alpha B');
