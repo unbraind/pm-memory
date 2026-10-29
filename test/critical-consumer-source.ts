@@ -88,6 +88,23 @@ else {
   const conflict = await importDir(retainedSource, { ...options, from: 'cursor' });
   assert.ok(conflict.skipped.some(row => row.conflict?.code === 'import_conflict' && row.conflict.fields.includes('description')));
   assert.deepEqual((await client.get(preservedId, { full: true })).item, newest);
+  for (const from of ['agents-md', 'claude-code', 'cursor']) {
+    const scalarWorkspace = join(root, 'scalar-' + from); const scalarOptions = { workspace: scalarWorkspace, author: options.author };
+    const scalarClient = new PmClient({ pmRoot: scalarWorkspace, noExtensions: true, author: options.author });
+    await scalarClient.init('scalar-consumer', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+    const scalarFile = join(root, 'scalar-' + from + '.md');
+    await writeFile(scalarFile, '---\nname: Scalar: value\ndescription: Hook: retained\n---\nScalar body');
+    assert.equal((await importDir(scalarFile, { ...scalarOptions, from })).imported, 1);
+    const scalarId = (await scalarClient.listAllComplete({ includeBody: true })).items[0].id;
+    const scalar = (await scalarClient.get(scalarId, { full: true })).item;
+    assert.equal(scalar.title, 'Scalar: value'); assert.equal(scalar.description, 'Hook: retained'); assert.equal(scalar.body, 'Scalar body');
+    for (const to of ['agents-md', 'claude-code']) {
+      const directory = join(root, 'scalar-output-' + from + '-' + to);
+      await exportDir(directory, { ...scalarOptions, to });
+      assert.equal((await importDir(directory, { ...scalarOptions, from: to })).updated, 0);
+      assert.deepEqual((await scalarClient.get(scalar.id, { full: true })).item, scalar);
+    }
+  }
   const invalid = new PmClient({ pmRoot: invalidWorkspace, author: options.author, noExtensions: true });
   await invalid.init('critical-invalid', { defaults: true, agentGuidance: 'skip', mergeFence: false });
   const bad = join(root, 'bad'); await cp(output, bad, { recursive: true }); alpha.relationships = [{ slug: 'beta', kind: 'related', created_at: { invalid: true } }];

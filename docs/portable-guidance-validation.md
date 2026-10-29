@@ -68,6 +68,20 @@ Behavioral reverts reproduce retained obsolete instructions, stale revision evid
 and missing lineage rejection; restored controls pass. The full local suite runs on
 Node 26 with a fresh HOME, isolated Git configuration and two workers before pushing.
 
+## Source parser complexity
+
+Untrusted path normalization scans each leading and trailing hyphen run once.
+Legacy scalar adaptation uses one anchored scan per line and a delimiter lookup,
+without overlapping unbounded regex terms. All import forms and document-envelope
+readers use these shared functions. The source-safety controls cover 2,000 seeded
+paths, million-character hyphen runs, 1,000 scalar sequences, a previous-parser
+compatibility corpus, and complete colon-rich input through all three harnesses.
+The packed native Node/Bun control also imports and round-trips the scalar corpus
+without Git. Restoring only the former path function times out its adversarial
+control; restoring the fix passes. The original colon regex did not reproduce a
+runtime timeout in the measured probes; its CodeQL finding is addressed by removing
+the overlapping terms while preserving the old parser's accepted values.
+
 ## Reproducible tests
 
 - `test/portable-forward.test.ts`: fixed A/B/C publication failure, legacy

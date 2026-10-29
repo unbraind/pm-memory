@@ -83,7 +83,10 @@ export function sourceDocument(path: string, bytes: Buffer, from: Harness): Sour
   if (front !== null) {
     let parsed: unknown;
     try {
-      const yaml = front[1].replace(/^(name|description): ([^"'|>\n].*: .+)$/gm, (_line, key: string, value: string) => `${key}: ${JSON.stringify(value)}`);
+      const yaml = front[1].replace(/^(name|description): ([^"'|>\n][^\r\n\u2028\u2029]*)$/gm, (line, key: string, value: string) => {
+        const delimiter = value.indexOf(': ', 1);
+        return delimiter >= 0 && delimiter + 2 < value.length ? `${key}: ${JSON.stringify(value)}` : line;
+      });
       parsed = parse(yaml);
     } catch { throw new MemoryError('format', 'Invalid memory frontmatter', 'Repair the YAML frontmatter before importing'); }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new MemoryError('format', 'Invalid memory frontmatter mapping', 'Use a YAML mapping');
