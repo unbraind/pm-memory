@@ -178,12 +178,16 @@ test('exported representation baselines validate before writes and older snapsho
     const invalid = structuredClone(manifest); Object.assign(invalid.guidance[0].baseline!, { [key]: value });
     assert.throws(() => parsePolicy(invalid), MemoryError);
   }
-  delete row.baseline!.sourcePresence; delete row.baseline!.sourceLinks;
+  delete row.baseline!.sourceLinks; assert.deepEqual(exportedSource(row).links, ['beta']);
+  delete row.baseline!.sourcePresence;
   assert.deepEqual(exportedSource(row).links, ['beta']);
   const sourceFields = row.baseline!.sourceFields; delete row.baseline!.sourceFields;
   assert.deepEqual(exportedSource(row).links, ['beta']);
   row.baseline!.sourceFields = { ...sourceFields!, body: '0'.repeat(64) };
   assert.deepEqual(exportedSource(row), { present: ['description'], links: [] });
+  row.document!.original = Buffer.from('---\ndescription: Hook\n---\n').toString('base64');
+  assert.deepEqual(exportedSource(row), { present: ['description'], links: [] });
+  delete row.baseline; assert.deepEqual(exportedSource(row), { present: ['description'], links: [] });
+  row.document!.format = 'policy'; assert.deepEqual(exportedSource(row), { present: [], links: [] });
   delete row.document; assert.deepEqual(exportedSource(row), { present: [], links: [] });
-  delete row.baseline; assert.deepEqual(exportedSource(row), { present: [], links: [] });
 });
