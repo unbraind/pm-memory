@@ -166,5 +166,3 @@ test('copied node markers with unplanned full-document data never authorize canc
   }
   t.diagnostic(`Independent SDK read-back: ${cases} copied-marker adversaries; priority, custom metadata, dependency across both adapters and fresh/recovery paths`);
 });
-
-
