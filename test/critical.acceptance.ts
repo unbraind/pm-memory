@@ -21,5 +21,5 @@ test('one packed artifact preserves same-author peers, retains interrupted forwa
       execute(consumer, ['critical.ts', label, 'check'], runtime, env);
     }
   }
-  t.diagnostic(`PACKED_CRITICAL native_runtimes=2 same_author_processes=4 retained_forward_items=2 cli_refusals=4 formats=json,toon integrity=${fixture.packed[0].integrity}`);
+  t.diagnostic(`PACKED_CRITICAL native_runtimes=2 same_author_processes=4 retained_forward_items=2 retained_native_values=2 cli_refusals=4 formats=json,toon integrity=${fixture.packed[0].integrity}`);
 });

@@ -240,3 +240,25 @@ for (const mode of ['companion', 'policy'] as const) test(`actual exported sourc
   const after = (await target.client.get(target.id, { full: true })).item;
   assert.equal(after.memory_how, before.memory_how); assert.deepEqual(after.dependencies, before.dependencies);
 });
+
+for (const mode of ['raw', 'companion', 'policy'] as const) test(`retained native values remain unchanged until a new peer edit: ${mode}`, async t => {
+  for (const [field, option] of [['title', 'title'], ['description', 'description'], ['kind', 'memoryKind'], ['why', 'memoryWhy'], ['how', 'memoryHow']] as const) {
+    const target = await fixture(t, mode);
+    const first = field === 'kind' ? 'project' : `Native ${field} C`;
+    await nativeFields(target, { [option]: first });
+    const bytes = await readFile(target.file, 'utf8');
+    await writeFile(target.file, bytes.replace('Original content', `Revised body ${field}`));
+    const applied = await importDir(target.path, { ...target.options, from: target.from });
+    assert.equal(applied.updated, 1, `${mode}/${field} ${JSON.stringify(applied)}`);
+    const preserved = (await target.client.get(target.id, { full: true })).item;
+    assert.equal(preserved[field === 'title' || field === 'description' ? field : `memory_${field}`], first);
+    assert.equal((await importDir(target.path, { ...target.options, from: target.from })).unchanged, mode === 'companion' ? 2 : mode === 'policy' ? 1 : 2);
+    assert.deepEqual((await target.client.get(target.id, { full: true })).item, preserved);
+    await nativeFields(target, { [option]: field === 'kind' ? 'user' : `Peer ${field} D` });
+    const peer = (await target.client.get(target.id, { full: true })).item;
+    const refused = await importDir(target.path, { ...target.options, from: target.from });
+    assert.equal(refused.updated, 0);
+    assert.ok('skipped' in refused && refused.skipped.some(row => row.conflict?.code === 'import_conflict' && row.conflict.fields.includes(field)));
+    assert.deepEqual((await target.client.get(target.id, { full: true })).item, peer);
+  }
+});

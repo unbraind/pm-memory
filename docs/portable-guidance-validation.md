@@ -47,6 +47,10 @@ and utility revision keys derive from the current SDK content. Historical renewa
 evidence remains intact and bound to its original digest. Unedited snapshots retain
 their timestamps on creation; an edited portable snapshot receives current recency.
 Native creation lineage is checked through the SDK birth entry before schema writes.
+Identical retries recognize native field values retained by an exact prior SDK
+publication; this grants no write authority. Later native history changes invalidate
+that acknowledgment and yield a typed conflict. Controls cover five fields across
+all three import forms and the installed native Node/Bun consumers.
 
 `test/import-state.test.ts` adds 500 seeded source-edit/import/recall/round-trip
 sequences (master `0x1363f014`, 1,500 source edits and round trips) across raw, companion and canonical forms. It checks

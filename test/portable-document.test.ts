@@ -51,7 +51,14 @@ test('unknown frontmatter edits update exactly one document through raw and comp
     const after = (await target.client.listAllComplete({ includeBody: true })).items;
     for (const item of before) {
       const actual = after.find(row => row.id === item.id)!;
-      assert.deepEqual(actual, item.memory_slug === 'alpha' ? { ...item, memory_document: actual.memory_document, updated_at: actual.updated_at } : item);
+      if (item.memory_slug !== 'alpha') assert.deepEqual(actual, item);
+      else {
+        const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = item;
+        assert.deepEqual([actual.memory_verified_at, actual.memory_reason], [undefined, undefined]);
+        assert.equal(actual.memory_verdict, 'unknown');
+        assert.ok(Date.parse(String(actual.memory_changed_at)) >= Date.parse(String(item.memory_changed_at)));
+        assert.deepEqual(actual, { ...preserved, memory_document: actual.memory_document, memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at });
+      }
     }
     const output = join(target.root, 'output'); await exportDir(output, { ...target.options, to: from });
     assert.deepEqual(await readFile(join(output, name)), Buffer.from(second));
@@ -417,5 +424,5 @@ test('snapshot-free legacy adapters bind native origins without inventing prior 
   const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = before;
   assert.deepEqual([actual.memory_reason, actual.memory_verified_at], [undefined, undefined]);
   assert.ok(Date.parse(String(actual.memory_changed_at)) >= Date.parse(String(before.memory_changed_at)));
-  assert.deepEqual(actual, { ...preserved, body: 'Alpha revised', title: 'Alpha revised', memory_document: document, memory_changed_at: actual.memory_changed_at, updated_at: actual.updated_at });
+  assert.deepEqual(actual, { ...preserved, body: 'Alpha revised', title: 'Alpha revised', memory_document: document, memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at });
 });

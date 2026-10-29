@@ -44,9 +44,12 @@ if (process.argv[2] === 'setup') {
   await writeFile(join(source, 'beta.md'), '# Beta\\nReference');
   await writeFile(join(source, 'alpha.md'), '# Alpha\\nOriginal guidance [[beta]]\\n');
   await importDir(source, { workspace, author: 'memory-consumer', from: 'claude-code' });
+  const linked = (await client.listAllComplete()).items; const origin = linked.find(row => row.memory_slug === 'alpha'); const beta = linked.find(row => row.memory_slug === 'beta');
+  await client.update(origin.id, { dep: ['id=' + beta.id + ',kind=supersedes'] });
   await writeFile(join(source, 'alpha.md'), '# Alpha\\nOriginal guidance\\n');
   await importDir(source, { workspace, author: 'memory-consumer', from: 'claude-code' });
   const item = (await client.listAllComplete()).items.find(row => row.memory_slug === 'alpha');
+  assert.deepEqual(item.dependencies.map(edge => edge.kind), ['supersedes']);
   await client.run('update', { id: item.id, options: { memorySlug: 'renamed', description: 'Native hook', memoryKind: 'feedback', memoryWhy: 'Native reason', memoryHow: 'Native application', memoryPinned: true, tags: 'native,packed' } });
 } else if (process.argv[2] === 'identity-edit') {
   const item = (await client.listAllComplete({ includeBody: true })).items.find(row => row.memory_slug === 'renamed');
@@ -91,7 +94,7 @@ if (process.argv[2] === 'setup') {
   await importDir(join(process.cwd(), process.argv[2]), { workspace: destination, author: 'memory-consumer', from: 'claude-code' });
   const item = (await fresh.listAllComplete({ includeBody: true })).items.find(row => row.memory_slug === 'renamed');
   const beta = (await fresh.listAllComplete()).items.find(row => row.memory_slug === 'beta');
-  assert.equal(item.dependencies[0].id, beta.id);
+  assert.equal(item.dependencies[0].id, beta.id); assert.equal(item.dependencies[0].kind, 'supersedes');
   assert.equal(item.description, 'Native hook'); assert.equal(item.memory_kind, 'feedback');
   assert.equal(item.memory_why, 'Native reason'); assert.equal(item.memory_how, 'Native application');
   assert.equal(item.memory_pinned, true); assert.deepEqual(item.tags, ['native', 'packed']);
@@ -188,7 +191,10 @@ if (mode === 'setup') {
 else {
   const before = JSON.parse(await readFile(input + '.native.json', 'utf8'));
   const actual = (await client.get(before.id, { full: true })).item;
-  assert.deepEqual(actual, { ...before, memory_document: actual.memory_document, updated_at: actual.updated_at });
+  const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = before;
+  assert.deepEqual([actual.memory_verified_at, actual.memory_reason], [undefined, undefined]);
+  assert.ok(Date.parse(actual.memory_changed_at) >= Date.parse(before.memory_changed_at));
+  assert.deepEqual(actual, { ...preserved, memory_document: actual.memory_document, memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at });
   assert.equal(JSON.parse(actual.memory_document).original, Buffer.from(bytes(value)).toString('base64'));
   assert.equal(await readFile(join(location, name), 'utf8'), bytes(value));
   assert.equal((await importDir(location, { workspace: process.env.PM_PATH, author: 'memory-consumer', from })).updated, 0);
@@ -232,7 +238,10 @@ if (operation === 'setup') {
 } else {
   const before = JSON.parse(await readFile(directory + '.before.json', 'utf8')); const actual = (await client.get(before.id, { full: true })).item;
   const document = JSON.stringify({ format: 'legacy', harness: from, original: Buffer.from(edited).toString('base64'), path: source, version: 1 });
-  assert.deepEqual(actual, { ...before, description: 'New source hook', memory_kind: 'feedback', memory_document: document, updated_at: actual.updated_at });
+  const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = before;
+  assert.deepEqual([actual.memory_verified_at, actual.memory_reason], [undefined, undefined]);
+  assert.ok(Date.parse(actual.memory_changed_at) >= Date.parse(before.memory_changed_at));
+  assert.deepEqual(actual, { ...preserved, description: 'New source hook', memory_kind: 'feedback', memory_document: document, memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at });
   const freshRoot = directory + '-fresh'; const fresh = new PmClient({ pmRoot: freshRoot, author: 'memory-consumer', noExtensions: true });
   await fresh.init('grammar-fresh', { defaults: true, agentGuidance: 'skip', mergeFence: false });
   await importDir(directory + '-final', { workspace: freshRoot, author: 'memory-consumer', from });

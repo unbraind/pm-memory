@@ -88,9 +88,11 @@ test('native identity and source bookkeeping edits survive portable field revisi
     const result = await importDir(path, { ...current.options, from: 'agents-md' });
     assert.equal(result.updated, 1); assert.equal((await current.client.listAllComplete()).items.length, 1);
     const actual = (await current.client.get(id, { full: true })).item;
-    const { body: _body, updated_at: _time, ...kept } = actual;
-    const { body: _old, updated_at: _oldTime, ...expected } = before;
+    const { body: _body, updated_at: _time, memory_changed_at: _changed, memory_verdict: _verdict, memory_verified_at: _verified, memory_reason: _reason, ...kept } = actual;
+    const { body: _old, updated_at: _oldTime, memory_changed_at: _oldChanged, memory_verdict: _oldVerdict, memory_verified_at: _oldVerified, memory_reason: _oldReason, ...expected } = before;
     assert.deepEqual(kept, expected); assert.equal(actual.body, 'Portable body B');
+    assert.ok(Date.parse(String(actual.memory_changed_at)) >= Date.parse(String(before.memory_changed_at)));
+    assert.deepEqual({ verdict: actual.memory_verdict, verified: actual.memory_verified_at, reason: actual.memory_reason }, { verdict: 'unknown', verified: undefined, reason: undefined });
     assert.equal((await importDir(path, { ...current.options, from: 'agents-md' })).unchanged, 1);
     await current.store.fields(id, { source: 'foreign:owner' });
     await assertSkippedUnchanged(() => importDir(path, { ...current.options, from: 'agents-md' }), current.workspace, 2);
@@ -297,8 +299,12 @@ test('legacy field locality preserves native edits, source bookkeeping and unrel
   const actual = (await target.client.get(id, { full: true })).item;
   assert.equal(actual.body, 'Harness body B');
   assert.deepEqual(JSON.parse(String(actual.memory_document)), { version: 1, format: 'legacy', harness: 'claude-code', path: 'alpha.md', original: Buffer.from(first.replace('Original body', 'Harness body B')).toString('base64') });
-  const bodyOnly = { ...before, body: actual.body, memory_document: actual.memory_document, updated_at: actual.updated_at };
+  const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = before;
+  assert.equal(actual.memory_verified_at, undefined); assert.equal(actual.memory_reason, undefined);
+  const bodyOnly = { ...preserved, body: actual.body, memory_document: actual.memory_document, memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at };
   assert.deepEqual(actual, bodyOnly);
+  assert.ok(Date.parse(String(actual.memory_changed_at)) >= Date.parse(String(before.memory_changed_at)));
+  assert.equal(actual.memory_verdict, 'unknown');
   const saved = await snapshot(target.workspace);
   assert.equal((await importDir(file, { ...target.options, from: 'claude-code' })).unchanged, 1);
   assert.deepEqual(await snapshot(target.workspace), saved);

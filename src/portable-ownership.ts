@@ -78,6 +78,8 @@ export interface PreviousOwnership {
   bodyEdited?: boolean;
   /** SDK birth values grant field authority without claiming a committed graph receipt. */
   creation?: boolean;
+  /** Native values positively retained by the last exact publication; never write authority. */
+  retainedFields?: Partial<PortableFields>;
   /** Unrepresented or subsequently native-edited fields grant no portable authority. */
   fields: Partial<PortableFields>;
   /** Prior represented edges remain authoritative outside the actual native edit scope. */
@@ -237,11 +239,9 @@ export function ownershipPatch(current: Memory, row: PortableGuidance, body: str
   const scope = new Set([...ids.values(), ...exported.map(edge => edge.id)]);
   const graph = [...current.relationships];
   const keys = new Set([...graph, ...desired, ...exported, ...(previouslyOwned ?? [])].filter(edge => scope.has(edge.id)).map(edgeKey));
-  let requestedGraph = false;
   for (const key of keys) {
     const now = graph.find(edge => edgeKey(edge) === key); const next = desired.find(edge => edgeKey(edge) === key);
     const base = exported.find(edge => edgeKey(edge) === key); const old = previouslyOwned?.find(edge => edgeKey(edge) === key);
-    if ((next !== undefined || removeRepresented) && edgeHash(next) !== edgeHash(base)) requestedGraph = true;
     if (edgeHash(now) === edgeHash(next)) continue;
     if (next === undefined && !removeRepresented) continue;
     const nativeEdit = prior?.nativeRelationships?.some(changed => [now, next, old].some(edge => edge !== undefined && edge.id === changed.id && edge.kind === changed.kind && (edge.source_kind === undefined || edge.source_kind === changed.source_kind)));
@@ -251,7 +251,7 @@ export function ownershipPatch(current: Memory, row: PortableGuidance, body: str
     } else if (edgeHash(next) !== edgeHash(base)) { const field = `relationship:${key}`; conflicts.push(field); baseValues[field] = edgeHash(base); currentValues[field] = edgeHash(now); }
   }
   Object.assign(options, relationshipPatch(current.relationships, graph));
-  if (Object.keys(options).length === 0 && !requestedGraph && !fields.some(key => incoming[key] !== baseline[key])) for (const key of fields) if (incoming[key] !== native[key]) conflicts.push(key);
+  if (Object.keys(options).length === 0) for (const key of fields) if (incoming[key] !== native[key] && prior?.retainedFields?.[key] !== native[key] && !conflicts.includes(key)) conflicts.push(key);
   return { options, conflicts, base: baseValues, current: currentValues, ownership: { id: current.id, fields: incoming, relationships: desired, graph } };
 }
 /** Read one complete, committed package receipt; missing or foreign journals prove nothing. */
@@ -298,7 +298,7 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
   let sourceEdited = false;
   let bodyEdited = false;
   /** Invalidate native-edited fields without discarding ownership of unrelated values. */
-  const retained = (target: Pick<OwnedTarget, 'fields'> & Partial<Pick<OwnedTarget, 'relationships' | 'source' | 'policyBodyHash' | 'documentHash'>>): PreviousOwnership => {
+  const retained = (target: Pick<OwnedTarget, 'fields'> & Partial<Pick<OwnedTarget, 'relationships' | 'source' | 'policyBodyHash' | 'documentHash'>>, published?: PortableFields): PreviousOwnership => {
     const nativeEdges = new Map<string, Dependency>();
     for (const index of graphEdits) {
       const before = (replayHistoryToTarget(entries, index - 1).metadata.dependencies ?? []) as Dependency[];
@@ -308,7 +308,7 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
         if (edgeHash(old) !== edgeHash(current)) nativeEdges.set(key, current ?? old!);
       }
     }
-    return { fields: Object.fromEntries(PORTABLE_FIELDS.filter(key => !changed.has(key) && target.fields[key] !== undefined).map(key => [key, target.fields[key]!])) as Partial<PortableFields>, relationships: target.relationships, nativeRelationships: [...nativeEdges.values()], sourceEdited, bodyEdited, documentHash: target.documentHash, policyBodyHash: target.policyBodyHash, ...(target.source === undefined ? {} : { source: target.source }) };
+    return { retainedFields: published === undefined ? undefined : Object.fromEntries(PORTABLE_FIELDS.filter(key => !changed.has(key) && target.fields[key] !== undefined && target.fields[key] !== published[key]).map(key => [key, published[key]])), fields: Object.fromEntries(PORTABLE_FIELDS.filter(key => !changed.has(key) && target.fields[key] !== undefined).map(key => [key, target.fields[key]!])) as Partial<PortableFields>, relationships: target.relationships, nativeRelationships: [...nativeEdges.values()], sourceEdited, bodyEdited, documentHash: target.documentHash, policyBodyHash: target.policyBodyHash, ...(target.source === undefined ? {} : { source: target.source }) };
   };
   for (const [position, entry] of [...entries].reverse().entries()) {
     const match = /^bulk-item-transaction (memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40}))(?:-nodes)? /.exec(entry.message ?? '');
@@ -322,7 +322,7 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
         const exact = target.proof === undefined
           ? Object.entries(target.fields).every(([key, value]) => fields[key as keyof PortableFields] === value) && inheritEdges(target.relationships, historical.relationships, false).every(edge => historical.relationships.some(current => edgeKey(current) === edgeKey(edge) && edgeHash(current) === edgeHash(edge)))
           : target.proof.length === index + 1 && target.proof.history === hashHistoryStream(entries.slice(0, index + 1)) && target.proof.hash === documentHash(document, await trackerSchema(store.workspace));
-        if (exact) return retained(target);
+        if (exact) return retained(target, fields);
       }
     }
     // Even a perfect copy of an import's marker is a native edit without an exact receipt.
