@@ -86,6 +86,21 @@ control; restoring the fix passes. The original colon regex did not reproduce a
 runtime timeout in the measured probes; its CodeQL finding is addressed by removing
 the overlapping terms while preserving the old parser's accepted values.
 
+## Current review verification
+
+The final source passes seven original blocker controls, eight operational-age
+controls, the five unchanged source-safety tests, and one rebuilt packed critical
+root in native Node and Bun. The packed root includes six pin-age controls in
+addition to the peer, recovery, scalar and JSON/TOON checks. Function reverts and
+restored results are recorded on the pm item.
+
+Full release certification remains incomplete. The superseded local npm attempt
+reported 97 passed, zero failed and 44 canceled; Bun reported 13 passed, zero failed
+and 52 canceled after controlled interruption under shared host contention. The
+later operational-age correction passed its focused and packed controls, but no
+complete full-suite coverage percentage is available. Current-head CI and CodeQL
+results remain required; queued or skipped checks provide no approval.
+
 ## Reproducible tests
 
 - `test/portable-forward.test.ts`: fixed A/B/C publication failure, legacy
