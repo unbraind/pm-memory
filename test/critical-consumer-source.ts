@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { cp, mkdir, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { PmClient } from '@unbrained/pm-cli/sdk';
-import { importDir, exportDir, POLICY_MANIFEST, MemoryError } from 'pm-memory';
+import { importDir, exportDir, remember, POLICY_MANIFEST, MemoryError } from 'pm-memory';
 const label = process.argv[2] ?? 'host'; const phase = process.argv[3];
 const root = join(process.cwd(), 'critical-' + label); const invalidWorkspace = join(root, 'invalid-tracker');
 /** Snapshot only durable state in this independently initialized non-git tracker. */
@@ -88,6 +88,27 @@ else {
   const conflict = await importDir(retainedSource, { ...options, from: 'cursor' });
   assert.ok(conflict.skipped.some(row => row.conflict?.code === 'import_conflict' && row.conflict.fields.includes('description')));
   assert.deepEqual((await client.get(preservedId, { full: true })).item, newest);
+  const pinSource = join(root, 'pin-source'); const pinTarget = join(root, 'pin-target');
+  const pinSourceOptions = { workspace: pinSource, author: options.author }; const pinTargetOptions = { workspace: pinTarget, author: options.author };
+  const sourceClient = new PmClient({ pmRoot: pinSource, author: options.author, noExtensions: true });
+  const targetClient = new PmClient({ pmRoot: pinTarget, author: options.author, noExtensions: true });
+  await sourceClient.init('pin-source', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+  await targetClient.init('pin-target', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+  const pin = await remember('Pin chronology reference', { ...pinSourceOptions, slug: 'pin-age', kind: 'reference' });
+  const old = '2020-01-01T00:00:00.000Z'; await sourceClient.run('update', { id: pin.id, options: { memoryChangedAt: old } });
+  await remember('Pin chronology reference', { ...pinSourceOptions, update: pin.slug, kind: 'reference', pin: true });
+  assert.equal((await sourceClient.get(pin.id, { full: true })).item.memory_changed_at, old);
+  const pinSeed = join(root, 'pin-seed'); await exportDir(pinSeed, { ...pinSourceOptions, to: 'agents-md' });
+  await importDir(pinSeed, { ...pinTargetOptions, from: 'agents-md' });
+  const copiedPin = (await targetClient.listAllComplete()).items.find(row => row.memory_slug === pin.slug);
+  for (const [to, pinned] of [['agents-md', false], ['claude-code', true]]) {
+    await remember('Pin chronology reference', { ...pinSourceOptions, update: pin.slug, kind: 'reference', pin: pinned });
+    await targetClient.run('update', { id: copiedPin.id, options: { memoryChangedAt: old, memoryVerdict: 'stale', memoryVerifiedAt: old, memoryReason: 'Prior pin evidence' } });
+    const directory = join(root, 'pin-' + to); await exportDir(directory, { ...pinSourceOptions, to });
+    assert.equal((await importDir(directory, { ...pinTargetOptions, from: to })).updated, 1);
+    const current = (await targetClient.get(copiedPin.id, { full: true })).item;
+    assert.deepEqual([current.memory_pinned, current.memory_changed_at, current.memory_verdict, current.memory_verified_at, current.memory_reason], [pinned, old, 'unknown', undefined, undefined]);
+  }
   for (const from of ['agents-md', 'claude-code', 'cursor']) {
     const scalarWorkspace = join(root, 'scalar-' + from); const scalarOptions = { workspace: scalarWorkspace, author: options.author };
     const scalarClient = new PmClient({ pmRoot: scalarWorkspace, noExtensions: true, author: options.author });

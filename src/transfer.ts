@@ -246,7 +246,7 @@ export async function importDir(path: string, options: PortableImportOptions): P
           skipped.set(source.slug, reason); continue;
         }
         if (Object.keys(patch.options).length === 0) { result.unchanged++; ownership.push(sourceReceipt(patch.ownership, source, scope)); continue; }
-        contentRevision(patch.options);
+        contentRevision(patch.options, undefined, previous.updated);
         await store.history(previous.id);
         const documentHash = document.options.memoryDocument !== undefined ? digest(String(document.options.memoryDocument)) : previous.document !== undefined && prior?.documentHash === digest(encodeDocument(previous.document)) ? prior.documentHash : undefined;
         ownership.push(sourceReceipt({ ...patch.ownership, ...(documentHash === undefined ? {} : { documentHash }), ...(policyBodyHash === undefined ? {} : { policyBodyHash }) }, source, scope)); result.updated++;

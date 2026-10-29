@@ -48,8 +48,8 @@ export function withoutGit(t: TestContext, root: string): void {
   }
 }
 /** Export one real policy directory and decode only its public wire inventory. */
-export async function exportedPolicy(source: Pick<Awaited<ReturnType<typeof tracker>>, 'root' | 'options'>, name = 'export') {
-  const path = join(source.root, name); await exportDir(path, { ...source.options, to: 'agents-md' });
+export async function exportedPolicy(source: Pick<Awaited<ReturnType<typeof tracker>>, 'root' | 'options'>, name = 'export', to: 'agents-md' | 'claude-code' = 'agents-md') {
+  const path = join(source.root, name); await exportDir(path, { ...source.options, to });
   const manifest = JSON.parse(await readFile(join(path, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
   return { path, manifest };
 }

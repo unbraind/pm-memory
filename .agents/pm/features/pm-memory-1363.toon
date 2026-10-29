@@ -5,15 +5,15 @@ type: Feature
 pm_format_version: 2
 status: in_progress
 priority: 2
-tags: []
+tags[1]: "gh:unbraind/pm-memory#15"
 created_at: "2026-10-21T22:03:10.834Z"
-updated_at: "2026-10-29T18:02:51.403Z"
+updated_at: "2026-10-29T18:56:28.456Z"
 assignee: codex-agent
 claim_principal: codex-agent
 author: codex-agent
 acceptance_criteria: Bounded guidance can round trip without becoming unbounded or silently losing evidence; imported windows are validated before writes.
 parent: pm-memory-0kwy
-comments[193]{created_at,author,text}:
+comments[196]{created_at,author,text}:
   "2026-10-25T01:04:43.613Z",codex-agent,"Claimed portable policy-window work. Design inspection: existing transfer refuses bounded guidance and sequential imports can partially publish. Investigating SDK transactions and existing lease/history surfaces before selecting an atomic import contract. Will preserve window evidence and renewal ancestry, reject broadened or removed bounds, and validate in non-git trackers with crash and competing-writer boundaries."
   "2026-10-25T01:15:25.678Z",codex-agent,"Implemented versioned policy inventory plus editable body files, exact window and renewal validation, full-batch SDK preview/commit, deterministic recovery ids, foreign-record skips, and staged export publication. Targeted suite: 24 passed before the final update/rollback and independent-export tests were added. Randomized sets cover both harnesses, mixed bounded/unbounded guidance, kinds, tags and renewal counts. Existing unbounded byte-preserving transfers remain supported. CI now invokes the explicit npm release:check gate as well as the existing Bun gate; local full release gates are intentionally deferred to CI on this saturated host."
   "2026-10-25T01:17:54.916Z",codex-agent,"Read-only public-copy validation passed: 17 public items, 6 nonempty bodies, 232693 projected input bytes; 17 derived scenario guidance records, 34 renewal records retained per harness, 19 exported files per harness, all 17 unchanged on identical retries, zero lost windows/evidence, edited bodies needs-renewal. Every source file was permission-protected and its aggregate fingerprint remained unchanged. Evidence: docs/portable-guidance-validation.md. The first unrestricted read created only SDK runtime metadata caches, so the measured run used an independently extracted read-only copy."
@@ -207,7 +207,10 @@ comments[193]{created_at,author,text}:
   "2026-10-29T18:00:11.180Z",codex-agent,"Fresh disposable behavioral reverts verify the saved fixes again: reverting raw source ownership plus source unsets fails the raw obsolete-directive control (1 failure); reverting shared projection plus unsets fails companion and policy controls (2 failures); replacing contentRevision with a no-op fails freshness/evidence (1 failure); removing only validateImportPlan native birth verification reproduces Missing expected rejection (1 failure). Restoring each implementation passes its controls (1/1, 2/2, 1/1, 1/1). General rules: source removal carries prior proven ownership; revised content and derived evidence change atomically; plan admission verifies immutable native birth before side effects. These paths are shared by SDK/CLI, and packed controls exercise native Node/Bun, JSON/TOON and no-git trackers. No production-source reverts, rollback writes or test weakening."
   "2026-10-29T18:01:15.687Z",codex-agent,"CodeQL #4 / PRRT_kwDOVPw2oc6w6Tny: replaced overlapping scalar regex terms with one anchored per-line scan plus indexOf delimiter selection. The exact previously accepted adaptation is preserved, including comments, quoted/block forms and structured YAML; no new input refusal or coercion. Source-safety suite passes 5/5: 2000 paths, 1000 scalar sequences, all 701 previously accepted members of an independent 1000-input corpus, million-character hyphen controls, and 200003-character scalar controls in every harness. Original colon regex timing probes did not reproduce a runtime DoS, so no independent behavioral-timeout revert is claimed for #4; its static CodeQL alert is addressed structurally and will be rechecked on the pushed head. Hostile diff pass traced both shared parsers through document envelopes, raw, companion, canonical, SDK and CLI. Static typecheck/lint/docstrings/zero-duplication pass. Packed acceptance adds three-harness scalar round trips in each native runtime; final release gates rebuild the shipped artifact."
   "2026-10-29T18:02:51.329Z",codex-agent,"Packed critical acceptance now passes 1/1 root in native Node and Bun: three raw harnesses and six scalar round trips per runtime, four independent same-author peers, two retained forward identities, retained native values, and four JSON/TOON CLI refusals. Two new fixture assertions were corrected during development to compare full SDK projections consistently and retain description whitespace; production behavior was unchanged. Starting sequential full npm run release:check and bun run release:check on Node 26 with fresh HOME, isolated Git config and two workers; thresholds remain 100/100/100/100. No committed dist files exist; dist is rebuilt for every gate and packed acceptance."
-files[76]:
+  "2026-10-29T18:25:31.193Z",codex-agent,"Full release attempts use unchanged thresholds and two workers, Node 26, fresh HOME and isolated Git configuration. Shared host contention made local full coverage impractical within the required CI watch window; both were deliberately interrupted rather than counted as passed. npm receipt: 141 test nodes, 97 passed, 0 failed, 44 canceled (including the unfinished 500-sequence source property, 18 completed sequences). Bun receipt: 65 nodes, 13 passed, 0 failed, 52 canceled. Both passed identity/privacy, typecheck, lint, zero duplication, build and docstrings before coverage. Bun dependency installation passed. Separately audit:prod, pack:dry-run, changelog:check and verify:release-publish-attestation pass 4/4. A fresh rebuilt npm test:install is running for final packed consumer evidence. Full coverage and release certification remain unverified: 0/2 local full gates complete. Exact-head CI 40927130359 and CodeQL 40927130409 are queued; skipped reviews are not approval. Only superseded CI runs from this round were canceled; no current-head check was canceled."
+  "2026-10-29T18:44:33.698Z",codex-agent,"Hostile audit found a saved-commit regression missed by its focused checks: remember pin-only changes refreshed content age and broke the unchanged semantic ordering test. Reproduced node --test --test-concurrency=1 --test-name-pattern='review pin-only updates preserve' test/semantic.test.ts: 0/1 passed, actual new clock versus expected retained content clock. Closing the general class: verification changes are distinct from content recency. Native remember passes its unchanged-content clock; portable imports classify the actual SDK patch centrally, preserving operational age/evidence, invalidating pin verification without renewing age, and refreshing real content changes/unsets. Adding adversarial no-git native and both harness controls at 31/400-day ages; genuine body revisions remain fresh. This further source correction supersedes earlier artifact/gate evidence until rechecked; no original test is changed."
+  "2026-10-29T18:56:28.394Z",codex-agent,"Operational/content-age closure now passes 8/8 focused roots without changing the pre-existing semantic test: native and both harness pin transitions at 31/400 days, relationship-only changes retaining native verification, genuine body changes refreshing age, native renewal preservation with foreign-policy no-write refusals, interrupted raw edge completion, and operational/pin/content unsets. Native remember reversion fails its state control and restoration passes 1/1. Reverting the shared revision helper also reproduces assertion failures; remaining restored/caller reverts and rebuilt packed runtime checks are running. Typecheck, lint, zero duplication across 115 sources and 151 documented declarations pass. Publishing this verified source correction now so it cannot be lost."
+files[77]:
   - path: .github/workflows/ci.yml
     scope: project
   - path: index.ts
@@ -270,6 +273,8 @@ files[76]:
   - path: test/consumer-helpers.ts
     scope: project
     note: Forward-only compatibility and artifact admission; obsolete compiled modules cannot ship
+  - path: test/content-age.test.ts
+    scope: project
   - path: test/critical-consumer-source.ts
     scope: project
     note: SDK-native read-back and observed boundary coverage; no isolation against plain native writers
@@ -379,7 +384,7 @@ files[76]:
     scope: project
   - path: test/validate-guidance.ts
     scope: project
-tests[34]:
+tests[36]:
   - command: node --test test/portable.test.ts test/transfer.test.ts test/guidance.test.ts
     scope: project
     provenance:
@@ -655,6 +660,22 @@ tests[34]:
     provenance:
       author: codex-agent
       created_at: "2026-10-29T17:54:10.725Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: "npm run release:check"
+    scope: project
+    timeout_seconds: 18000
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T18:25:23.581Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: "bun run release:check"
+    scope: project
+    timeout_seconds: 18000
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-29T18:25:23.581Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
 docs[4]{path,scope}:

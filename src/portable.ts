@@ -419,7 +419,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
           skipped.set(row.slug, reason); continue;
         }
         if (Object.keys(update.options).length === 0) { decisions.set(row.slug, 'unchanged'); ownership.push(update.ownership); continue; }
-        contentRevision(update.options);
+        contentRevision(update.options, undefined, previous.updated);
         decisions.set(row.slug, 'updated');
       } else decisions.set(row.slug, 'imported');
       const changedSource = row.baseline?.bodyHash !== undefined && digest(wire === undefined ? payloads[index] : Buffer.from(wire.original, 'base64').toString('utf8')) !== row.baseline.bodyHash;

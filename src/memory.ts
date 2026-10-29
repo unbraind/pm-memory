@@ -46,7 +46,7 @@ export async function remember(fact: string, options: RememberOptions): Promise<
     } else {
       await store.history(previous.id);
       const revision: Record<string, unknown> = { title, body: fact, ...(isCanceled(previous) ? { status: (await statusRegistry(store.workspace)).open_status } : {}), ...(options.tags === undefined ? {} : itemDocumentToMutationOptions(JSON.stringify({ tags: options.tags }), 'update')), ...metadata(fields), message: 'Revise durable agent memory' };
-      if (!unchanged || previous.pinned !== pinned) contentRevision(revision);
+      if (!unchanged || previous.pinned !== pinned) contentRevision(revision, unchanged ? previous.updated : undefined);
       await store.client.run('update', { id: previous.id, options: revision }); id = previous.id;
     }
     for (const target of targets) await store.link(id, target);

@@ -47,6 +47,9 @@ and utility revision keys derive from the current SDK content. Historical renewa
 evidence remains intact and bound to its original digest. Unedited snapshots retain
 their timestamps on creation; an edited portable snapshot receives current recency.
 Native creation lineage is checked through the SDK birth entry before schema writes.
+Pin-only edits clear prior verification without renewing content age. Relationship
+repairs and other operational edits retain both age and content evidence. Raw and
+policy imports classify the actual SDK patch through the shared revision helper.
 Identical retries recognize native field values retained by an exact prior SDK
 publication; this grants no write authority. Later native history changes invalidate
 that acknowledgment and yield a typed conflict. Controls cover five fields across
@@ -65,8 +68,9 @@ explicitly reconciled retry; all original successful-retry assertions remain. Th
 complete-document law additionally asserts recency and verification invalidation.
 
 Behavioral reverts reproduce retained obsolete instructions, stale revision evidence,
-and missing lineage rejection; restored controls pass. The full local suite runs on
-Node 26 with a fresh HOME, isolated Git configuration and two workers before pushing.
+and missing lineage rejection; restored controls pass. The full local suites use
+Node 26 with a fresh HOME, isolated Git configuration and two workers. Incomplete
+runs are recorded separately and do not establish release certification.
 
 ## Source parser complexity
 
@@ -124,7 +128,7 @@ completed them. Gate receipts distinguish passed, failed and incomplete checks.
 | Independent create/update peers | 240 creation schedules / 60 boundaries and 200 update schedules / 50 boundaries; master seed `0x1363f013` |
 | Creation/update crashes | 58 creation and 50 update boundaries passed with convergent reruns |
 | Rebuilt packed artifact | Native Node and Bun, four OS peers, two retained identities, four typed CLI refusals |
-| Static checks | Typecheck, lint, zero duplication across 111 sources, 150 documented declarations |
+| Static checks | Typecheck, lint, zero duplication across 115 sources, 151 documented declarations |
 
 The common-path peer properties complete 518 schedules; the linked extension adds
 31 peer write-boundary schedules and 31 crash/rerun boundaries. Totals are 549 peer
