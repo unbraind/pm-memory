@@ -79,12 +79,17 @@ test('native edits at every projection boundary win over frozen preview inputs',
   const count = await projectionBoundaries(t);
   for (let boundary = 0; boundary < count; boundary++) {
     const { target, alpha, task, path } = await projectionScenario(t); let index = 0; let injected = false;
-    await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onStep: async step => {
+    const outcome = await importDir(path, { ...target.options, from: 'agents-md', onStep: async step => {
       if (step.startsWith('preview-') && index++ === boundary) {
         await target.client.update(alpha.id, { body: 'Peer C', author: 'peer-agent' }); injected = true;
       }
-    } }), error => error instanceof MemoryError);
+    } }).then(receipt => ({ receipt }), error => { assert.ok(error instanceof MemoryError); return { receipt: undefined }; });
+    if (outcome.receipt !== undefined) {
+      assert.equal(outcome.receipt.updated, 0);
+      assert.ok('skipped' in outcome.receipt && outcome.receipt.skipped.some(row => row.conflict?.code === 'import_conflict' && row.conflict.item === alpha.id && row.conflict.fields.includes('body')));
+    }
     assert.equal(injected, true);
+    assert.equal((await target.client.get(alpha.id, { full: true })).item.body, 'Peer C');
     const result = await importDir(path, { ...target.options, from: 'agents-md' });
     assert.ok('skipped' in result && result.skipped.some(row => row.reason.includes('Independently edited')));
     const actual = (await target.client.get(alpha.id, { full: true })).item;

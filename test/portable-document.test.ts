@@ -185,7 +185,9 @@ test('native document edits win and malformed foreign document records are skipp
   await target.client.run('update', { id: item.id, options: { memoryDocument: JSON.stringify(native), author: 'native-agent' } });
   const before = (await target.client.listAllComplete({ includeBody: true })).items;
   await writeFile(source, first.replace('old-value', 'harness-value'));
-  await assert.rejects(importDir(source, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'conflict');
+  const refusal = await importDir(source, { ...target.options, from: 'agents-md' });
+  assert.equal(refusal.updated, 0);
+  assert.ok('skipped' in refusal && refusal.skipped.some(row => row.conflict?.code === 'import_conflict' && row.conflict.item === item.id && row.conflict.fields.includes('document')));
   assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
   await writeFile(source, Buffer.from(native.original, 'base64'));
   assert.equal((await importDir(source, { ...target.options, from: 'agents-md' })).unchanged, 1);
@@ -286,7 +288,10 @@ test('companion recovery distinguishes successive unknown-only input documents',
   const file = join(output, 'AGENTS.md'); const interrupted = first.replace('custom: A', 'custom: B'); await writeFile(file, interrupted);
   await assert.rejects(importDir(output, { ...target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
   const final = first.replace('custom: A', 'custom: C'); await writeFile(file, final);
-  await assert.rejects(importDir(output, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'conflict');
+  const replanned = await importDir(output, { ...target.options, from: 'agents-md' });
+  assert.equal(replanned.updated, 1);
+  assert.equal((await nativeDocument(target, 'alpha')).original, Buffer.from(final).toString('base64'));
+  assert.equal((await importDir(output, { ...target.options, from: 'agents-md' })).unchanged, 1);
   await writeFile(file, interrupted); await importDir(output, { ...target.options, from: 'agents-md' });
   await writeFile(file, final);
   await importDir(output, { ...target.options, from: 'agents-md' });
