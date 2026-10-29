@@ -7,6 +7,11 @@ with an append-only SDK audit reason, then plans against current SDK state.
 Legacy frozen requests, including requests without publication receipts, are
 never executed or used to restore values.
 
+Represented dependency revisions are checked both at admission and in the final
+SDK hook. A dependency refusal closes over its root and all dependent entries.
+Already-satisfied SDK writes also check ownership; foreign source/type changes
+cannot be adopted as unchanged when the SDK omits mutation hooks for a no-op.
+
 Each actual SDK mutation compares the fields it changes with SDK-normalized saved
 bases in its final pre-write hook. Immutable history also detects intervening
 same-field edits that returned to the old value. A typed `import_conflict` reports
@@ -67,8 +72,14 @@ completed them. Gate receipts distinguish passed, failed and incomplete checks.
 | Rebuilt packed artifact | Native Node and Bun, four OS peers, two retained identities, four typed CLI refusals |
 | Static checks | Typecheck, lint, zero duplication across 111 sources, 150 documented declarations |
 
-The peer properties complete 518 schedules in total; separate crash-only properties
-cover 108 boundaries. The pinned pm rerun passes all five selected roots after the
+The common-path peer properties complete 518 schedules; the linked extension adds
+31 peer write-boundary schedules and 31 crash/rerun boundaries. Totals are 549 peer
+schedules and 139 crash boundaries. The linked extension draws seeded edits and
+forces foreign ownership at prepared/guard transitions. Four SDK/raw-foreign
+fresh/recovery cases pass via pinned pm. A focused five-operation property replay
+fails when only the former write functions are restored, then passes with the fix.
+Two foreign no-op ownership cases fail with only writeForward reverted and pass
+with it restored; legitimate peer completion remains unchanged. The pinned pm rerun passes all five selected roots after the
 behavioral reverts, including the 200-schedule update property. Exact-head full CI
 receipts are recorded separately on the PR. An incomplete local sweep is excluded from all
 passing schedule totals. Behavioral reverts in disposable copies reproduce

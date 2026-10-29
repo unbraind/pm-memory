@@ -90,18 +90,31 @@ export async function publishPending(store: Store, plan: ImportPlan, options?: P
 }
 /** Read an input-keyed planned outcome without consulting inherited object properties. */
 function plannedOutcome(plan: ImportPlan, id: string): 'imported' | 'updated' | 'unchanged' | undefined { return plan.outcomes !== undefined && Object.hasOwn(plan.outcomes, id) ? plan.outcomes[id] : undefined; }
+/** Re-read represented dependency identities at admission and at the actual final SDK hook. */
+async function dependencyConflict(store: Store, plan: ImportPlan, target: OwnedTarget): Promise<ImportConflict | undefined> {
+  for (const edge of target.relationships) {
+    const expected = plan.expected.find(row => row.id === edge.id);
+    let actual: Awaited<ReturnType<typeof nativeState>>;
+    try { actual = await nativeState(store, edge.id); }
+    catch (error) { if (!(error instanceof MemoryError) || error.code !== 'conflict') throw error; return importConflict(edge.id, ['document'], { document: expected?.history }, { document: 'unverified native document' }); }
+    if (actual.document === null || actual.document.metadata.type !== 'Knowledge' || typeof actual.document.metadata.memory_slug !== 'string' || foreignMemories([{ ...actual.document.metadata, type: String(actual.document.metadata.type) }]).length > 0 || expected !== undefined && (actual.proof.length !== expected.length || actual.proof.history !== expected.history)) return importConflict(edge.id, ['revision'], { revision: expected?.history }, { revision: actual.proof.history });
+  }
+  return undefined;
+}
 /** Recheck a saved field base in the SDK's actual pre-write hook; plain writers can still race the later publication. */
 async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMutation, target: OwnedTarget, base: ItemDocument | null, options: PortableImportOptions, stepId: string): Promise<void> {
   const identity = await importIdentity(store, plan.input); let completed: NativeProof | undefined;
   await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${identity.transactionId}-snapshot`, steps: [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply: async () => {
   const initial = await nativeState(store, mutation.id);
   if (mutation.op === 'create' && initial.document !== null || mutation.op === 'update' && initial.document === null) throw new ImportMoved(importConflict(mutation.id, ['id'], { id: base?.metadata.id }, { id: initial.document?.metadata.id }));
+  assertBase(mutation.id, base, initial.document, initial.document);
   await runWithActiveExtensions({ path: store.workspace, noExtensions: true }, async () => {
     const schema = await trackerSchema(store.workspace); let failure: unknown;
     const guard: BeforeMutationHook = async context => {
       if (resolve(context.pm_root) !== resolve(store.workspace) || (context.after?.metadata.id ?? context.before?.metadata.id) !== mutation.id) return;
       try {
         await options.onStep?.('write-guard');
+        const dependency = await dependencyConflict(store, plan, target); if (dependency !== undefined) throw new ImportMoved(dependency);
         const state = await nativeState(store, mutation.id);
         if (context.before === null) {
           const peers = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
@@ -124,7 +137,14 @@ async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMu
       const suffix = mutation.op === 'create' ? `-nodes ${mutation.id} create memory-birth-v1:${digest(plan.births!.find(row => row.id === mutation.id)!.document)}` : ` forward ${mutation.id}`;
       const common = { ...mutation.options, author: plan.author, message: `bulk-item-transaction ${identity.transactionId}${suffix}` };
       if (mutation.op === 'create') await create({ ...common, id: mutation.id }, { pmRoot: store.workspace });
-      else { const result = await update(mutation.id, common, { pmRoot: store.workspace }); if (result.changed_fields.length === 0 && plannedOutcome(plan, mutation.id) === 'updated') plan.outcomes![mutation.id] = 'unchanged'; }
+      else {
+        const result = await update(mutation.id, common, { pmRoot: store.workspace });
+        if (result.changed_fields.length === 0) {
+          const current = await nativeState(store, mutation.id); assertBase(mutation.id, base, current.document, current.document);
+          const dependency = await dependencyConflict(store, plan, target); if (dependency !== undefined) throw new ImportMoved(dependency);
+          if (plannedOutcome(plan, mutation.id) === 'updated') plan.outcomes![mutation.id] = 'unchanged';
+        }
+      }
     } catch (error) { throw failure ?? error; }
   });
   if (plannedOutcome(plan, mutation.id) !== 'unchanged') (plan.applied ??= []).push(mutation.id);
@@ -155,18 +175,14 @@ export async function commitPortableBatch(store: Store, plan: ImportPlan, _trans
     const base = plan.expected.find(row => row.id === mutation.id)!.document ?? null;
     try {
       await options.onStep?.('item-read');
-      if (phase !== 'nodes') for (const edge of target.relationships) {
-        const expected = plan.expected.find(row => row.id === edge.id); const actual = await nativeState(store, edge.id);
-        if (actual.document === null || actual.document.metadata.type !== 'Knowledge' || typeof actual.document.metadata.memory_slug !== 'string' || foreignMemories([{ ...actual.document.metadata, type: String(actual.document.metadata.type) }]).length > 0 || expected !== undefined && (actual.proof.length !== expected.length || actual.proof.history !== expected.history)) {
-          skipItem(plan, edge.id, importConflict(edge.id, ['revision'], { revision: expected?.history }, { revision: actual.proof.history })); break;
-        }
-      }
+      const dependency = phase === 'nodes' ? undefined : await dependencyConflict(store, plan, target);
+      if (dependency !== undefined) skipItem(plan, dependency.item, dependency);
       if (plan.result.skipped.some(row => row.conflict?.item === mutation.id)) continue;
       await writeForward(store, plan, mutation, phase === 'nodes' ? { ...target, relationships: [], graph: [] } : target, base, options, `${index + 1}-${phase}-${mutation.id}`);
     } catch (error) {
       const conflict = error instanceof ImportMoved ? error.conflict : error instanceof MemoryError && error.code === 'conflict' ? importConflict(mutation.id, ['document'], { document: plan.expected.find(row => row.id === mutation.id)!.history }, { document: 'unverified native document' }) : undefined;
       if (conflict === undefined) throw error;
-      skipItem(plan, mutation.id, conflict); await savePlan(store, plan);
+      skipItem(plan, conflict.item, conflict); await savePlan(store, plan);
     }
   }
 }
