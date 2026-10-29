@@ -1,3 +1,4 @@
+import { trackerSchema } from './lifecycle.ts';
 import { documentHash, validNativeProof } from './portable-write.ts';
 import type { NativeProof } from './portable-write.ts';
 import { validRelationship } from './portable-relationships.ts';
@@ -216,7 +217,7 @@ export async function recordedCreation(store: Store, id: string): Promise<boolea
     if (format !== undefined && format !== 'portable-v1') return false;
     if (!/^bulk-item-transaction memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})-nodes /.test(entries[0].message ?? '')) return format === undefined;
     const seal = / memory-birth-v1:([a-f0-9]{64})$/.exec(entries[0].message!);
-    if (seal !== null) return digest(birthDocument((await getItemAt(id, '1', { pmRoot: store.workspace })).document)) === seal[1];
+    if (seal !== null) return digest(birthDocument((await getItemAt(id, '1', { pmRoot: store.workspace })).document, await trackerSchema(store.workspace))) === seal[1];
     if (format !== undefined) return false;
     const attempted = new Set<string>();
     for (const entry of entries) {
@@ -259,7 +260,7 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
         const fields = portableFields(historical, historical.body);
         const exact = target.proof === undefined
           ? Object.entries(target.fields).every(([key, value]) => fields[key as keyof PortableFields] === value) && inheritEdges(target.relationships, historical.relationships, false).every(edge => historical.relationships.some(current => edgeKey(current) === edgeKey(edge) && edgeHash(current) === edgeHash(edge)))
-          : target.proof.length === index + 1 && target.proof.history === hashHistoryStream(entries.slice(0, index + 1)) && target.proof.hash === documentHash(document);
+          : target.proof.length === index + 1 && target.proof.history === hashHistoryStream(entries.slice(0, index + 1)) && target.proof.hash === documentHash(document, await trackerSchema(store.workspace));
         if (exact) return retained(target);
       }
     }
@@ -278,12 +279,12 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
   if (created?.memory_source === 'portable:policy-v1') {
     try {
       const [row, body] = JSON.parse(Buffer.from(String(created.memory_original), 'base64').toString('utf8')) as [PortableGuidance, string];
-      return retained({ fields: portableFields(row, body), relationships: resolvedRelationships(row.relationships, ids) });
+      return retained({ fields: portableFields(row, body), relationships: (await getItemAt(item.id, '1', { pmRoot: store.workspace })).document.metadata.dependencies ?? [] });
     } catch { return undefined; }
   }
   if (typeof created?.memory_source === 'string' && created.memory_source.endsWith(':relative-file')) {
     const born = await legacyBirth(store, item.id, created);
-    if (born !== undefined) return { ...retained(born), creation: true };
+    if (born !== undefined) return { ...retained({ ...born, relationships: (await getItemAt(item.id, '1', { pmRoot: store.workspace })).document.metadata.dependencies ?? [] }), creation: true };
   }
   return undefined;
 }

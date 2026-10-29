@@ -97,6 +97,8 @@ export interface Memory {
   verdict: Verdict;
   /** Native lifecycle state. */
   status: string;
+  /** SDK registry cancellation for a custom status; the native status id is retained. */
+  canceled?: boolean;
   /** Searchable tags. */
   tags: string[];
   /** Safe relative import name, retained only for export. */

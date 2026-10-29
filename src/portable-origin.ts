@@ -108,7 +108,7 @@ export async function originCatalog(store: Store, liveIds?: ReadonlySet<string>,
   }
   return { tracker, creators };
 }
-/** A history marker only locates a journal; its exact SDK deletion fingerprint grants recovery. */
+/** Read legacy deletion receipts for backward compatibility; current rollback only cancels. */
 async function compensatedOrigin(store: Store, id: string, message: string | undefined): Promise<boolean> {
   const hint = /^bulk-item-transaction (memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})-rollback) /.exec(message ?? '');
   if (hint === null) return false;

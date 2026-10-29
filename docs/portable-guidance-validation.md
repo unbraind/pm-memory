@@ -47,7 +47,7 @@ retains the complete SDK document and creation message. SDK-generated creation
 and update times are normalized through the SDK; native priority, custom fields,
 relationships and all other stored values remain part of the comparison. A
 missing message in an older intent is regenerated without replacing its frozen
-document. The SDK item-lock mutation hook checks the proposed creation before
+document. The SDK pre-write mutation hook checks the proposed creation before
 persistence, including during recovery.
 
 New imports mark their native birth format and carry the document fingerprint in
@@ -167,22 +167,17 @@ Portable node creation, data updates, publication and rollback use the public SD
 unique attempt in the durable intent; interrupted SDK attempts resume their own
 journal, including committed sub-batches of an unpublished invocation. Replacing
 that identity early would orphan publication provenance and falsely classify the
-next harness edit as native. `inspect` re-reads inside that coordinator. Apply and compensation capture
-SDK document hashes and immutable history positions, then verify them again inside
-the SDK item lock. The SDK's canonical document serializer normalizes both sides.
-A confirmed write receipt records the exact post-write hash and history head while
-the item lock is held. A peer append supersedes that receipt even with the same
-author, copied transaction prefix, timestamp or body. Prefixes can locate a receipt;
-they cannot authorize a write. Deletion recovery verifies the actual committed
-rollback result, and publication provenance verifies its exact historical position.
-An internally compensated creation publishes its exact deletion receipt before a
-new attempt replaces the recovery state, keeping legitimate retries possible
-without accepting a forged deletion marker.
+next harness edit as native. `inspect` re-reads current native state. Actual SDK
+writes retain canonical hashes and immutable history positions. These fingerprints
+are evidence of a particular write, never mutual exclusion against ordinary native
+writers. Author, copied transaction prefix and timestamp do not authorize rollback.
+The former forced deletion/restoration implementation is superseded by cancellation
+and field-local restoration described below; its earlier measurements are historical.
 Creation admission still requires the independent complete SDK birth document.
 
 The package-wide audit covers raw, companion and canonical adapters, the SDK and
 CLI, JSON/TOON receipts, installed Node/native Bun consumers, non-git trackers and
-all restore/delete paths. Disposable previews retain the same compiled SDK mutation
+all compensation paths. Disposable previews retain the same compiled SDK mutation
 options and captured read-set validation; public SDK preview executes its native
 lifecycle without publishing source changes. Hooks also verify the exact tracker
 root/path, so an identical id in a different tracker cannot lend ownership evidence.
@@ -217,14 +212,14 @@ identity errors converted before skip handling; replacing an unpublished invocat
 after data commit; and losing the original typed item-hook interruption. The latter
 two cases additionally check a later portable edit plus an older replay after both
 readback/data-commit interruptions, and recovery after creation/update/rollback
-item-lock guard interruptions. Exact commands and counterexamples are recorded on
+pre-write guard interruptions. Exact commands and counterexamples are recorded on
 `pm-memory-1363`; the source checkout was never mutated for a revert.
 
 The current SDK journal crash control passed all **21** transitions, retaining two
 bounded items and their renewal evidence. The original complete-document update
 control passed all **34** observed import steps. The linked pinned pm runner passed
 **2/2** recovery roots, including both post-data-commit interruptions and native
-item-lock interruptions in all three write phases.
+pre-write interruptions in all three write phases.
 
 The stateful model observer now accepts both SDK step-id spellings (item id at the
 end, or followed by a legacy suffix), and requires exactly one immutable target.
@@ -264,3 +259,70 @@ the same captured-consumer test with `ENOENT` on the foreign SDK bin link. The
 corrected oracle passes both runtimes and all four CLI refusals. In total the pm
 item records **nine production-design** and **two test-oracle** behavioral revert
 proofs. Final full npm/Bun gate outcomes are reported on the exact pushed head.
+
+## Cancellation and field-local rollback (review correction)
+
+Rollback never deletes a native item. Creations with positively verified SDK birth
+evidence are canceled using the current registry role and an import-run reason;
+relationships remain intact. A peer status or assignee which cancellation would
+erase causes the item to remain untouched with a receipt. Update rollback restores
+only SDK-read field values still equal to this invocation's exact historical write;
+other fields and relationships are preserved and named in the rollback receipt.
+
+The SDK workspace transaction coordinator serializes transactions only. Plain SDK
+and CLI writers can commit between its inspect/apply callbacks. The final native
+hook re-reads the complete hash and history immediately before mutation, but the
+remaining re-read-to-write window is a known limitation, not proven isolation:
+[pm-cli#1576](https://github.com/unbraind/pm-cli/issues/1576),
+[pm-cli#1620](https://github.com/unbraind/pm-cli/issues/1620). Tests inject real OS
+peers at observed boundaries; they do not certify an atomic expected-hash API.
+
+`portable-cancellation.test.ts` covers incoming Task dependencies at every observed
+rollback boundary, an independent seeded field/relationship/comment/assignee model,
+and the review's exact rollback-apply reproduction. The reference checks SDK
+read-back, preserved peer values, no deletion entries and a closed graph.
+
+The cancellation-role audit also covers memory selectors, export inventories and
+omission receipts, renewal, consent inspection and consolidation. Store reads retain
+the native status id and attach a derived cancellation flag only when the SDK role
+differs from the legacy literal. All selectors share that classification. A registry
+migration fixture renames the canceled role; SDK read-back, recall, renewal and
+export all respect the migrated role. The SDK reserves built-in status names, so
+re-registering the old built-in label as an active status is refused by the SDK.
+
+The prior whole-peer-row equality oracle is replaced by comparison of every field
+the peer actually changed, derived independently from before/after SDK reads and
+excluding only the derived write timestamp. This allows rollback to restore an
+untouched import-written description while preserving the peer's body. A separate
+fixed regression requires that precise partial restoration and fails on behavioral
+revert; the random model also checks all selected peer fields and graph closure.
+
+Final cancellation review evidence (2026-10-29):
+
+| Check | Measured result |
+| --- | --- |
+| Focused rollback/lifecycle suite | 12 roots passed; no failures or cancellations |
+| Random same-author peer edits | 192 schedules: creation 120, update 72; master `0x1363ca77` |
+| Incoming Task references | 24 schedules: creation 15, update 9; no dangling edge |
+| Broader critical suite | 11 roots passed; 144 schedules (80 create, 55 update, 9 rollback), plus 48 malformed-provenance refusals |
+| Birth proposal controls | All nine fresh/interrupted/compensated read/guard boundaries pass with retained canceled identities |
+| Behavioral reverts | Six counterexamples: dangling edge, unrestored description, mistaken lifecycle literal, default-schema read, intended rather than written birth graph, and SDK-cleared peer assignee |
+| Rebuilt packed artifact | One archive tested in native Node and Bun; four same-author OS peers, two rollback cancellations, four JSON/TOON CLI refusals |
+| Public read-only copy | 17 items, six bodies, 232693 input bytes; 17 guidance / 34 renewals / 19 files / 17 unchanged retries per harness; zero lost bounds or evidence |
+
+The final archive integrity is
+`sha512-lYlnMdrtq9Pt/AKNXyYGF1fEWfjmJl6RoSrDBSG5ScBzJrfcDamJLCkeLn1diu0CxhgkrqzpXgxatjoIDTJcYQ==`.
+It was captured after rebuilding the ignored distribution; prior archives are not
+substituted for this shipped-code evidence. Source fingerprint remained
+`652fd875763b57b52c1fb7af1a98e8d655511188a9129f5b8c7fa56a73c22fb7`.
+
+The stateful model keeps its unchanged 500-sequence contract. A focused batch of
+sequences 50–54 passed 230 SDK read-back comparisons with master `0x1363cafe` and
+seeds `4198076704`, `2557545177`, `917013650`, `3571449419`, `1930917892`.
+After the final own-key/proposal hardening, a repeat completed sequences 50 and 51
+before the unchanged 600-second parent deadline. Cancellation removed fixture files
+while sequence 52 was still reading them, producing a secondary missing-file failure;
+that repeat is excluded from passing batch totals. No full current-head 500-sequence
+or coverage-threshold pass is claimed locally. The two-module focused coverage
+probe is likewise not a full-source coverage attestation; npm/Bun release results
+belong to exact-head CI and are reported separately in the PR.

@@ -268,27 +268,40 @@ native renewal refuses an older import. Adjacent files outside the inventory are
 with reasons. These integrity checks are not signatures: import only trusted exports; a
 party that rewrites both the manifest and its markers can author a different policy.
 
-Imports validate the complete manifest, every body, privacy and existing policy ancestry
-before registering fields. The SDK previews the complete item batch, then commits it
-under the package writer lease using `commitItemMutations`. Each attempt binds the
-input digest to a fresh UUID recorded in its checksummed intent. Allocation skips any
-existing node/data/provenance/rollback journal; completed attempts start a new generation,
-including after every imported memory was deleted. The intent freezes item ids and
-SDK batches for crash replay. A/B/A imports therefore apply A again after B.
-Interrupted batches resume on the same input only while their expected SDK revisions
-and immutable history prefixes still match. Each update uses the SDK item-lock CAS
-(`match` on `updated_at`); native edits or ownership
-changes refuse with a typed conflict. One shared helper reads expected revisions,
-guards the original read set, then applies SDK CAS in fresh, interrupted and compensated
-paths. A refusal compensates applied steps before returning, and a durable SDK rollback
-across all stages restores import-owned memory documents. Its item-lock mutation guard
-preserves newer peer revisions and the transitive reference graph peers have adopted.
-The owned intent is removed after rollback; retry needs no manual deletion. Compensation
-appends audit history while restoring serialized memory documents. SDK transaction
-errors are typed `MemoryError` values with remedies. New graph members are first created without edges, then the full data batch
-uses SDK-read CAS revisions; even interrupted creation cannot leave dangling edges. Node rollback deletes only
-transaction-owned creations. The SDK reserves deleted identities in history, so retry
-allocates fresh identities and remaps edges while retaining the old audit history.
+### Imports and rollback
+
+Imports validate the complete manifest, every body, privacy and policy ancestry
+before registering fields. SDK preview and native mutation options are shared.
+Each attempt binds the input digest to a fresh UUID in its checksummed intent;
+completed attempts never suppress a later A/B/A replay. Interrupted work retains
+its invocation and captured native history positions through publication.
+
+Rollback **cancels rather than deletes** items created by that import. It resolves
+the status registry's canceled role through the SDK, records the import run in the
+cancellation reason, and keeps every incoming and outgoing relationship intact.
+A native Task that references an incomplete import still points at an existing,
+explicitly canceled item. Portable retries retain that native lifecycle status;
+reactivation is an explicit native action. An item with a peer-owned status or assignee is left
+untouched and reported when cancellation would erase that value.
+For updates, rollback compares each changed field with the exact SDK-read value
+this run wrote. Only fields that still match are restored; peer-edited fields,
+relationships and annotations remain unchanged and appear in the rollback receipt.
+There is no forced deletion or forced restoration mode. Audit history is retained.
+Memory selectors and exports use the same SDK-resolved cancellation roles, so a
+custom canceled status stays inactive without replacing its native status id.
+
+`commitWorkspaceTransaction` journals recovery and serializes other workspace
+transactions; **it does not exclude ordinary `pm update` or SDK writers**. The
+last pre-write hook re-reads the document hash and immutable history position;
+a moved read retries compensation or reports `superseded`. The re-read-to-write
+window still exists because the SDK lacks an expected-hash precondition:
+[pm-cli#1576](https://github.com/unbraind/pm-cli/issues/1576) and
+[pm-cli#1620](https://github.com/unbraind/pm-cli/issues/1620).
+These are best-effort conflict checks, not lock-based isolation or a fully atomic
+batch against unrelated native writers. Readers may observe intermediate writes.
+The owned intent is removed after recovery; SDK failures return typed remedies.
+New graph members are created before their represented edges are added, and
+cancellation keeps those identities valid if publication fails.
 Portable ownership receipts are committed in a second recoverable SDK workspace
 transaction, outside native item fields. Their field fingerprints use the SDK storage
 normalizer. When an edge-free SDK creation has no later update marker, `getItemAt(id, "1")` supplies its immutable field baseline without inventing a graph receipt. Immutable history identifies later native changes per field and relationship identity, so an older
@@ -320,22 +333,13 @@ new source frontmatter refuses before tracker writes. Native policy bodies whose
 metadata lives in the manifest retain their explicit Markdown body contract. Canonical exports explicitly report index artifacts and
 their document snapshots as lossy when those artifacts are outside the inventory.
 
-Each import invocation uses the public SDK `commitWorkspaceTransaction` coordinator
-with a unique attempt id recorded in its intent. Recovery retains that invocation
-through committed sub-batches until publication finishes. Its cross-process workspace lock
-covers `inspect`, `apply` and compensation. Inspection reads the current target;
-application checks the captured document hash and immutable history position again
-inside the SDK item lock. The public SDK mutation path supplies normalization.
-Compensation restores or deletes only when the current complete SDK document hash
-and history head equal the exact write receipt captured by this invocation inside
-that lock. Attribution, message prefixes and timestamps never establish ownership.
-A later peer write produces `superseded`; its complete state and support graph are
-retained. Recovery uses the same coordinator, guard and write path. Creation also
-requires the independent planned SDK birth document. Hooks are scoped to the exact
-tracker, so identical ids in another tracker cannot borrow a write receipt.
-The optional `onStep` observer runs `write-guard` inside the item lock. A competing
-native write started there must be awaited after an SDK transition releases that
-lock; other observed boundaries can await it immediately.
+Actual write receipts capture complete SDK-canonical hashes and immutable history
+positions. Author, message prefix and timestamp never grant compensation authority.
+Creation admission requires the independently planned SDK birth document; hooks
+are scoped to the exact tracker. The `write-guard` observer marks the final check,
+not an atomic precondition. A competing write started in that SDK callback is
+awaited after its transition, while writes to unrelated items can finish there.
+
 
 Relationship validation checks the kind, target and every optional provenance field
 (`created_at`, `author`, `source_kind`, `author_source`) in the first pure pass,
@@ -376,8 +380,8 @@ round trip; nothing is silently treated as absent.
 Unrelated tracker readers can observe staged writes until
 commit or recovery completes. Schema registration is idempotent and
 precedes the item batch. The lease covers the state read, planning, preview and
-publication, and releases last. Native writers use the SDK item lock; a newer native revision supersedes
-this import even when its author and transaction message match. Relationship target ids are remapped to portable slugs and back, including
+publication, and releases last. Observed newer native revisions supersede this import even when their author and
+transaction message match; the SDK race limitation above still applies. Relationship target ids are remapped to portable slugs and back, including
 kinds, source references and author/time provenance; SDK edge authorship is reasserted
 by its native mutation path. Import computes selective SDK additions/removals over the
 represented relationship identities. An edge can be removed only if the current or a
@@ -405,7 +409,7 @@ tracker clones retain it without disposable transaction journals. A native birth
 version makes missing or altered evidence a refusal rather than a legacy fallback. Edited retries
 keep foreign births skipped; older unsealed markers use their publication receipts. Older intents
 derive missing evidence through the same SDK path while retaining any frozen
-document. SDK item-lock hooks reject changed creation proposals before persistence. Later edits
+document. SDK mutation hooks check changed creation proposals immediately before persistence. Later edits
 still own only represented fields. Legacy history fingerprints remain valid after
 namespace initialization; explicit tracker namespaces and birth identities stay strict.
 Native tag creates and updates use the SDK serializer, preserving comma-containing,

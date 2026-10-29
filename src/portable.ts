@@ -1,3 +1,4 @@
+import { isCanceled } from './lifecycle.ts';
 import { validRelationship } from './portable-relationships.ts';
 import { getHistoryPath, readHistoryEntries, readSettings, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, CommitItemMutationsOptions, Dependency } from '@unbrained/pm-cli/sdk';
@@ -89,7 +90,7 @@ export interface PortableImportOptions extends MemoryOptions {
   from: Harness;
   /** Explicit email opt-in; secrets remain forbidden. */
   allowEmail?: boolean;
-  /** Preparation/publication diagnostics; write-guard runs inside the item lock, so await competing writes only after its SDK transition. */
+  /** Preparation/publication diagnostics; write-guard is the last pre-write check, not an atomic SDK precondition. */
   onStep?: (step: string) => void | Promise<void>;
   /** SDK transaction transitions; throwing its interruption error simulates a crash. */
   onTransition?: CommitItemMutationsOptions['onTransition'];
@@ -231,7 +232,7 @@ export async function policyRecord(store: Store, item: Memory, memories?: readon
 export function portableRelationships(item: Memory, memories: readonly Memory[]): PortableRelationship[] {
   return item.relationships.flatMap(({ id, ...edge }) => {
     const target = memories.find(memory => memory.id === id);
-    return target === undefined || target.status === 'canceled' || target.artifact ? [] : [{ slug: target.slug, ...edge }];
+    return target === undefined || isCanceled(target) || target.artifact ? [] : [{ slug: target.slug, ...edge }];
   });
 }
 /** Normalize semantic provenance with the same SDK canonical document path used by storage. */

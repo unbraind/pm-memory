@@ -1,46 +1,25 @@
+import { isDeepStrictEqual } from 'node:util';
+import { peerWriter } from './portable-native-peer.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
-import { fork } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
-import { getHistoryPath, readHistoryEntries, update, restore, WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
+import { getHistoryPath, readHistoryEntries, update, WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortableImportOptions, PortablePolicyManifest } from '../index.ts';
 import { originCatalog } from '../src/portable-origin.ts';
 import { previousOwnership } from '../src/portable-ownership.ts';
-import { guardedCompensation } from '../src/portable-rollback.ts';
 import { pendingImport } from '../src/portable-plan.ts';
 import { policyBody, parsePolicy } from '../src/portable.ts';
 import { validRelationship } from '../src/portable-relationships.ts';
 import { validNativeProof, validWriteReceipt } from '../src/portable-write.ts';
 import { tracker, clonedTracker, snapshot, assertClosedGraph, withoutGit } from './helpers.ts';
 
-/** Keep one real native writer in another OS process; IPC separates lock entry from completion. */
-async function peerWriter(t: TestContext, root: string) {
-  const child = fork(fileURLToPath(new URL('./portable-peer.worker.ts', import.meta.url)), [], { env: { PATH: root, HOME: root, GIT_CEILING_DIRECTORIES: dirname(root), ...(process.env.NODE_V8_COVERAGE === undefined ? {} : { NODE_V8_COVERAGE: process.env.NODE_V8_COVERAGE }) }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
-  t.after(() => { if (child.connected) child.disconnect(); child.kill(); });
-  let stderr = ''; child.stderr!.on('data', bytes => { stderr += String(bytes); });
-  await new Promise<void>((resolve, reject) => { child.once('message', () => resolve()); child.once('error', reject); child.once('exit', (code, signal) => { reject(new Error(`Peer exited before readiness (${code ?? signal}): ${stderr}`)); }); });
-  let token = 0;
-  return (workspace: string, id: string, author: string, prefix: string, operation?: 'delete', options?: Record<string, unknown>) => {
-    const current = ++token;
-    let entered!: () => void; let entryFailed!: (error: Error) => void; let finish!: (item: unknown) => void; let fail!: (error: Error) => void;
-    const started = new Promise<void>((resolve, reject) => { entered = resolve; entryFailed = reject; });
-    const done = new Promise<unknown>((resolve, reject) => { finish = resolve; fail = reject; });
-    void done.catch(() => {});
-    /** A lost native worker is a test failure, never a silently pending promise. */
-    const exited = (code: number | null, signal: string | null) => { const error = new Error(`Peer exited during request (${code ?? signal}): ${stderr}`); entryFailed(error); fail(error); child.off('message', receive); };
-    child.once('exit', exited);
-    /** Match this exact request without mixing two independent native transitions. */
-    const receive = (value: { token?: number; state: string; item?: unknown; message?: string }) => {
-      if (value.token !== current) return;
-      if (value.state === 'started') entered();
-      else { child.off('message', receive); child.off('exit', exited); if (value.state === 'done') finish(value.item); else { const error = new Error(value.message); entryFailed(error); fail(error); } }
-    };
-    child.on('message', receive); child.send({ workspace, id, author, prefix, token: current, operation, options }); return { started, done };
-  };
+/** Compare every value changed by the peer's real SDK write, excluding its derived write time. */
+function assertPeerChanges(actual: Record<string, unknown>, before: Record<string, unknown>, written: Record<string, unknown>, label: string): void {
+  const changed = new Set([...Object.keys(before), ...Object.keys(written)]);
+  for (const key of changed) if (key !== 'updated_at' && !isDeepStrictEqual(before[key], written[key])) assert.deepEqual(actual[key], written[key], `${label}: ${key}`);
 }
 
 /** A reusable native source/template pair, with independent tracker copies for each interleaving. */
@@ -67,14 +46,15 @@ for (const mode of ['create', 'update', 'rollback'] as const) test(`cross-proces
   const boundaries: string[] = [];
   /** Run the real adapter while optionally injecting the one competing native transition. */
   const run = async (target: Awaited<ReturnType<typeof tracker>>, boundary?: number) => {
-    let index = 0; let injected = false; let inRollback = false; let pending: ReturnType<typeof peer> | undefined; const captured: { value?: unknown } = {};
-    /** Plain native SDK writes can enter the item lock independently of the workspace lock. */
+    let index = 0; let injected = false; let inRollback = false; let pending: ReturnType<typeof peer> | undefined; const captured: { value?: unknown; before?: Record<string, unknown> } = {};
+    /** The workspace transaction does not exclude plain native SDK writers. */
     const step = async (label: string, prefix = base.prefix) => {
       if (mode === 'rollback' && !inRollback) return;
       if (boundary === undefined) { boundaries.push(label); return; }
       if (index++ !== boundary) return;
       injected = true;
       try { const plan = JSON.parse(JSON.parse(await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload); prefix = plan.invocationId ?? plan.transactionId; } catch { /* Before intent, copy the existing committed import's prefix. */ }
+      Object.assign(captured, { before: (await target.client.get(base.id, { full: true })).item });
       pending = peer(target.workspace, base.id, target.options.author, prefix); await pending.started;
       if (label !== 'write-guard') Object.assign(captured, { value: await pending.done });
     };
@@ -88,9 +68,9 @@ for (const mode of ['create', 'update', 'rollback'] as const) test(`cross-proces
     if (pending !== undefined) Object.assign(captured, { value: await pending.done });
     if (boundary !== undefined) {
       assert.equal(injected, true, `${mode} boundary ${boundary}: ${boundaries[boundary]}`);
-      assert.deepEqual((await target.client.get(base.id, { full: true })).item, captured.value, `${mode} boundary ${boundary}: peer write was lost`);
+      assertPeerChanges((await target.client.get(base.id, { full: true })).item, captured.before!, captured.value as Record<string, unknown>, `${mode} boundary ${boundary}: peer write was lost`);
       try { await importDir(base.path, { ...target.options, from: 'agents-md' }); } catch (error) { assert.ok(error instanceof MemoryError); }
-      assert.deepEqual((await target.client.get(base.id, { full: true })).item, captured.value, `${mode} boundary ${boundary}: retry lost peer state`);
+      assertPeerChanges((await target.client.get(base.id, { full: true })).item, captured.before!, captured.value as Record<string, unknown>, `${mode} boundary ${boundary}: retry lost peer state`);
       assertClosedGraph((await target.client.listAllComplete()).items);
     }
   };
@@ -158,11 +138,12 @@ test('copied committed markers remain native edits in every provenance channel',
   assert.ok(owned.nativeRelationships?.some(edge => edge.id === task.item.id));
 });
 
-test('copied compensation markers cannot recreate a natively deleted origin', async t => {
+test('copied cancellation markers cannot recreate a natively deleted origin', async t => {
   const base = await fixture(t, 'create'); const target = base.template; withoutGit(t, target.root);
   await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md', onTransition: event => { if (event.transactionId.endsWith('-snapshot') && event.transition === 'step_recorded') throw new Error('Ordinary refusal'); } }), MemoryError);
   const catalog = await originCatalog(target.store, new Set((await target.client.listAllComplete()).items.map(row => row.id)));
-  const beta = catalog.creators.find(row => row.metadata.memory_slug === 'beta')!; assert.equal(beta.compensated, true);
+  const beta = catalog.creators.find(row => row.metadata.memory_slug === 'beta')!; assert.equal(beta.compensated, undefined);
+  assert.equal((await target.client.get(beta.id, { full: true })).item.status, 'canceled');
   const deleted = (await readHistoryEntries(getHistoryPath(target.workspace, beta.id), beta.id)).at(-1)!;
   const prefix = /^bulk-item-transaction (\S+) /.exec(deleted.message!)![1];
   const peer = await peerWriter(t, target.root); await peer(target.workspace, base.id, target.options.author, prefix, 'delete').done;
@@ -173,7 +154,7 @@ test('copied compensation markers cannot recreate a natively deleted origin', as
   assert.deepEqual(await snapshot(target.workspace), before);
 });
 
-test('native write and compensation hooks never borrow ownership from another tracker with the same id', async t => {
+test('native write hooks never borrow ownership from another tracker with the same id', async t => {
   const base = await fixture(t, 'update'); const target = base.template; const other = await clonedTracker(t, target); withoutGit(t, target.root);
   let injected = false;
   const result = await importDir(base.path, { ...target.options, from: 'agents-md', onStep: async step => {
@@ -182,14 +163,7 @@ test('native write and compensation hooks never borrow ownership from another tr
   assert.equal(injected, true); assert.equal(result.updated, 1);
   assert.equal((await target.client.get(base.id, { full: true })).item.body, 'Alpha B');
   assert.equal((await other.client.get(base.id, { full: true })).item.body, 'Other project C');
-  // Freeze a different real input, without granting that pending plan any native-write receipt.
-  const file = join(base.path, POLICY_MANIFEST); const manifest = JSON.parse(await readFile(file, 'utf8')) as PortablePolicyManifest;
-  await writeFile(join(base.path, manifest.guidance[0].path), policyBody(manifest.guidance[0], 'Alpha D'));
-  await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md', onStep: step => { if (step === 'intent') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
-  const plan = await pendingImport(target.store); assert.ok(plan && plan !== 'foreign');
-  await guardedCompensation(target.store, plan, () => restore(base.id, '1', { author: target.options.author, force: true }, { pmRoot: other.workspace }));
-  assert.equal((await other.client.get(base.id, { full: true })).item.body, 'Alpha A');
-  assert.equal((await target.client.get(base.id, { full: true })).item.body, 'Alpha B');
+
 });
 
 test('recovery of committed data retains publication ownership for later edits and older replays', async t => {
@@ -213,7 +187,7 @@ test('recovery of committed data retains publication ownership for later edits a
   }
 });
 
-test('native item-lock guard interruptions remain crash-recoverable', async t => {
+test('native pre-write guard interruptions remain crash-recoverable', async t => {
   for (const mode of ['create', 'update', 'rollback'] as const) {
     const base = await fixture(t, mode); const target = base.template; let rollingBack = false;
     await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md', onStep: step => {

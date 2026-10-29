@@ -1,3 +1,4 @@
+import { isCanceled } from './lifecycle.ts';
 import { randomBytes } from 'node:crypto';
 import type { Memory, MemoryOptions, Packet } from './types.ts';
 import { accounted, budget, digest, MemoryError, slug, text } from './core.ts';
@@ -178,7 +179,7 @@ export async function inspectView(packet: string, options: MemoryOptions): Promi
       if (output === undefined) continue;
       sources++;
       const policy = ledger.policies.find(policy => policy.purpose === output.purpose)!;
-      if (item.status === 'canceled' || policy.revision !== output.revision || policy.content !== sourceRevision(item) || !output.fields.every(field => policy.fields.includes(field))) affected.push(item.id);
+      if (isCanceled(item) || policy.revision !== output.revision || policy.content !== sourceRevision(item) || !output.fields.every(field => policy.fields.includes(field))) affected.push(item.id);
     }
     if (sources === 0) throw new MemoryError('missing', 'No retained sources for this packet', 'Use a nonempty packet manifest; retain the portable manifest if sources are deleted');
     return { packet, sources, affected, complete: true };

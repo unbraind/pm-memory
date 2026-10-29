@@ -112,7 +112,7 @@ test('owned recovery plans require every revision and SDK guard in all frozen ph
   }
 });
 
-test('SDK item-lock CAS errors remain typed and never publish stale data', async t => {
+test('SDK captured-revision refusals remain typed and never publish stale data', async t => {
   const { source, target, path } = await pendingScenario(t);
   const native = (await source.client.listAllComplete({ includeBody: true })).items[0];
   await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onTransition: async event => {

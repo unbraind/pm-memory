@@ -1,3 +1,4 @@
+import { isCanceled } from './lifecycle.ts';
 import { lstat, readdir, readFile, mkdir, writeFile, mkdtemp, rename, rm, access, chmod } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import type { Stats } from 'node:fs';
@@ -370,12 +371,12 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     }));
     await ensureTrackerOrigin(store); const catalog = await originCatalog(store);
     const foreignReceipt = foreign.length === 0 ? {} : { skipped: foreign.map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };
-    if (memories.some(item => item.consent !== undefined && item.status !== 'canceled' && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
-    const active = memories.filter(item => item.status !== 'canceled' && !item.artifact).sort((a, b) => a.slug.localeCompare(b.slug));
+    if (memories.some(item => item.consent !== undefined && !isCanceled(item) && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
+    const active = memories.filter(item => !isCanceled(item) && !item.artifact).sort((a, b) => a.slug.localeCompare(b.slug));
     const omitted_links: NonNullable<PortableExportResult['omitted_links']> = active.flatMap(item => item.relationships.flatMap(edge => {
         if (active.some(target => target.id === edge.id)) return [];
         const target = memories.find(target => target.id === edge.id);
-        return [{ slug: item.slug, target: edge.id, kind: edge.kind, reason: target === undefined ? 'missing' as const : target.status === 'canceled' ? 'canceled' as const : 'artifact' as const }];
+        return [{ slug: item.slug, target: edge.id, kind: edge.kind, reason: target === undefined ? 'missing' as const : isCanceled(target) ? 'canceled' as const : 'artifact' as const }];
     }));
     const lossy: NonNullable<PortableExportResult['lossy']> = active.flatMap(item => {
       const fields: NonNullable<PortableExportResult['lossy']>[number]['fields'] = [];
@@ -386,14 +387,14 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     /** Publication and receipts have one lease-fenced path for both wire encodings. */
     const commit = async (outputs: Map<string, Buffer>, byte_preserved: number): Promise<PortableExportResult> => {
       await store.fence(() => publish(resolve(path), outputs, options.onStep));
-      const artifacts: NonNullable<PortableExportResult['lossy']> = outputs.has(POLICY_MANIFEST) ? memories.filter(item => item.artifact && item.status !== 'canceled').map(item => ({ slug: item.slug, fields: ['slug', ...PORTABLE_FIELDS, 'relationships', 'artifact', ...(item.document === undefined ? [] : ['document' as const])], reason: 'Native index artifact is regenerated; its record is outside this policy inventory' })) : [];
+      const artifacts: NonNullable<PortableExportResult['lossy']> = outputs.has(POLICY_MANIFEST) ? memories.filter(item => item.artifact && !isCanceled(item)).map(item => ({ slug: item.slug, fields: ['slug', ...PORTABLE_FIELDS, 'relationships', 'artifact', ...(item.document === undefined ? [] : ['document' as const])], reason: 'Native index artifact is regenerated; its record is outside this policy inventory' })) : [];
       const losses = [...lossy, ...artifacts];
       return { exported: outputs.size, byte_preserved, ...foreignReceipt, ...(losses.length === 0 ? {} : { lossy: losses }), ...(omitted_links.length === 0 ? {} : { omitted_links }) };
     };
     if (memories.length === 0 || memories.some(item => item.validity !== undefined || item.source === 'native:item' || item.source === 'portable:policy-v1')) {
       return commit(await policyOutputs(store, active, options.to, catalog), 0);
     }
-    const originals = new Map(memories.filter(item => item.status !== 'canceled').map(item => [item.id, item.path !== '' && !item.edited && !nativeGraphEdits.has(item.id) && item.source === `${options.to}:relative-file` ? sourceDocument(safePath(item.path), Buffer.from(item.original, 'base64'), options.to) : undefined]));
+    const originals = new Map(memories.filter(item => !isCanceled(item)).map(item => [item.id, item.path !== '' && !item.edited && !nativeGraphEdits.has(item.id) && item.source === `${options.to}:relative-file` ? sourceDocument(safePath(item.path), Buffer.from(item.original, 'base64'), options.to) : undefined]));
     const decodedKeys = [...originals.values()].flatMap(source => source === undefined ? [] : [source.slug]);
     if (new Set(decodedKeys).size !== decodedKeys.length) throw new MemoryError('conflict', 'Export names collide: normalized duplicate slugs', 'Rename the conflicting legacy source names before exporting');
     const indexName = options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md';
@@ -401,7 +402,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     const records: LegacyOriginRecord[] = [];
     const outputs = new Map<string, Buffer>(); const emitted: { item: Memory; name: string }[] = []; const preserved = new Set<string>();
     for (const item of memories) {
-      if (item.status === 'canceled') continue;
+      if (isCanceled(item)) continue;
       await store.history(item.id);
       let name: string; let bytes: Buffer;
       const source = originals.get(item.id);

@@ -1,3 +1,5 @@
+import type { TrackerSchema } from './lifecycle.ts';
+import { trackerSchema } from './lifecycle.ts';
 import { constants } from 'node:fs';
 import { lstat, readdir, open, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -70,8 +72,8 @@ async function withProjection<T>(store: Store, plan: ImportPlan, excluded: Reado
 }
 
 /** Full SDK birth document with only SDK-generated wall-clock values made comparable. */
-export function birthDocument(document: Parameters<typeof canonicalDocument>[0]): string {
-  return serializeItemDocument(canonicalDocument({ ...document, metadata: { ...document.metadata, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' } }));
+export function birthDocument(document: Parameters<typeof canonicalDocument>[0], schema?: TrackerSchema): string {
+  return serializeItemDocument(canonicalDocument({ ...document, metadata: { ...document.metadata, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' } }, { schema }), { schema });
 }
 /** Actual edge-free creation requests, shared by preview and publication. */
 export function prepareImportNodes(plan: ImportPlan): BulkItemMutation[] {
@@ -94,8 +96,9 @@ export async function captureBirths(store: Store, plan: ImportPlan): Promise<voi
   const nodes = plan.nodes ?? plan.mutations.filter(row => row.op === 'create');
   if (nodes.length === 0) { plan.births = []; return; }
   const births = await withProjection(store, plan, new Set(nodes.map(row => row.id)), async workspace => {
-    await commitItemMutations({ pmRoot: workspace, author: plan.author, transactionId: plan.nodes === undefined ? plan.transactionId : `${plan.transactionId}-nodes`, mutations: nodes, createCompensation: 'delete' });
-    return Promise.all(nodes.map(async row => ({ id: row.id, document: birthDocument((await getItemAt(row.id, '1', { pmRoot: workspace })).document), message: (await readHistoryEntries(getHistoryPath(workspace, row.id), row.id))[0].message })));
+    await commitItemMutations({ pmRoot: workspace, author: plan.author, transactionId: plan.nodes === undefined ? plan.transactionId : `${plan.transactionId}-nodes`, mutations: nodes });
+    const schema = await trackerSchema(workspace);
+    return Promise.all(nodes.map(async row => ({ id: row.id, document: birthDocument((await getItemAt(row.id, '1', { pmRoot: workspace })).document, schema), message: (await readHistoryEntries(getHistoryPath(workspace, row.id), row.id))[0].message })));
   });
   Object.assign(plan, { births: births.map(row => ({ ...row, document: prior?.find(old => old.id === row.id)?.document ?? row.document })) });
 }

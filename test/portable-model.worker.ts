@@ -343,15 +343,15 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
           const retryFresh = async () => {
             if (moved) {
               // Before the node-stage readback, a moved reserved creation refuses
-              // the entire atomic plan; its later fresh retry can admit policy.
+              // the entire reserved plan; its later fresh retry can admit policy.
               const refusedReservation = boundary === 9 && freshModel.some(row => row.slug === 'beta');
               let completed = false;
               try { const result = await importDir(input.path, { ...options, from: to }); assert.ok('skipped' in result); assert.deepEqual(result.skipped.map(row => row.slug).sort(), refusedReservation ? ['alpha', 'beta', 'policy'] : ['alpha', 'beta']); assert.ok(result.skipped.every(row => row.reason.includes('Foreign'))); completed = !refusedReservation; }
               catch (error) { assert.ok(error instanceof MemoryError && error.code === 'conflict'); }
-              // Refusal restores owned creations; a later fresh retry may admit
-              // the independent policy while retaining the foreign component.
+              // Refusal cancels owned creations, retaining their native identities and graph;
+              // a later fresh retry may admit the independent policy as well.
               const fullyCommitted = boundary === 27 || boundary === 30;
-              if (!fullyCommitted) freshModel = completed ? [freshModel.find(row => row.slug === 'alpha')!, structuredClone(input.desired.find(row => row.slug === 'policy')!)] : [freshModel.find(row => row.slug === 'alpha')!];
+              if (!fullyCommitted && completed && !freshModel.some(row => row.slug === 'policy')) freshModel.push(structuredClone(input.desired.find(row => row.slug === 'policy')!));
               const native = (await client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!;
               assert.equal(native.memory_source, 'foreign:model');
             } else {

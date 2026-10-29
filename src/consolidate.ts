@@ -1,3 +1,4 @@
+import { isCanceled, statusRegistry } from './lifecycle.ts';
 import { jaccardSimilarity } from '@unbrained/pm-cli/sdk';
 import { active, DUPLICATE_THRESHOLD } from './memory.ts';
 import { digest, words, MemoryError } from './core.ts';
@@ -124,7 +125,7 @@ function mergeReceipt(source: Memory, memories: readonly Memory[]): MergeReceipt
   let receipt: MergeReceipt;
   try { receipt = JSON.parse(source.merge) as MergeReceipt; }
   catch { throw new MemoryError('conflict', `Invalid pending memory merge on ${source.slug}`, `Inspect memory_merge on ${source.slug}; reconcile or clear it through an audited pm update before retrying`); }
-  const target = memories.find(item => item.slug === receipt?.target && item.status !== 'canceled');
+  const target = memories.find(item => item.slug === receipt?.target && !isCanceled(item));
   if (target === undefined || typeof receipt.body !== 'string' || typeof receipt.changed_at !== 'string' || receipt.source_revision !== revision(source) || ![receipt.target_before, receipt.target_after].includes(revision(target))) throw new MemoryError('conflict', `Pending memory merge ${source.slug} -> ${target?.slug ?? 'unavailable target'} revisions changed`, `Preserve intervening edits, then reconcile or clear memory_merge on ${source.slug} through an audited pm update before retrying`);
   return receipt;
 }
@@ -149,7 +150,7 @@ export async function consolidate(options: MemoryOptions & SemanticOptions & { a
       await store.history(older.id);
       if (proposal.action === 'archive') {
         await store.client.comments(older.id, { add: `Memory archive: ${proposal.reason}`, ifAbsent: true });
-        await store.client.update(older.id, { status: 'canceled', closeReason: proposal.reason, message: 'Archive unused stale memory' });
+        await store.client.update(older.id, { status: (await statusRegistry(store.workspace)).canceled_status, closeReason: proposal.reason, message: 'Archive unused stale memory' });
       } else {
         const target = memories.find(item => item.slug === proposal.target)!;
         await store.history(target.id);
@@ -166,7 +167,7 @@ export async function consolidate(options: MemoryOptions & SemanticOptions & { a
             await store.fields(older.id, { merge: JSON.stringify(receipt) });
           }
           await store.client.run('update', { id: target.id, options: { body: receipt.body, ...metadata({ edited: true, verdict: 'unknown', verified_at: '', changed_at: receipt.changed_at }), message: 'Retain merged memory content' } });
-          await store.client.update(older.id, { status: 'canceled', closeReason: `Merged context linked to ${target.slug}; content retained`, message: 'Consolidate duplicate memory' });
+          await store.client.update(older.id, { status: (await statusRegistry(store.workspace)).canceled_status, closeReason: `Merged context linked to ${target.slug}; content retained`, message: 'Consolidate duplicate memory' });
           await store.fields(older.id, { merge: '' });
         }
       }

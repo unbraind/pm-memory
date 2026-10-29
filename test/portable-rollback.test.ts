@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { restore, deleteItem, WorkspaceTransactionInterruptedError, getItemPath, getItemAt, readSettings, resolveItemTypeRegistry, locateItem, getHistoryPath, readHistoryEntries, commitItemMutations, serializeItemDocument, canonicalDocument, type WorkspaceTransactionTransitionContext } from '@unbrained/pm-cli/sdk';
+import { WorkspaceTransactionInterruptedError, getItemPath, getItemAt, readSettings, resolveItemTypeRegistry, locateItem, getHistoryPath, readHistoryEntries, commitItemMutations, serializeItemDocument, canonicalDocument, type WorkspaceTransactionTransitionContext } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, renew, MemoryError, POLICY_MANIFEST } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody, skipOccupiedIdentities } from '../src/portable.ts';
 import { replanNodes } from '../src/portable-replan.ts';
 import { commitPortableBatch } from '../src/portable-write.ts';
 import { digest } from '../src/core.ts';
-import { guardedCompensation, rollbackImport, ownsLatest, ownsCreation } from '../src/portable-rollback.ts';
+import { rollbackImport, ownsLatest, ownsCreation } from '../src/portable-rollback.ts';
 import { importIdentity, validateImportPlan, pendingImport, applyImport, type ImportPlan } from '../src/portable-plan.ts';
 import { tracker, memoryDocuments, assertClosedGraph, crashAfterCompensation, crashAtStep, importSubset, explicitRecreation } from './helpers.ts';
 
@@ -17,23 +17,13 @@ import { tracker, memoryDocuments, assertClosedGraph, crashAfterCompensation, cr
 async function creationProofScenario(t: Parameters<typeof tracker>[0]) {
   const target = await tracker(t); const input = join(target.root, 'alpha.md'); await writeFile(input, 'Alpha A');
   await assert.rejects(importDir(input, { ...target.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
-  const plan = JSON.parse(JSON.parse(await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload) as ImportPlan;
+  const plan = await pendingImport(target.store); assert.ok(plan && plan !== 'foreign');
   return { target, plan, node: plan.nodes![0] };
 }
-/** Produce a positive ownership fixture through the actual SDK critical-section writer. */
+/** Produce a positive ownership fixture through the actual SDK journaled writer. */
 async function createWithReceipt(target: Awaited<ReturnType<typeof tracker>>, plan: ImportPlan, mutation: ImportPlan['mutations'][number]): Promise<void> {
   await commitPortableBatch(target.store, plan, `${plan.transactionId}-positive`, 'positive', [mutation], async () => {}, () => validateImportPlan(target.store, plan), { ...target.options, from: 'agents-md' });
 }
-/** Both SDK compensation operations must retain the complete peer-owned document. */
-async function assertSuperseded(target: Awaited<ReturnType<typeof tracker>>, plan: ImportPlan, id: string, operation: () => Promise<unknown>): Promise<void> {
-  const before = (await target.client.listAllComplete({ includeBody: true })).items;
-  let refusal: unknown;
-  try { await guardedCompensation(target.store, plan, operation); } catch (error) { refusal = error; }
-  assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
-  assert.ok(refusal instanceof Error); assert.match(refusal.message, /superseded/);
-  assert.equal(await ownsLatest(target.store, plan, id), false);
-}
-
 /** A real two-target import plus a bounded unchanged read-set dependency. */
 async function rollbackScenario(t: Parameters<typeof tracker>[0]) {
   const source = await tracker(t); const target = await tracker(t);
@@ -73,7 +63,7 @@ async function assertForeignIntent(result: Awaited<ReturnType<typeof importDir>>
   assert.equal(await readFile(intent, 'utf8'), foreign);
 }
 
-test('compensation requires full birth evidence and an uninterrupted owned history tail', async t => {
+test('cancellation requires full birth evidence while retaining later peer field edits', async t => {
   for (const extra of [false, true]) {
     const { target, plan, node } = await creationProofScenario(t);
     if (extra) await target.client.create({ ...node.options, id: node.id, priority: 1 });
@@ -81,7 +71,11 @@ test('compensation requires full birth evidence and an uninterrupted owned histo
     assert.equal(await ownsLatest(target.store, plan, node.id), !extra, 'A complete untouched SDK birth is positive ownership evidence');
     if (!extra) await target.client.update(node.id, { body: 'Native C', author: 'peer-agent' });
     await target.client.update(node.id, { description: 'A copied later transaction marker proves nothing', author: plan.author, message: `bulk-item-transaction ${plan.transactionId} ${node.id} update` });
-    await assertSuperseded(target, plan, node.id, () => deleteItem(node.id, { author: plan.author, force: true }, { pmRoot: target.workspace }));
+    const before = (await target.client.get(node.id, { full: true })).item;
+    await rollbackImport(target.store, plan, { ...target.options, from: 'agents-md' });
+    const after = (await target.client.get(node.id, { full: true })).item;
+    assert.equal(after.body, before.body); assert.equal(after.description, before.description);
+    assert.equal(after.status, extra ? before.status : 'canceled');
     if (!extra) {
       const moved = structuredClone(plan); (moved.initial ?? moved.expected)[0].history = '0'.repeat(64);
       assert.equal(await ownsLatest(target.store, moved, node.id), false, 'The captured immutable history prefix is part of the proof');
@@ -90,7 +84,8 @@ test('compensation requires full birth evidence and an uninterrupted owned histo
   const { target, plan, items } = await pausedScenario(t); const alpha = items.find(row => row.memory_slug === 'alpha')!;
   await target.client.update(alpha.id, { body: 'Native C', author: 'peer-agent' });
   await target.client.update(alpha.id, { description: 'A later copied transaction marker', author: plan.author, message: `bulk-item-transaction ${plan.transactionId} ${alpha.id} update` });
-  await assertSuperseded(target, plan, alpha.id, () => restore(alpha.id, alpha.updated_at, { author: plan.author, force: true }, { pmRoot: target.workspace }));
+  await rollbackImport(target.store, plan, { ...target.options, from: 'agents-md' });
+  assert.equal((await target.client.get(alpha.id, { full: true })).item.body, 'Native C');
 });
 
 test('compensation treats drifted missing and malformed native proof records as foreign', async t => {
@@ -114,21 +109,6 @@ test('compensation treats drifted missing and malformed native proof records as 
   assert.equal(await ownsLatest(target.store, plan, node.id), false);
   await writeFile(file, original); await target.client.run('delete', { id: node.id, options: { force: true } });
   assert.equal(await ownsLatest(target.store, plan, node.id), false);
-});
-
-test('SDK compensation guards evaluate ownership inside the restore item lock', async t => {
-  const { target, items, plan } = await pausedScenario(t);
-  const alpha = items.find(row => row.memory_slug === 'alpha')!;
-  await target.client.update(alpha.id, { body: 'Peer C owns this target', author: 'peer-agent' });
-  await assert.rejects(guardedCompensation(target.store, plan, () => restore(alpha.id, alpha.updated_at, { author: plan.author, force: true }, { pmRoot: target.workspace })));
-  assert.equal((await target.client.get(alpha.id, { full: true })).item.body, 'Peer C owns this target');
-  assert.equal(await ownsLatest(target.store, plan, 'memory-test-absent'), false);
-  const unrelated = 'memory-test-unrelated-create';
-  await guardedCompensation(target.store, { ...plan, births: undefined }, () => commitItemMutations({ pmRoot: target.workspace, author: plan.author, transactionId: `${plan.transactionId}-unrelated`, mutations: [{ op: 'create', id: unrelated, unique: { key: 'title', value: 'Unrelated native record' }, options: { title: 'Unrelated native record', body: 'Native A', type: 'Task' } }] }));
-  const other = await target.client.get(unrelated, { full: true }); const otherVersion = other.item.updated_at; assert.ok(otherVersion);
-  await target.client.update(other.item.id, { body: 'Native B' });
-  await guardedCompensation(target.store, plan, () => restore(other.item.id, otherVersion, { author: plan.author, force: true }, { pmRoot: target.workspace }));
-  assert.equal((await target.client.get(other.item.id, { full: true })).item.body, 'Native A');
 });
 
 test('refusal rollback is crash recoverable at every SDK rollback transition', async t => {
@@ -540,7 +520,7 @@ test('a peer-owned intent at refusal-recovery cleanup is retained and reported t
 });
 
 
-test('copied node markers with unplanned full-document data never authorize deletion or replay', async t => {
+test('copied node markers with unplanned full-document data never authorize cancellation or replay', async t => {
   let cases = 0;
   for (const from of ['agents-md', 'claude-code'] as const) for (const recovery of [false, true]) for (const shape of ['priority', 'custom', 'dependencies']) {
     const target = await tracker(t); const input = join(target.root, 'alpha.md'); await writeFile(input, '# Alpha\nInstructions');
@@ -570,31 +550,41 @@ test('copied node markers with unplanned full-document data never authorize dele
 });
 
 
-test('SDK item-lock birth preconditions reject changed proposals at every apply boundary', async t => {
+test('SDK pre-write birth checks reject changed proposals at every apply boundary', async t => {
   for (const phase of ['fresh', 'interrupted', 'compensated']) for (const boundary of ['intent', 'cas-read', 'cas-guarded']) {
     t.diagnostic(`birth precondition phase=${phase} boundary=${boundary}`);
     const producer = await tracker(t); const input = join(producer.root, 'proposals'); await mkdir(input);
     await writeFile(join(input, 'alpha.md'), 'Alpha A'); await writeFile(join(input, 'beta.md'), 'Beta A');
     await assert.rejects(importDir(input, { ...producer.options, from: 'agents-md', ...(phase === 'compensated' ? { onTransition: crashAfterCompensation } : { onStep: crashAtStep('intent') }) }), WorkspaceTransactionInterruptedError);
-    const plan = await pendingImport(producer.store); assert.ok(plan !== undefined && plan !== 'foreign');
+    let plan = await pendingImport(producer.store);
+    if (phase === 'compensated') {
+      assert.equal(plan, undefined, 'Completed compensation clears frozen create options before fresh planning');
+      const canceled = (await producer.client.listAllComplete()).items; assert.equal(canceled.length, 1); assert.equal(canceled[0].status, 'canceled');
+      await assert.rejects(importDir(input, { ...producer.options, from: 'agents-md', onStep: crashAtStep('intent') }), WorkspaceTransactionInterruptedError);
+      plan = await pendingImport(producer.store);
+    }
+    assert.ok(plan !== undefined && plan !== 'foreign');
+    const frozen = plan;
     const target = phase === 'fresh' ? await tracker(t) : producer;
-    const priorCreations = new Map(await Promise.all(plan.nodes!.map(async row => [row.id, (await readHistoryEntries(getHistoryPath(target.workspace, row.id), row.id)).filter(entry => entry.op === 'create').length] as const)));
+    const retained = (await target.client.listAllComplete({ includeBody: true })).items;
+    const priorCreations = new Map(await Promise.all(frozen.nodes!.map(async row => [row.id, (await readHistoryEntries(getHistoryPath(target.workspace, row.id), row.id)).filter(entry => entry.op === 'create').length] as const)));
     let injected = false;
     const outcome = await target.store.write(async () => {
       await target.store.register();
-      return applyImport(target.store, plan, { ...target.options, from: 'agents-md', onStep: step => {
-        if (!injected && step === boundary) { injected = true; plan.nodes![0].options!.priority = 1; }
+      return applyImport(target.store, frozen, { ...target.options, from: 'agents-md', onStep: step => {
+        if (!injected && step === boundary) { injected = true; frozen.nodes![0].options!.priority = 1; }
       } });
     }).then(receipt => ({ receipt }), (error: unknown) => ({ error }));
     assert.ok(injected, `${phase}/${boundary}`);
     if ('error' in outcome || outcome.receipt.imported === 0) {
-      assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, [], 'A refused proposal never writes unexpected birth metadata');
+      assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, retained, 'A refused proposal retains canceled identities and never writes unexpected birth metadata');
       for (const [id, count] of priorCreations) assert.equal((await readHistoryEntries(getHistoryPath(target.workspace, id), id)).filter(entry => entry.op === 'create').length, count, 'The SDK refuses before appending any unexpected creation');
       assert.ok('error' in outcome && outcome.error instanceof MemoryError && ['conflict', 'transaction'].includes(outcome.error.code));
-      assert.equal((await importDir(input, { ...target.options, from: 'agents-md' })).imported, 2);
-    } else assert.equal(outcome.receipt.imported, 2, 'An exhausted generation may replan its original input');
+      assert.equal((await importDir(input, { ...target.options, from: 'agents-md' })).imported, 2 - retained.length);
+    } else assert.equal(outcome.receipt.imported, 2 - retained.length, 'An exhausted generation may replan its original input');
     const rows = (await target.client.listAllComplete({ includeBody: true })).items;
     assert.equal(rows.length, 2); assert.ok(rows.every(row => row.priority === 2));
+    if (phase === 'compensated') assert.equal(rows.find(row => row.id === retained[0].id)!.status, 'canceled', 'A content retry never reactivates a retained canceled identity');
     assert.deepEqual(new Set(rows.map(row => row.body)), new Set(['Alpha A', 'Beta A']));
     assert.equal((await importDir(input, { ...target.options, from: 'agents-md' })).unchanged, 2);
   }

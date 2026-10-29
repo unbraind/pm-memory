@@ -1,6 +1,7 @@
 /** Exercise the installed SDK and a second native runtime process, without repository source imports. */
 export function criticalConsumerSource(): string {
   return String.raw`import assert from 'node:assert/strict';
+import { isDeepStrictEqual } from 'node:util';
 import { spawnSync } from 'node:child_process';
 import { cp, mkdir, readFile, readdir, readlink, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
@@ -34,20 +35,42 @@ else {
   const worker = join(process.cwd(), 'critical-peer.mjs');
   await writeFile(worker, [
     "import { PmClient } from '@unbrained/pm-cli/sdk';",
-    "const [workspace,id,prefix] = process.argv.slice(2);",
+    "const [workspace,id,prefix,target] = process.argv.slice(2);",
     "const client = new PmClient({pmRoot:workspace,noExtensions:true,author:'memory-consumer'});",
-    "await client.update(id,{body:'Peer native C',priority:1,message:'bulk-item-transaction '+prefix+' copied-prefix apply'});"
+    "await client.update(id,{...(target?{dep:['id='+target+',kind=depends_on']}:{body:'Peer native C',priority:1}),message:'bulk-item-transaction '+prefix+' copied-prefix apply'});"
   ].join('\n'));
-  let injected = false; let peer;
+  let injected = false; let peer; let peerBefore;
   await assert.rejects(importDir(output, { ...options, from: 'agents-md', onTransition: async event => {
     if (!injected && event.transition === 'step_recorded' && !/-nodes$|-snapshot$|-rollback$/.test(event.transactionId)) {
       injected = true;
+      peerBefore = (await client.get(item.id, {full:true})).item;
       const child = spawnSync(process.execPath, [worker, workspace, item.id, event.transactionId], { encoding: 'utf8', timeout: 60000, env: { ...process.env, PATH: root, GIT_CEILING_DIRECTORIES: root } });
       assert.equal(child.error, undefined); assert.equal(child.status, 0, child.stderr); peer = (await client.get(item.id, { full: true })).item;
     }
   } }), error => error instanceof MemoryError && error.code === 'conflict');
-  assert.equal(injected, true); assert.deepEqual((await client.get(item.id, { full: true })).item, peer);
-  await importDir(output, { ...options, from: 'agents-md' }); assert.deepEqual((await client.get(item.id, { full: true })).item, peer);
+  assert.equal(injected, true);
+  async function checkPeer() {
+    const actual = (await client.get(item.id, {full:true})).item;
+    const changedKeys = Object.keys(peer).filter(name => name !== 'updated_at' && !isDeepStrictEqual(peer[name], peerBefore[name]));
+    for (const name of changedKeys) assert.deepEqual(actual[name], peer[name], 'peer field ' + name);
+  }
+  await checkPeer(); await importDir(output, { ...options, from: 'agents-md' }); await checkPeer();
+  const gamma = join(root, 'gamma.md'); await writeFile(gamma, 'Gamma remains a native identity');
+  const task = (await client.create({title:'Native dependent task'})).item.id;
+  let referenced = false; let gammaId; let runPrefix;
+  await assert.rejects(importDir(gamma, {...options, from:'agents-md', onStep:async step => {
+    if(step !== 'rollback-apply' || referenced) return;
+    gammaId = (await client.listAllComplete()).items.find(row => row.memory_slug === 'gamma').id;
+    const child = spawnSync(process.execPath,[worker,workspace,task,runPrefix,gammaId],{encoding:'utf8',timeout:60000,env:{...process.env,PATH:root,GIT_CEILING_DIRECTORIES:root}});
+    assert.equal(child.error,undefined); assert.equal(child.status,0,child.stderr); referenced = true;
+  }, onTransition:event => {
+    runPrefix = event.transactionId;
+    if(event.transactionId.endsWith('-snapshot') && event.transition === 'step_recorded') throw new Error('Refuse gamma publication');
+  }}), error => error instanceof MemoryError);
+  assert.ok(referenced); const retained = (await client.listAllComplete()).items;
+  assert.equal(retained.find(row => row.id === gammaId).status,'canceled');
+  assert.ok(retained.find(row => row.id === task).dependencies.some(edge => edge.id === gammaId));
+  for(const row of retained) for(const edge of row.dependencies ?? []) assert.ok(retained.some(target => target.id === edge.id),'dangling consumer edge');
   const invalid = new PmClient({ pmRoot: invalidWorkspace, author: options.author, noExtensions: true });
   await invalid.init('critical-invalid', { defaults: true, agentGuidance: 'skip', mergeFence: false });
   const bad = join(root, 'bad'); await cp(output, bad, { recursive: true }); alpha.relationships = [{ slug: 'beta', kind: 'related', created_at: { invalid: true } }];

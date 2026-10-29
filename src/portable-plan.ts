@@ -32,7 +32,7 @@ export async function importIdentity(store: Store, input: string, candidate: str
   }
 }
 
-/** SDK revision identity plus immutable history prefix read while planning. */
+/** SDK revision identity plus immutable history prefix captured while planning. */
 export interface ExpectedTarget {
   /** Native target identity reserved before a planned creation exists. */
   id: string;
@@ -40,7 +40,7 @@ export interface ExpectedTarget {
   slug: string;
   /** Exported immutable lineage, never resolved from a mutable alias. */
   origin?: PortableOrigin;
-  /** SDK restorable revision checked atomically by update.match. */
+  /** SDK restorable revision retained for mutation matching; plain native writers are not excluded. */
   version: string | null;
   /** Expected number of immutable history entries. */
   length: number;
@@ -81,7 +81,7 @@ async function guardPlan(store: Store, plan: ImportPlan): Promise<void> {
     const entries = await readHistoryEntries(getHistoryPath(store.workspace, expected.id), expected.id);
     const tail = entries.slice(expected.length);
     const mutation = plan.mutations.find(row => row.id === expected.id);
-    if (mutation?.op === 'update' && (mutation.match?.key !== 'updated_at' || mutation.match.value !== expected.version)) throw new PlanMoved('Planned SDK CAS revision differs from its captured expectation');
+    if (mutation?.op === 'update' && (mutation.match?.key !== 'updated_at' || mutation.match.value !== expected.version)) throw new PlanMoved('Planned revision differs from its captured expectation');
     const unchanged = tail.length === 0 && (item === undefined ? null : String(item.updated_at)) === expected.version;
     const owned = tail.length > 0 && await ownsWritten(store, plan, expected.id);
     if (expected.version === null && item !== undefined && !owned) throw new PlanForeign('Foreign record occupies the reserved import id');
@@ -120,7 +120,7 @@ export interface ImportPlan {
   nodes?: BulkItemMutation[];
   /** Complete independent SDK birth documents, frozen before source writes. */
   births?: { id: string; document: string; message?: string }[];
-  /** True once all nodes exist and full data mutations carry SDK-read CAS revisions. */
+  /** True once all nodes exist and full data mutations carry captured SDK revisions. */
   nodesDone?: boolean;
   /** Package-owned graph members needed to resolve portable relationship identities. */
   members: string[];
@@ -141,7 +141,7 @@ export function planError(error: unknown): never {
   if (error instanceof PlanMoved || (isPmCliExpectedError(error) && ['upsert_match_changed', 'upsert_key_conflict', 'item_already_exists', 'memory_import_birth_moved'].includes(String(error.code)))) throw new MemoryError('conflict', 'Portable import target revision changed', 'Retry the portable import; newer native edits are retained and owned partial changes are compensated');
   throw new MemoryError('transaction', 'Portable import transaction failed', 'Retry the same input to complete recovery; preserve the owned intent and inspect pm health if recovery refuses');
 }
-/** Every path reads revisions, validates the old read set, then applies SDK CAS. */
+/** Every path reads revisions and validates the old read set; ordinary native writers can still race the later write. */
 export async function readGuardApply<T>(store: Store, plan: ImportPlan, onStep: PortableImportOptions['onStep'], apply: (expected: ExpectedTarget[]) => Promise<T>): Promise<T> {
   const expected = await expectedTargets(store, plan.expected);
   await onStep?.('cas-read');
@@ -241,16 +241,16 @@ export async function pendingImport(store: Store, onStep?: PortableImportOptions
     plan.refusing = true; await savePlan(store, plan);
     return drainRefusal(store, plan, onStep, onTransition);
   }
-  const data = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.transactionId}.json`));
-  if ((typeof data === 'object' && data !== null && 'status' in data && data.status === 'compensated') || (typeof journal === 'object' && journal !== null && 'status' in journal && journal.status === 'compensated')) {
-    const token = value.payload;
+  const data = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.invocationId ?? plan.transactionId}.json`));
+  const nodes = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${plan.invocationId ?? plan.transactionId}-nodes.json`));
+  if ([data, nodes, journal].some(value => typeof value === 'object' && value !== null && 'status' in value && value.status === 'compensated')) {
     try {
       await captureBirths(store, plan);
-      return await readGuardApply(store, plan, onStep, async expected => {
-        const { snapshots: _snapshots, ...prior } = plan;
-        const next = { ...prior, expected, ...await importIdentity(store, plan.input), mutations: plan.mutations.map(row => ({ ...row, match: { key: 'updated_at', value: expected.find(target => target.id === row.id)!.version } })) };
-        intentTokens.set(next, token); return next;
-      });
+      await readGuardApply(store, plan, onStep, async () => {});
+      // Canceled creations remain native identities. Replan from current state instead of
+      // replaying frozen create/options over canceled items or newly peer-owned fields.
+      await rollbackImport(store, plan, { workspace: store.workspace, from: 'agents-md', onStep, onTransition });
+      return await removeIntent(store, plan) ? undefined : 'foreign';
     } catch (error) {
       const crash = interruption(error); if (crash !== undefined) throw crash;
       try { return await refuseImport(store, plan, { workspace: store.workspace, from: 'agents-md', onStep, onTransition }, error); }
@@ -313,7 +313,7 @@ async function runImport(store: Store, plan: ImportPlan, options: PortableImport
   /** Validate every target before writing, and let ordinary refusals compensate. */
   const prior = plan.invocationId;
   const statuses = prior === undefined ? [] : await Promise.all(['-nodes', '', '-snapshot'].map(async suffix => { const journal = await optionalJson(join(store.workspace, 'transactions', 'sdk', `${prior}${suffix}.json`)); return typeof journal === 'object' && journal !== null && 'status' in journal ? journal.status : undefined; }));
-  // Publish exact deletion receipts before replacing the attempt that owns them.
+  // Finish cancellation/field receipts before replacing the attempt that owns them.
   if (statuses.some(status => status === 'compensated')) await rollbackImport(store, plan, options);
   // Committed sub-batches still belong to the original unpublished invocation.
   const resumable = statuses.some(status => status === 'applying' || status === 'compensating') || (!statuses.includes('compensated') && statuses.includes('committed'));

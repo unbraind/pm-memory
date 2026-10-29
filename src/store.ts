@@ -1,3 +1,4 @@
+import { statusRegistry } from './lifecycle.ts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { certifyCompleteListResult, getHistoryPath, PmClient, readHistoryEntries, readSettings, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { LockLease, PmActionName, PmClientRunArgs } from '@unbrained/pm-cli/sdk';
@@ -74,7 +75,7 @@ export class Store {
   /** Register the custom Knowledge type and compatible metadata through native schema writes. */
   async register(onStep?: (step: string) => void | Promise<void>): Promise<void> {
     const settings = await readSettings(this.workspace);
-    if (!settings.item_types.definitions.some(type => type.name === 'Knowledge')) await this.client.schemaAddType('Knowledge', { folder: 'knowledge', description: 'Durable agent knowledge', defaultStatus: 'open' });
+    if (!settings.item_types.definitions.some(type => type.name === 'Knowledge')) await this.client.schemaAddType('Knowledge', { folder: 'knowledge', description: 'Durable agent knowledge', defaultStatus: (await statusRegistry(this.workspace)).open_status });
     await onStep?.('schema-type');
     const fields = (await this.client.schemaListFields()).fields;
     for (const field of MEMORY_FIELDS) {
@@ -89,6 +90,7 @@ export class Store {
   async read(only?: ReadonlySet<string>, observed?: Readonly<MemoryCorpus>): Promise<Memory[]> {
     const items = observed ?? certifyCompleteListResult(await this.client.listAllComplete({ includeBody: true })).items;
     const result: Memory[] = [];
+    const statuses = await statusRegistry(this.workspace);
     const seen = new Set<string>();
     for (const item of items) {
       if (only !== undefined && !only.has(item.id)) continue;
@@ -100,7 +102,8 @@ export class Store {
       if (!Number.isSafeInteger(recalls) || recalls < 0) throw new MemoryError('schema', 'Invalid memory recall counter', 'Restore a nonnegative integer counter through pm update');
       const verdict = item.memory_verdict ?? 'unknown';
       if (!['verified', 'stale', 'unknown'].includes(String(verdict))) throw new MemoryError('schema', 'Invalid memory verdict', 'Use verified, stale or unknown');
-      result.push({ document: readDocument(item.memory_document), policyBody: readDocument(item.memory_policy_body), ...(item.memory_consent === undefined ? {} : { consent: String(item.memory_consent) }), importSnapshot: item.memory_import_snapshot === undefined ? undefined : String(item.memory_import_snapshot), validity: readWindow(item.memory_validity), id: item.id, slug: key, title: item.title, description: item.description, reason: String(item.memory_reason ?? ''), body: String(item.body), kind: kind(item.memory_kind), why: String(item.memory_why ?? ''), how: String(item.memory_how ?? ''), pinned: item.memory_pinned === true, source: String(item.memory_source ?? 'native:item'), updated: String(item.memory_changed_at ?? item.created_at), merge: String(item.memory_merge ?? ''), recalls, verdict: verdict as Memory['verdict'], status: item.status, tags: item.tags, path: String(item.memory_path ?? ''), original: String(item.memory_original ?? ''), edited: item.memory_edited === true, artifact: item.memory_artifact === true, relationships: item.dependencies ?? [], links: (item.dependencies ?? []).map(edge => edge.id), supersedes: (item.dependencies ?? []).filter(edge => edge.kind === 'supersedes').map(edge => edge.id) });
+      const canceled = statuses.terminal_canceled_statuses.has(item.status) || statuses.canceled_status === item.status;
+      result.push({ document: readDocument(item.memory_document), policyBody: readDocument(item.memory_policy_body), ...(item.memory_consent === undefined ? {} : { consent: String(item.memory_consent) }), importSnapshot: item.memory_import_snapshot === undefined ? undefined : String(item.memory_import_snapshot), validity: readWindow(item.memory_validity), id: item.id, slug: key, title: item.title, description: item.description, reason: String(item.memory_reason ?? ''), body: String(item.body), kind: kind(item.memory_kind), why: String(item.memory_why ?? ''), how: String(item.memory_how ?? ''), pinned: item.memory_pinned === true, source: String(item.memory_source ?? 'native:item'), updated: String(item.memory_changed_at ?? item.created_at), merge: String(item.memory_merge ?? ''), recalls, verdict: verdict as Memory['verdict'], status: item.status, ...(canceled !== (item.status === 'canceled') ? { canceled } : {}), tags: item.tags, path: String(item.memory_path ?? ''), original: String(item.memory_original ?? ''), edited: item.memory_edited === true, artifact: item.memory_artifact === true, relationships: item.dependencies ?? [], links: (item.dependencies ?? []).map(edge => edge.id), supersedes: (item.dependencies ?? []).filter(edge => edge.kind === 'supersedes').map(edge => edge.id) });
     }
     return result;
   }
