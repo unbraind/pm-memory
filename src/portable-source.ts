@@ -64,7 +64,13 @@ export interface Source {
   links: string[];
 }
 /** Normalize relative source paths identically for generated slugs and wiki aliases. */
-export function stemOf(path: string): string { return path.replace(/\.[^./]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, ''); }
+export function stemOf(path: string): string {
+  const stem = path.replace(/\.[^./]+$/, '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+  let start = 0; let end = stem.length;
+  while (start < end && stem[start] === '-') start++;
+  while (end > start && stem[end - 1] === '-') end--;
+  return stem.slice(start, end);
+}
 /** Detect document framing independently of YAML validity, including literal native body text. */
 export function frontmatter(content: string): RegExpExecArray | null { return /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content); }
 /** Parse frontmatter with the YAML parser while preserving its original byte representation. */
