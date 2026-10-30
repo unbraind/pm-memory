@@ -7,11 +7,11 @@ status: in_progress
 priority: 2
 tags[1]: "gh:unbraind/pm-memory#15"
 created_at: "2026-10-21T22:03:10.834Z"
-updated_at: "2026-10-29T19:05:34.461Z"
+updated_at: "2026-10-30T16:23:57.382Z"
 author: codex-agent
 acceptance_criteria: Bounded guidance can round trip without becoming unbounded or silently losing evidence; imported windows are validated before writes.
 parent: pm-memory-0kwy
-comments[198]{created_at,author,text}:
+comments[206]{created_at,author,text}:
   "2026-10-25T01:04:43.613Z",codex-agent,"Claimed portable policy-window work. Design inspection: existing transfer refuses bounded guidance and sequential imports can partially publish. Investigating SDK transactions and existing lease/history surfaces before selecting an atomic import contract. Will preserve window evidence and renewal ancestry, reject broadened or removed bounds, and validate in non-git trackers with crash and competing-writer boundaries."
   "2026-10-25T01:15:25.678Z",codex-agent,"Implemented versioned policy inventory plus editable body files, exact window and renewal validation, full-batch SDK preview/commit, deterministic recovery ids, foreign-record skips, and staged export publication. Targeted suite: 24 passed before the final update/rollback and independent-export tests were added. Randomized sets cover both harnesses, mixed bounded/unbounded guidance, kinds, tags and renewal counts. Existing unbounded byte-preserving transfers remain supported. CI now invokes the explicit npm release:check gate as well as the existing Bun gate; local full release gates are intentionally deferred to CI on this saturated host."
   "2026-10-25T01:17:54.916Z",codex-agent,"Read-only public-copy validation passed: 17 public items, 6 nonempty bodies, 232693 projected input bytes; 17 derived scenario guidance records, 34 renewal records retained per harness, 19 exported files per harness, all 17 unchanged on identical retries, zero lost windows/evidence, edited bodies needs-renewal. Every source file was permission-protected and its aggregate fingerprint remained unchanged. Evidence: docs/portable-guidance-validation.md. The first unrestricted read created only SDK runtime metadata caches, so the measured run used an independently extracted read-only copy."
@@ -210,7 +210,15 @@ comments[198]{created_at,author,text}:
   "2026-10-29T18:56:28.394Z",codex-agent,"Operational/content-age closure now passes 8/8 focused roots without changing the pre-existing semantic test: native and both harness pin transitions at 31/400 days, relationship-only changes retaining native verification, genuine body changes refreshing age, native renewal preservation with foreign-policy no-write refusals, interrupted raw edge completion, and operational/pin/content unsets. Native remember reversion fails its state control and restoration passes 1/1. Reverting the shared revision helper also reproduces assertion failures; remaining restored/caller reverts and rebuilt packed runtime checks are running. Typecheck, lint, zero duplication across 115 sources and 151 documented declarations pass. Publishing this verified source correction now so it cannot be lost."
   "2026-10-29T19:05:23.905Z",codex-agent,"Final behavioral receipts for dc4779a: restored original blocker controls pass 7/7 (three removals, three freshness/evidence routes, immutable lineage); operational-age controls pass 8/8; the unchanged semantic control also passes 1/1 through pinned pm test --run --only-last --progress. Four disposable function reverts fail with assertion/state differences: remember 1 failure, shared contentRevision 3, raw importDir 1, policy importPolicy 1; restored runs pass 1/1, 3/3, 1/1 and 1/1. The policy revert uses immutable baseline ef01b75. Production source was never reverted. Actual SDK-projected content/pin/operational changes now share classification across raw, companion and canonical paths; original tests remain intact."
   "2026-10-29T19:05:29.441Z",codex-agent,"Fresh rebuilt archive on the final source passes the packed critical root 1/1 in native Node and Bun: four independent same-author peers, two retained forward identities, retained native values, four compact JSON/TOON refusals, six pin-age controls and the three-harness scalar round trips. Integrity sha512-OZzrFVmr6UqIikwy2vQEMKR+hXLp546BkHB+TppnCiM5LDeq7nSR/AbAS89n74qOl2EC3oOSuWcM3OJ8pt9XwA== supersedes earlier archives. Full release verification is still incomplete: earlier npm 97 passed/0 failed/44 canceled and Bun 13/0/52 were controlled interruptions on superseded source; no full gate or 100-percent coverage result is claimed for this source. Final CI remains required. At the bounded watch cutoff 18:33:19 UTC, https://github.com/unbraind/pm-memory/actions/runs/40927130359 and https://github.com/unbraind/pm-memory/actions/runs/40927130409 were queued; subsequent source corrections require fresh head checks. No open reviewer-filed issues exist, and no review thread was answered or resolved. No new pm CLI bug was identified; native-writer isolation limitations remain tracked separately."
-files[77]:
+  "2026-10-30T13:52:06.676Z",codex-agent,"Review round: pulled PR head and merged origin/main before changes. GitHub returned zero unresolved threads and no CodeRabbit review bodies; treating the two supplied findings as mandatory. Audit covers raw, companion and policy import/export, planning, recovery and retry. Replace timestamp-based snapshot identity with SDK-normalized content plus immutable history, add forced-collision property and behavioral revert evidence, correct verification documentation, then complete serial npm and Bun release gates at unchanged thresholds. No thread replies or resolutions."
+  "2026-10-30T13:58:49.660Z",codex-agent,"Class audit: all source identity comparisons were inspected. Raw and canonical adapters now capture exact SDK-normalized corpus documents plus immutable native history before the read callback, and reuse those frozen bases through preview/apply. Removed both timestamp mutation guards and timestamp historical lookup. Remaining timestamp uses are lifecycle/recency, validation, serialization or diagnostics; recovery/publication/ownership compare content hashes and history prefixes. Added seeded forced-collision schedules for seven adapter/harness combinations, including same-time ABA, stale planning capture, interrupted recovery, repeated retry and export round trips. Tests use real disposable non-git trackers; no SDK mocks or threshold changes."
+  "2026-10-30T14:05:50.000Z",codex-agent,"Behavioral revert proof in a disposable copy: replacing only expectedTargets with the previous timestamp-adoption behavior (adapted to the frozen-map argument) failed 8/9 controls: all seven raw/companion/policy harness combinations overwrote Native C with Harness B at the read boundary, and the direct same-time ABA/history test also failed. Reverting README alone failed its documentation contract (0/1 passed). Production source was never reverted. Restored collision controls are running. A local adapter attempt timed out at 180 seconds under shared load above 30; retry uses a longer harness timeout without changing assertions or release thresholds. Pinned pm runner passed both focused capture/documentation controls (2/2)."
+  "2026-10-30T14:14:25.696Z",codex-agent,"Restoration verified: all 9 collision/documentation controls pass, covering 49 forced-collision schedules across seven adapters, plus stale capture/same-time ABA and README contracts. The restored disposable copy is byte-identical to the package implementation, regression test and README. No canceled or skipped controls in this completed run. The earlier 180-second load timeout is superseded by this pass. Isolated pinned tracker health exits zero; the host-only global extension version skew disappears under CI identity. Starting the complete serial npm then Bun release gates, maximum two workers, isolated HOME/Git configuration and no inherited credential variables."
+  "2026-10-30T14:18:34.937Z",codex-agent,"The first npm release attempt stopped before coverage at the unchanged 0% duplication gate: the normalized capture sequence was duplicated between the raw and canonical planners. Extracted readImportSnapshot so both adapters share ownership filtering, corpus normalization and immutable history capture. Focused adapter/capture/documentation controls are rerunning before restarting the full gate; no thresholds or assertions changed."
+  "2026-10-30T14:20:50.090Z",codex-agent,"Shared snapshot refactor verified: 4/4 focused controls pass (raw planner, canonical planner, stale capture/ABA, README); unchanged duplication gate is back to 0%. Restarting the complete npm release gate. The earlier timestamp-adoption revert proof applies to the unchanged expectedTargets function; no regression assertion was removed or weakened."
+  "2026-10-30T15:09:16.118Z",codex-agent,"Whole-package audit found an additional timestamp guard in verify: native description/kind/tag/pin or source-document changes could collide with the content timestamp and retain the narrower claim-text equality. Verification now compares the shared semantic guidance digest plus complete source provenance; timestamp-only changes preserve an identical content identity. Added 12 real non-git tracker controls with a deferred synthetic HTTP endpoint: eleven colliding content/source edits must skip, and one clock-only edit must remain admissible. The in-flight full gate was superseded before committing this source correction; its partial counts are not certification. Consolidation recovery already hashes every compared semantic field, and recall compares the complete ranking input; neither adopts a snapshot from timestamp equality."
+  "2026-10-30T16:23:53.651Z",codex-agent,"Stop rule applied: the whole identity class remains open in legacy native merge replay, tracked by reopened pm-memory-c3gv; no duplicate item was created. Published and read back the complete split plan in PR #15, SHA-256 8abe5724b4c61817c5ac2e9de72ff19899af69c9e293dd6f9e725732cd388998. Remote head remains 6f8c8ad43ffe9bd4fffb9ffa3bb590c22745ff0e; no code push. Candidate controls pass 36/36, and pinned pm passes the native guard subset 22/22. Final expectedTargets behavioral revert fails 8/9 controls; restoring original verify alone yields 12 failed and 6 passed; README-only revert fails 1/1. All candidate controls pass after restoration. The retained merge blocker fails 0/1 passed and reports source_status=canceled with replay_error=false after overwriting a native value restored by ABA. Full npm/Bun release gates completed this round: 0/2; npm attempts were superseded during audit and Bun was not started after the stop condition. Initial collision-harness load timeout passed on retry; assertions and thresholds remain unchanged. Typecheck, lint, build, docstrings and 0% duplication pass. No final coverage or fresh CI/CodeQL certification is claimed. Candidate code, regression and tracker records will be committed locally together; the PR-body split plan is the only remote change."
+files[81]:
   - path: .github/workflows/ci.yml
     scope: project
   - path: index.ts
@@ -266,6 +274,8 @@ files[77]:
   - path: src/types.ts
     scope: project
     note: Forward-only compatibility and artifact admission; obsolete compiled modules cannot ship
+  - path: src/verify.ts
+    scope: project
   - path: test/commands.test.ts
     scope: project
   - path: test/consent.test.ts
@@ -291,9 +301,13 @@ files[77]:
     scope: project
   - path: test/install.acceptance.ts
     scope: project
+  - path: test/native-revision.test.ts
+    scope: project
   - path: test/portable-admission.test.ts
     scope: project
     note: Forward-only import regression coverage; SDK read-back and independent native peers
+  - path: test/portable-collision.test.ts
+    scope: project
   - path: test/portable-companion.test.ts
     scope: project
   - path: test/portable-critical.test.ts
@@ -384,7 +398,9 @@ files[77]:
     scope: project
   - path: test/validate-guidance.ts
     scope: project
-tests[38]:
+  - path: test/verification-collision.test.ts
+    scope: project
+tests[41]:
   - command: node --test test/portable.test.ts test/transfer.test.ts test/guidance.test.ts
     scope: project
     provenance:
@@ -694,7 +710,30 @@ tests[38]:
       created_at: "2026-10-29T19:00:29.120Z"
       source_kind: local_mutation
       source_ref: feat/portable-guidance-windows
-docs[4]{path,scope}:
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"planning capture|README source\" test/portable-collision.test.ts"
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-30T14:02:50.349Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: node --test --test-concurrency=2 test/portable-collision.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-30T14:07:01.411Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+  - command: node --test --test-concurrency=2 test/native-revision.test.ts test/verification-collision.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-10-30T16:09:16.145Z"
+      source_kind: local_mutation
+      source_ref: feat/portable-guidance-windows
+docs[6]{path,scope}:
+  ARCHITECTURE.md,project
+  docs/portable-guidance-split-plan.md,project
   docs/portable-guidance-validation.md,project
   examples/portable-guidance.ts,project
   examples/validate-portable.ts,project

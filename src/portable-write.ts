@@ -15,6 +15,32 @@ import { digest, MemoryError } from './core.ts';
 
 /** Complete SDK document and immutable history position; no attribution is an ownership token. */
 export interface NativeProof { hash: string | null; history: string; length: number; version: string | null }
+/** Compare exact SDK content and monotonic history; diagnostic timestamps never establish identity. */
+export function sameNativeProof(current: NativeProof, expected: NativeProof): boolean { return current.hash === expected.hash && current.length === expected.length && current.history === expected.history; }
+/** Install a single package guard inside a fresh, extension-free SDK mutation scope. */
+function installGuard(run: BeforeMutationHook, name: string): void {
+  setActiveExtensionHooks({ beforeCommand: [], afterCommand: [], onRead: [], onIndex: [], onWrite: [], beforeMutation: [{ layer: 'project', name, run }] });
+}
+/** Publish native evidence only for the exact saved SDK revision, including the SDK no-op path. */
+export async function commitNativeFields(store: Store, id: string, expected: NativeProof, options: Record<string, unknown>): Promise<boolean> {
+  return store.fence(() => runWithActiveExtensions({ path: store.workspace, noExtensions: true }, async () => {
+    let moved = false;
+    /** Read and normalize the native revision through the same path used during capture. */
+    const matches = async () => sameNativeProof((await nativeState(store, id)).proof, expected);
+    /** The actual SDK pre-write hook rejects intervening writers, including identical-content ABA. */
+    const guard: BeforeMutationHook = async context => {
+      const { proof } = await nativeState(store, id);
+      const candidates = [proof, { ...proof, hash: documentHash(context.before, await trackerSchema(store.workspace)) }];
+      if (!candidates.every(candidate => sameNativeProof(candidate, expected))) { moved = true; throw new MemoryError('conflict', 'Native verification revision changed', 'Retry verification against the current native item; existing fields were retained'); }
+    };
+    installGuard(guard, 'pm-memory-verification-revision');
+    if (!await matches()) return false;
+    try {
+      const result = await update(id, { ...options, author: store.author, message: 'Verify unchanged native memory snapshot' }, { pmRoot: store.workspace });
+      return result.changed_fields.length > 0 || await matches();
+    } catch (error) { if (moved) return false; throw error; }
+  }));
+}
 /** Hash both native reads and SDK hook documents through the identical SDK canonical serializer. */
 export function documentHash(document: ItemDocument | null, schema?: TrackerSchema): string | null { return document === null ? null : digest(serializeItemDocument(canonicalDocument(document, { schema }), { schema })); }
 /** Read the actual SDK document, rejecting a history/file disagreement rather than adopting it. */
@@ -132,7 +158,7 @@ async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMu
         await savePlan(store, plan);
       } catch (error) { failure = error; throw error; }
     };
-    setActiveExtensionHooks({ beforeCommand: [], afterCommand: [], onRead: [], onIndex: [], onWrite: [], beforeMutation: [{ layer: 'project', name: 'pm-memory-forward-base', run: guard }] });
+    installGuard(guard, 'pm-memory-forward-base');
     try {
       const suffix = mutation.op === 'create' ? `-nodes ${mutation.id} create memory-birth-v1:${digest(plan.births!.find(row => row.id === mutation.id)!.document)}` : ` forward ${mutation.id}`;
       const common = { ...mutation.options, author: plan.author, message: `bulk-item-transaction ${identity.transactionId}${suffix}` };

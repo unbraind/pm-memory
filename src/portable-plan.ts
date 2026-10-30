@@ -1,9 +1,9 @@
 import { mkdir, readFile, rm, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { writeFileAtomic, deriveMutationTransactionId, WorkspaceTransactionInterruptedError, commitWorkspaceTransaction, appendWorkspaceAuditEvent, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream } from '@unbrained/pm-cli/sdk';
+import { writeFileAtomic, deriveMutationTransactionId, WorkspaceTransactionInterruptedError, commitWorkspaceTransaction, appendWorkspaceAuditEvent, getHistoryPath, readHistoryEntries, hashHistoryStream } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, ItemDocument } from '@unbrained/pm-cli/sdk';
-import { commitPortableBatch, nativeState, publishPending, validNativeProof } from './portable-write.ts';
+import { commitPortableBatch, documentHash, nativeState, publishPending, validNativeProof } from './portable-write.ts';
 import type { Publication } from './portable-write.ts';
 import { digest, MemoryError } from './core.ts';
 import type { PortableImportResult, PortableImportOptions } from './portable.ts';
@@ -13,6 +13,7 @@ import type { OwnedTarget } from './portable-ownership.ts';
 import { validOrigin, creator, creatorMatchesOrigin, readTrackerOrigin } from './portable-origin.ts';
 import type { PortableOrigin } from './portable-origin.ts';
 import { previewOwnedItems, prepareImportNodes, captureBirths, sealBirths } from './portable-preview.ts';
+import { trackerSchema } from './lifecycle.ts';
 
 const IMPORT_ID = /^memory-policy-(?:mutate-[a-f0-9]{24}|[a-f0-9]{40})$/;
 /** Last observed token makes private intent replacement conditional on exact ownership. */
@@ -46,20 +47,23 @@ export interface ExpectedTarget {
   /** SDK hash of the expected immutable history prefix. */
   history: string;
 }
-/** Capture SDK-normalized field bases while the package lease is held. */
-export async function expectedTargets(store: Store, targets: readonly Pick<ExpectedTarget, 'id' | 'slug' | 'origin'>[], _observed?: readonly { id: string; updated_at: string }[]): Promise<ExpectedTarget[]> {
+/** Bind the exact planning corpus to immutable history before exposing the read boundary. */
+export async function observeTargets(store: Store, corpus: Awaited<ReturnType<Store['client']['listAllComplete']>>['items']): Promise<ReadonlyMap<string, Awaited<ReturnType<typeof nativeState>>>> {
+  const schema = await trackerSchema(store.workspace);
+  const observed = new Map<string, Awaited<ReturnType<typeof nativeState>>>();
+  for (const { body, ...metadata } of corpus) {
+    const state = await nativeState(store, metadata.id);
+    if (documentHash({ metadata, body: String(body ?? '') }, schema) !== state.proof.hash) throw new MemoryError('conflict', 'Observed native corpus changed before history capture', 'Export the current item and retry; no newer base was adopted');
+    observed.set(metadata.id, state);
+  }
+  return observed;
+}
+/** Reuse frozen documents and history heads; timestamps never select or refresh a base. */
+export async function expectedTargets(store: Store, targets: readonly Pick<ExpectedTarget, 'id' | 'slug' | 'origin'>[], observed?: Awaited<ReturnType<typeof observeTargets>>): Promise<ExpectedTarget[]> {
   return Promise.all(targets.map(async target => {
-    const { document, proof } = await nativeState(store, target.id);
-    const observed = _observed?.find(row => row.id === target.id);
-    if (_observed !== undefined && observed === undefined) return { ...target, document: null, version: null, length: 0, history: hashHistoryStream([]) };
-    if (observed !== undefined && observed.updated_at !== document?.metadata.updated_at) {
-      const entries = await readHistoryEntries(getHistoryPath(store.workspace, target.id), target.id);
-      for (let length = entries.length; length > 0; length--) {
-        const historical = await getItemAt(target.id, String(length), { pmRoot: store.workspace });
-        if (historical.document.metadata.updated_at === observed.updated_at) return { ...target, document: historical.document, version: observed.updated_at, length, history: hashHistoryStream(entries.slice(0, length)) };
-      }
-      throw new MemoryError('history', 'Observed native base is unavailable', 'Preserve native history and export the current item before retrying');
-    }
+    const state = observed === undefined ? await nativeState(store, target.id) : observed.get(target.id);
+    if (state === undefined) return { ...target, document: null, version: null, length: 0, history: hashHistoryStream([]) };
+    const { document, proof } = state;
     return { ...target, document, version: proof.version, length: proof.length, history: proof.history };
   }));
 }
@@ -177,7 +181,7 @@ export async function previewImport(store: Store, plan: ImportPlan, onStep?: Por
 export async function validateImportPlan(store: Store, plan: ImportPlan, _onStep?: PortableImportOptions['onStep']): Promise<void> {
   if (!plan.expected.every(target => target.origin === undefined || validOrigin(target.origin)) || plan.mutations.some(row => !plan.expected.some(target => target.id === row.id))) throw new MemoryError('history', 'Incomplete portable import read set', 'Export the current inventory and retry');
   const tracker = await readTrackerOrigin(store);
-  for (const target of plan.expected) if (target.version !== null) {
+  for (const target of plan.expected) if (target.document !== null) {
     const entries = await readHistoryEntries(getHistoryPath(store.workspace, target.id), target.id);
     const born = entries.length === 0 ? undefined : creator(target.id, entries[0], tracker);
     if (born === undefined || target.origin !== undefined && !creatorMatchesOrigin(born, target.origin)) throw new MemoryError('conflict', 'Native creation lineage does not match the planned origin', 'Retain the native item and restore its verified origin history before retrying');

@@ -9,7 +9,7 @@ import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDoc
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { digest, MemoryError, privacy } from './core.ts';
 import { metadata, Store } from './store.ts';
-import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, policyPayload, policyParts, ownedMemories, closeSkips, appendImportSkips, parsePolicy, guidanceOrigin } from './portable.ts';
+import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, policyPayload, policyParts, ownedMemories, readImportSnapshot, closeSkips, appendImportSkips, parsePolicy, guidanceOrigin } from './portable.ts';
 import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship, LegacyPortableSource } from './portable.ts';
 import type { Harness, Memory, MemoryOptions } from './types.ts';
 import { ownershipPatch, portableFields, previousOwnership, creationMetadata, PORTABLE_FIELDS, validFields, projectSourceFields, projectSourceLinks, unsetSourceFields, exportedSource } from './portable-ownership.ts';
@@ -171,8 +171,7 @@ export async function importDir(path: string, options: PortableImportOptions): P
     const inputHash = digest(JSON.stringify([options.from, input]));
     const recovered = await recoverInput(store, inputHash, options);
     if (recovered !== undefined) { const { skipped, ...counts } = recovered; return skipped.length === 0 ? counts : { ...counts, skipped }; }
-    const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
-    const { foreign, memories: initial } = await ownedMemories(store, corpus);
+    const { corpus, foreign, memories: initial, observed } = await readImportSnapshot(store);
     await options.onStep?.('read');
     const settings = await readSettings(store.workspace); const identity = await importIdentity(store, inputHash);
     const origins = new Map(await Promise.all([...initial, ...foreign].map(async item => [item.id, await creationMetadata(store, item.id)] as const)));
@@ -250,7 +249,7 @@ export async function importDir(path: string, options: PortableImportOptions): P
         await store.history(previous.id);
         const documentHash = document.options.memoryDocument !== undefined ? digest(String(document.options.memoryDocument)) : previous.document !== undefined && prior?.documentHash === digest(encodeDocument(previous.document)) ? prior.documentHash : undefined;
         ownership.push(sourceReceipt({ ...patch.ownership, ...(documentHash === undefined ? {} : { documentHash }), ...(policyBodyHash === undefined ? {} : { policyBodyHash }) }, source, scope)); result.updated++;
-        mutations.push({ op: 'update', id, match: { key: 'updated_at', value: corpus.find(item => item.id === id)!.updated_at }, options: patch.options });
+        mutations.push({ op: 'update', id, options: patch.options });
       }
     }
     closeSkips(parsed.map(source => ({ slug: source.slug, relationships: sourceRelationships(source, references) })), skipped);
@@ -263,7 +262,7 @@ export async function importDir(path: string, options: PortableImportOptions): P
     if (mutations.length === 0) { const { skipped: refusals, ...counts } = result; return refusals.length === 0 ? counts : result; }
     const readSet = new Map(parsed.filter(source => !skipped.has(source.slug)).map(source => [ids.get(source.slug)!, selected.get(source.slug)?.slug ?? source.slug]));
     for (const target of ownership) for (const edge of target.relationships) if (!readSet.has(edge.id)) readSet.set(edge.id, initial.find(item => item.id === edge.id)!.slug);
-    const expected = await expectedTargets(store, [...readSet].map(([id, slug]) => ({ id, slug, origin: catalog.creators.find(row => row.id === id)?.origin })), corpus);
+    const expected = await expectedTargets(store, [...readSet].map(([id, slug]) => ({ id, slug, origin: catalog.creators.find(row => row.id === id)?.origin })), observed);
     const plan = { identityVersion: 1 as const, ...identity, input: inputHash, author: resolveAuthorIdentity(options.author, settings.author_default).author, mutations, outcomes: Object.fromEntries(parsed.filter(row => !skipped.has(row.slug)).map(row => { const mutation = mutations.find(mutation => mutation.id === ids.get(row.slug)); return [ids.get(row.slug)!, mutation === undefined ? 'unchanged' as const : mutation.op === 'create' ? 'imported' as const : 'updated' as const]; })), ownership: admittedOwnership, expected, members: expected.map(row => row.id), result };
     await validateImportPlan(store, plan, options.onStep); await store.register(options.onStep);
     await previewImport(store, plan, options.onStep);

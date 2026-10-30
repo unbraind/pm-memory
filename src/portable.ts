@@ -3,7 +3,7 @@ import { isCanceled } from './lifecycle.ts';
 import { validRelationship } from './portable-relationships.ts';
 import { getHistoryPath, readHistoryEntries, readSettings, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, CommitItemMutationsOptions, Dependency } from '@unbrained/pm-cli/sdk';
-import { recoverInput, applyImport, expectedTargets, validateImportPlan, previewImport, importIdentity } from './portable-plan.ts';
+import { recoverInput, applyImport, expectedTargets, observeTargets, validateImportPlan, previewImport, importIdentity } from './portable-plan.ts';
 import { importConflict } from './portable-write.ts';
 import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
@@ -33,6 +33,13 @@ export async function ownedMemories(store: Store, corpus: Awaited<ReturnType<Sto
   }
   const allowed = new Set(corpus.filter(item => !foreign.some(record => record.id === item.id)).map(item => item.id));
   return { foreign, memories: await store.read(allowed, corpus) };
+}
+/** Freeze the same ownership, normalized documents and immutable history for every import adapter. */
+export async function readImportSnapshot(store: Store) {
+  const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
+  const { foreign, memories } = await ownedMemories(store, corpus);
+  const observed = await observeTargets(store, corpus.filter(row => row.memory_slug !== undefined && !foreign.some(item => item.id === row.id)));
+  return { corpus, foreign, memories, observed };
 }
 /** Typed native edge whose target is represented by a portable memory slug. */
 export type PortableRelationship = Omit<Dependency, 'id'> & { slug: string };
@@ -342,8 +349,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
   return store.write(async () => {
     const recovered = await recoverInput(store, inputHash, options);
     if (recovered !== undefined) return recovered;
-    const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
-    const { foreign, memories: current } = await ownedMemories(store, corpus);
+    const { corpus, foreign, memories: current, observed } = await readImportSnapshot(store);
     await options.onStep?.('read');
     const settings = await readSettings(store.workspace);
     const occupied = new Set(corpus.map(item => item.id));
@@ -428,7 +434,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
       const creating = previous === undefined;
       const relationships = resolvedRelationships(row.relationships, ids);
       ownership.push({ ...(update?.ownership ?? { id, fields: portableFields(row, body), relationships, graph: relationships }), ...(documentHash === undefined ? {} : { documentHash }), ...(policyBodyHash === undefined ? {} : { policyBodyHash }), ...(wire === undefined ? {} : { source: { original: wire.original } }) });
-      mutations.push({ op: creating ? 'create' : 'update', id: previous?.id ?? id, ...(creating ? { unique: { key: 'memory_slug', value: row.slug } } : { match: { key: 'updated_at', value: corpus.find(item => item.id === previous.id)!.updated_at } }), options: creating ? { title: row.title, description: row.description, body, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, ...itemDocumentToMutationOptions(JSON.stringify({ tags: row.tags, dependencies: relationships }), 'create'), ...metadata(fields) } : update!.options });
+      mutations.push({ op: creating ? 'create' : 'update', id: previous?.id ?? id, ...(creating ? { unique: { key: 'memory_slug', value: row.slug } } : {}), options: creating ? { title: row.title, description: row.description, body, type: 'Knowledge', allowDuplicate: true, allowUnresolvedDeps: true, ...itemDocumentToMutationOptions(JSON.stringify({ tags: row.tags, dependencies: relationships }), 'create'), ...metadata(fields) } : update!.options });
     }
     closeSkips(manifest.guidance, skipped);
     appendImportSkips(result, skipped, ids);
@@ -436,7 +442,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     const planned = mutations.filter(mutation => admitted.some(row => ids.get(row.slug) === mutation.id));
     for (const row of admitted) result[decisions.get(row.slug)!]++;
     if (planned.length === 0) return result;
-    const expected = await expectedTargets(store, admitted.map(row => ({ id: ids.get(row.slug)!, slug: selected.get(row.slug)?.slug ?? row.slug, origin: guidanceOrigin(row) })), corpus);
+    const expected = await expectedTargets(store, admitted.map(row => ({ id: ids.get(row.slug)!, slug: selected.get(row.slug)?.slug ?? row.slug, origin: guidanceOrigin(row) })), observed);
     const plan = { identityVersion: 1 as const, pmRoot: store.workspace, author: resolveAuthorIdentity(options.author, settings.author_default).author, ...identity, mutations: planned, outcomes: Object.fromEntries(admitted.map(row => [ids.get(row.slug)!, decisions.get(row.slug)!])), ownership: ownership.filter(target => admitted.some(row => ids.get(row.slug) === target.id)), input: inputHash, result, expected, members: admitted.map(row => ids.get(row.slug)!) };
     await validateImportPlan(store, plan, options.onStep);
     await store.register(options.onStep);

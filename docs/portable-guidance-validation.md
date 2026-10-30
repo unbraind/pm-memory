@@ -1,5 +1,12 @@
 # Portable guidance validation
 
+The 2026-10-30 review round stops with the whole identity class still blocked in
+legacy native merge recovery. Candidate fixes remain unpushed. The retained
+same-time ABA regression reproduces an old merge payload overwriting a native
+value restored after the frozen intent. See [the split plan](portable-guidance-split-plan.md)
+for the proposed landing order, exact focused/revert evidence and incomplete
+release gates. Focused passes below do not certify this PR for release.
+
 Imports are forward-only; conflicts are reported, never rolled back. The current
 implementation supersedes the historical compensation and cancellation designs.
 Successful item writes survive interruption. Recovery retires the owned intent
@@ -11,6 +18,29 @@ Represented dependency revisions are checked both at admission and in the final
 SDK hook. A dependency refusal closes over its root and all dependent entries.
 Already-satisfied SDK writes also check ownership; foreign source/type changes
 cannot be adopted as unchanged when the SDK omits mutation hooks for a no-op.
+
+Planning binds the complete SDK-normalized observed document to its immutable
+history head before exposing the `read` boundary. A mismatch during capture
+refuses; a later edit never becomes the saved base through a shared timestamp.
+Both import planners reuse that frozen read set, and no timestamp guards or
+historical timestamp lookup remain. Timestamp fields retain their lifecycle,
+validity, serialization and diagnostic roles only.
+
+`test/portable-collision.test.ts` forces identical `updated_at` values across
+seven adapter/harness combinations: raw agents-md, Claude Code and Cursor;
+legacy companion agents-md and Claude Code; canonical policy agents-md and
+Claude Code. Seed `0x15c0111` varies native content across planning, preview,
+intent, item admission, interrupted recovery, retry and ABA schedules. Every
+schedule checks SDK read-back, immutable history, and exported content imported
+into a fresh non-git tracker. A fresh plan may accept a value returned to its
+baseline; a field ABA during an already admitted plan must conflict.
+
+A disposable behavioral revert of `expectedTargets` restores timestamp-based
+adoption without changing its callers or tests. All seven adapter controls then
+reproduce replacement of a different native value, and the direct frozen-history
+control fails too (8 failed, 1 passed). Reverting only the README contract fails
+its independent documentation control (1 failed). No production file is
+reverted in place.
 
 Each actual SDK mutation compares the fields it changes with SDK-normalized saved
 bases in its final pre-write hook. Immutable history also detects intervening
