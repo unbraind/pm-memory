@@ -7,6 +7,9 @@ import { kind, MemoryError, slug } from './core.ts';
 import { readWindow } from './guidance.ts';
 import { writerLock } from './writer-lock.ts';
 
+/** Complete SDK rows shared between semantic decoding and immutable revision capture. */
+type MemoryCorpus = Awaited<ReturnType<PmClient['listAllComplete']>>['items'];
+
 /** All memory metadata uses registered SDK fields, including lossless source artifacts. */
 export const MEMORY_FIELDS: SchemaFieldDefinition[] = [
   ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility', 'consent'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
@@ -44,15 +47,19 @@ class FencedClient extends PmClient {
 export class Store {
   /** Per-operation ownership context also isolates simultaneous writes on one Store. */
   readonly leases = new AsyncLocalStorage<LockLease>();
-  /** Native client with extension recursion disabled. */
+  /** Fenced host dispatcher, or standalone SDK client with extension recursion disabled. */
   readonly client: PmClient;
   /** Explicit initialized tracker storage directory. */
   readonly workspace: string;
   /** Attribution used for SDK lock ownership. */
   readonly author: string;
+  /** Native invocation author; absence retains the SDK environment/settings precedence. */
+  readonly invocationAuthor: string | undefined;
+  /** Injected hosts retain their policy context during guarded verification. */
+  readonly hostClient: PmClient | undefined;
   /** Bind only the explicit tracker; never discover a parent. */
   constructor(options: MemoryOptions) {
-    this.workspace = options.workspace; this.author = options.author ?? 'pm-memory';
+    this.workspace = options.workspace; this.author = options.author ?? 'pm-memory'; this.invocationAuthor = options.author; this.hostClient = options.client;
     const client = options.client === undefined ? new PmClient({ pmRoot: this.workspace, ...(options.author === undefined ? {} : { author: options.author }), noExtensions: true }) : new HostClient(options.client, options.author);
     this.client = new FencedClient(client, this.leases);
   }
@@ -78,11 +85,11 @@ export class Store {
     }
   }
   /** Read a certified full corpus and refuse duplicated or invalid memory identities. */
-  async read(): Promise<Memory[]> {
-    const corpus = certifyCompleteListResult(await this.client.listAllComplete({ includeBody: true }));
+  async read(observed?: Readonly<MemoryCorpus>): Promise<Memory[]> {
+    const items = observed ?? certifyCompleteListResult(await this.client.listAllComplete({ includeBody: true })).items;
     const result: Memory[] = [];
     const seen = new Set<string>();
-    for (const item of corpus.items) {
+    for (const item of items) {
       if (item.type !== 'Knowledge' || item.memory_slug === undefined) continue;
       const key = slug(String(item.memory_slug));
       if (seen.has(key)) throw new MemoryError('duplicate', 'Memory slug is not unique', 'Repair duplicate slug metadata through audited pm updates');

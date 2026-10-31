@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- SDK revision foundation and native verification ([pm-memory-native-revision-foundation](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-native-revision-foundation.toon))
+
 ## 2026.10.28 - 2026-10-28
 
 ### Added
