@@ -47,7 +47,7 @@ npx --package=@unbrained/pm-cli pm package install pm-memory
 bunx --bun --package @unbrained/pm-cli pm package install pm-memory
 ```
 
-Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The peer host minimum and pinned development host are 2026.10.23. Node 22.18 or later is required.
+Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The peer host minimum is 2026.10.23; the pinned development host is 2026.10.24. Node 22.18 or later is required.
 
 
 ## Consent-scoped recall views
@@ -137,9 +137,9 @@ The privacy gate examines facts, rationale, application instructions, tags and i
 
 Recall defaults to 800 estimated tokens; index defaults to 1500. The entire packet, including the estimated-token field and omission receipt, is measured in both pretty JSON and native TOON with the host's UTF-8 byte estimator. An impossibly small budget refuses before counter writes. Recall packs compact rows first (slug, kind, pinned, description, score), in rank order; it then spends spare space on query-centered excerpts. A top result is never replaced by a smaller lower-ranked result. At 200 tokens a maximum-length slug retains its top row with the recall receipt; smaller budgets may refuse. Truncated excerpts carry an explicit marker pointing to `pm memory get <slug>`. Index entries may be omitted when oversized. All truncation is Unicode-safe. An index orders pinned guidance first, then kind, then recency.
 
-Import supports `--from claude-code|agents-md|cursor`, directories or individual regular UTF-8 files. Claude Code frontmatter recognizes `name`, `description`, `metadata.type` and legacy top-level `type`; optional `**Why:**` and `**How to apply:**` lines become fields. Unknown memory kinds and malformed YAML refuse. Plain unquoted `name`/`description` values containing a colon are accepted without altering their original bytes. A valid frontmatter `name` is the canonical kebab-case key. The original file stem remains a link alias; canonical names take precedence, and ambiguous aliases stay unresolved. Frontmatter descriptions populate the native description field and participate in ranking and compact recall. Claude Code MEMORY.md indexes are retained as export artifacts and excluded from retrieval. Import deliberately retains source duplicates for review instead of discarding source files. Re-importing unchanged bytes and links performs no durable writes. A changed source reopens its archived memory; an unchanged re-import leaves it archived. Revisions preserve every other existing status. Independently revised items refuse source replacement.
+Import supports `--from claude-code|agents-md|cursor`, directories or individual regular UTF-8 files. Claude Code frontmatter recognizes `name`, `description`, `metadata.type` and legacy top-level `type`; optional `**Why:**` and `**How to apply:**` lines become fields. Unknown memory kinds and malformed YAML refuse. Plain unquoted `name`/`description` values containing a colon are accepted without altering their original bytes. A valid frontmatter `name` is the canonical kebab-case key. The original file stem remains a link alias; canonical names take precedence, and ambiguous aliases stay unresolved. Frontmatter descriptions populate the native description field and participate in ranking and compact recall. Claude Code MEMORY.md indexes are retained as export artifacts and excluded from retrieval. Import deliberately retains source duplicates for review instead of discarding source files. Re-importing unchanged bytes and links performs no durable writes. Source revisions preserve native lifecycle, verification, utility and other native-only metadata, including archived status. Independently revised items refuse source replacement.
 
-Export supports `--to claude-code|agents-md`. Unchanged imported facts of the same harness whose wiki references still resolve retain byte-identical content, frontmatter, BOM, line endings, ordering and final newline. Recall and verification metadata do not invalidate that preservation. Semantic updates generate fresh content. Exported wiki links resolve only to emitted facts, using their exported canonical slugs or unambiguous path aliases; unavailable or ambiguous references become plain text. Generated relationships omit canceled items and index artifacts. Reference repairs reduce the byte-preserved count. Claude Code exports regenerate stale MEMORY.md indexes from the emitted relative paths; a complete current original index retains its bytes. AGENTS exports incorporate added facts, remove archived component sections and replace revised component sections in AGENTS.md, and include per-memory files. Destination symlinks, user-owned ancestor symlinks, unsafe relative names and conflicting destination files refuse; POSIX root-owned system links are allowed in ancestors; identical existing files are accepted. Use a dedicated empty output directory. Export plans before creating directories, writes to a sibling temporary directory, then publishes with one rename. Failed staging is removed. The destination must be absent, empty or already contain identical output. Export creates missing destination parents after preflight.
+Export supports `--to claude-code|agents-md`. Unchanged imported facts of the same harness whose wiki references still resolve retain byte-identical content, frontmatter, BOM, line endings, ordering and final newline. Recall and verification metadata do not invalidate that preservation. If an index, body or wiki reference would need regeneration, export uses the policy format and raw SDK bodies instead. This prevents generated projections from becoming native edits on re-import. A complete current legacy index and all unchanged files retain their original bytes. Omitted references are reported without granting deletion authority. Destination symlinks, user-owned ancestor symlinks, unsafe relative names and conflicting destination files refuse; POSIX root-owned system links are allowed in ancestors; identical existing files are accepted. Use a dedicated empty output directory. Export plans before creating directories, writes to a sibling temporary directory, then publishes with one rename. Failed staging is removed. The destination must be absent, empty or already contain identical output. Export creates missing destination parents after preflight.
 
 Verification extracts delimited paths, `fn()` calls, `--flags`, exact `package@version` claims and HTTP(S) URLs. Repeat `--root` to search multiple trees, including nested Git repositories: `pm memory verify --root . --root ../shared`. The bounded inventory includes hidden files and ignores Git ignore rules while excluding node_modules, .git, dist and coverage at every depth. Tracker file names remain resolvable for explicit path-existence claims; tracker contents never count as symbol or flag evidence. A bare basename, or a relative path whose suffix matches an indexed path, resolves under a root. A requested relative path that is missing stays unknown when only a different path shares its basename (`basename found elsewhere: <relative match>`); that match does not verify it. Known runtime globals are skipped. Absolute paths outside home, unmatched home references, excluded-tree and escaping paths remain unknown, as do symlink escapes. Home-relative and home-absolute paths can resolve when their portable suffix matches an indexed path under a declared root. Flags check the SDK command registry and source text; a flag absent from both has unknown context and is never stale. Absent symbols are stale only with explicit source-file context. Every stale claim includes an absence reason with the path or number of files searched. A bounded search failure remains unknown or refuses rather than claiming absence.
 
@@ -226,7 +226,257 @@ const audit = await recall('release workflow', { workspace: '.agents/pm', validi
 const state = guidanceState(await get('release-policy', { workspace: '.agents/pm' }), Date.now());
 ```
 
-Invalid bounds or policy, nonstanding targets and exhausted revisions produce `MemoryError` with `code: 'validity'` and a remedy (CLI exit 2); invalid persisted windows refuse with `schema`. Portable harness formats currently cannot preserve the validity contract, so export refuses active bounded guidance before writing files; use recall/get to retain labels and evidence. Portable round-trip support is tracked separately. Consolidation previews remain available, but applying a merge involving bounded guidance refuses before writes: revise the intended policy and renew its evidence explicitly.
+Invalid bounds or policy, nonstanding targets and exhausted revisions produce `MemoryError` with `code: 'validity'` and a remedy (CLI exit 2); invalid persisted windows refuse with `schema`. Portable harness exports retain the validity contract as described below. Consolidation previews remain available, but applying a merge involving bounded guidance refuses before writes: revise the intended policy and renew its evidence explicitly.
+
+## Portable policy windows
+
+`memory export` writes the version 1 policy format for native/portable guidance,
+including entirely unbounded and empty inventories. A purely legacy imported file
+inventory keeps its legacy export only when every emitted file can be preserved byte for byte. Otherwise it uses the policy format. Both `--to agents-md` and `--to claude-code` produce `pm-memory-
+policy.json`, `memories/<slug>.md` body files and the harness index. Keep this directory
+together. The index links to bodies and labels inclusive start/exclusive end bounds; it
+never duplicates bounded text as unbounded advice. A standalone exported body or index
+refuses import without its manifest.
+
+```sh
+pm memory export ./policy-copy --to agents-md
+# Edit text below the policy marker in memories/release-policy.md.
+pm memory import ./policy-copy --from agents-md --json
+pm memory get release-policy --json
+```
+
+The exported `PortablePolicyManifest` contains an explicit format/version/harness, a
+complete guidance inventory, semantic metadata, typed native relationships with portable
+targets, pin state, immutable native identity and per-field baseline hashes and represented baseline edges,
+an exported content snapshot hash, the latest `GuidanceWindow`, and
+every renewal in revision order. Each renewal retains `from`, `until`, `recordedAt`,
+`revision`, `contentHash` and `evidence` verbatim. Evidence may reference reviewed
+documents or public tracker items. It remains an author's assertion. Earlier evidence is
+retained in native history and the registered `memory_renewals` field after import and
+re-export. Unbounded entries explicitly carry `validity: null` and an empty renewal
+list.
+
+Body markers bind their manifest policy, pin state and ownership baseline. Body edits preserve the old
+evidence digest, so changed guidance becomes `needs-renewal`; import never renews it
+implicitly. Changing bounds, removing evidence, skipping/reordering renewals, changing
+the policy marker, missing bodies, unknown keys/versions and noncanonical timestamps
+refuse with `MemoryError.code === 'validity'` and a restore/renew remedy (CLI exit 2).
+Restore the original export before using `memory renew` with fresh evidence to author a
+new window. Native edits win field conflicts, with a reason in the receipt; unrelated portable edits
+can still apply. A newer
+native renewal refuses an older import. Adjacent files outside the inventory are skipped
+with reasons. These integrity checks are not signatures: import only trusted exports; a
+party that rewrites both the manifest and its markers can author a different policy.
+
+### Imports and rollback
+
+Import applies the complete desired state of each source-owned field. Removing a
+previously carried directive or wiki link removes that owned value through the SDK;
+native-only metadata and links absent from the portable ownership baseline survive.
+Content revisions update recency and invalidate previous verification in the same
+item write. Renewal evidence remains bound to its original content digest, so edited
+standing guidance requires explicit renewal.
+
+**Imports are forward-only; conflicts are reported, never rolled back.** Each
+item re-reads its current SDK document immediately before writing. Every field
+changed by the actual SDK mutation must still equal its saved base; otherwise the
+whole item and its dependent plan entries are skipped. The typed `import_conflict`
+receipt names the immutable item, fields, base/current fingerprints and remedy.
+Unrepresented fields, relationships, comments and dependencies remain native.
+
+Imports validate the complete manifest, bodies, privacy and policy ancestry before
+registering fields. Preview uses the same SDK mutation options as apply. A fresh
+UUID accompanies the input digest, so A/B/A replays cannot reuse committed attempts.
+An interrupted import keeps its successful writes. Reruns read current SDK values:
+already-applied items are unchanged, remaining items are planned again, and native
+conflicts are reported. Graph nodes are created before adding represented edges.
+No import recovery path deletes, cancels, restores or reactivates an item.
+
+Older owned intents, including plans without publication evidence, are discarded
+with an append-only SDK workspace audit reason. Their frozen mutations and inverse
+values are never executed. The import then re-plans from current state, preserving
+native dependencies absent from the portable inventory. Foreign intent records
+are retained with a skip reason. Only the exact package-owned intent is removed.
+
+Per-item publication evidence records the SDK-normalized proposal and immutable
+history position. It can finish recording a successful write after a crash; it
+never authorizes a restoration. Portable field receipts use the SDK normalizer
+and native history invalidates only values actually edited by a peer. Source
+round trips that change nothing perform no item writes.
+
+`commitWorkspaceTransaction` journals cooperating transactions; **it does not
+exclude ordinary native SDK/CLI writers**. The final SDK hook rechecks saved field
+bases and the current document hash, but the re-read-to-write window remains:
+[pm-cli#1576](https://github.com/unbraind/pm-cli/issues/1576) and
+[pm-cli#1620](https://github.com/unbraind/pm-cli/issues/1620). These checks do not
+provide lock-based native-writer isolation or an atomic multi-item batch. Readers
+may see completed items before the rest of an import finishes.
+
+Unknown frontmatter and Markdown sections belong to the imported document. Raw,
+companion and canonical imports compare the complete UTF-8 document, including
+key ordering, nested values, comments, BOM, CRLF and whitespace. An unknown-key-only
+edit updates one record and survives the next export. The typed `HarnessDocument`
+snapshot lives in native `memory_document`; `memory_policy_body` retains exact
+policy body bytes when SDK normalization would otherwise remove them. Semantic
+comparisons still use the SDK normalizer. Canonical guidance files include retained
+frontmatter visibly; only their generated policy marker is excluded from the source
+comparison. Native semantic overrides remain native until the corresponding source
+field changes. Snapshot fingerprints in the portable baseline and ownership receipt
+prevent overwriting a newer native document; the receipt identifies the conflicting
+field and a fresh export authorizes a later edit. Older records without these optional
+snapshots retain their existing source-history fallback. Malformed foreign snapshots
+are skipped with a reason. Legacy documents are parsed from their current payload:
+a file exported as plain Markdown can acquire frontmatter later, including `type`,
+`metadata.type`, `description` and unknown keys. Export baselines describe the actual
+current document, so unchanged files preserve native semantic overrides. If a native
+SDK body is literal YAML text, canonical export adds an empty outer source mapping
+before that body; importing it preserves the literal text and native metadata. Invalid
+new source frontmatter refuses before tracker writes. Native policy bodies whose
+metadata lives in the manifest retain their explicit Markdown body contract. Canonical exports explicitly report index artifacts and
+their document snapshots as lossy when those artifacts are outside the inventory.
+
+Creation admission compares the SDK proposal with an independently planned native
+birth document. Hooks are scoped to the exact tracker. The `write-guard` observer
+marks the final best-effort check, not an atomic SDK precondition.
+
+Relationship validation checks the kind, target and every optional provenance field
+(`created_at`, `author`, `source_kind`, `author_source`) in the first pure pass,
+before schema, origin or history writes. Invalid provenance returns typed
+`relationship` with a remedy; legacy edges without provenance remain supported.
+
+Every exported record binds its originating tracker namespace, item id and SDK
+creation-history hash in `origin` (also retained in `baseline.origin`). Slugs and titles are display hints,
+never target selectors. The namespace is published once as package-owned
+`memory-origin.json` in the tracker and travels with tracker copies. Native renames
+cannot redirect an import to an identical same-slug replacement. A known deleted
+origin refuses with typed `origin_missing`; `pm memory import DIRECTORY --from
+agents-md --create` (SDK `createMissingOrigins: true`) explicitly recreates it, provided
+its display alias is free. A never-seen remote origin can be first imported into a
+fresh tracker. Older unbound policy inventories require a new export or explicit
+creation; they never adopt a same-name native record. Recovery also guards immutable
+lineage and discards older frozen plans before replanning from current state.
+
+Export reuses original legacy bytes only when their decoded defaults and slug reproduce
+every portable field, including kind, description, rationale, application, pinning
+and tags. Those files ship with `pm-memory-origins.json`: a checksummed immutable
+snapshot carries origins and retained native relationships. Keep the companion with
+the whole exported inventory; edit the adjacent guidance files, not its payload.
+Removing a wiki link from text never removes a retained edge. Supported text edits
+are projected onto that snapshot and use the same validated policy/CAS transaction.
+Native semantic edits select canonical policy output when raw bytes would be stale.
+Older legacy records without ownership receipts use policy output whenever stored
+edges or source wiki references make graph fidelity unproven. Legacy bookkeeping is
+decoded only when attempting legacy output; policy output reads current SDK semantics.
+Export receipts explicitly report `lossy: [{slug, fields, reason}]` for relationships
+outside the inventory and SDK attribution provenance that fresh writes must reassert.
+Canonical fallback also reports each omitted native index artifact with every lost
+semantic field (`slug`, `title`, `description`, `body`, `kind`, `why`, `how`, `pinned`,
+`tags`, `relationships`, `artifact`). Byte-preserved companions retain that artifact
+record. Other expressible fields, including native slug renames and retained edges,
+round trip; nothing is silently treated as absent.
+
+Unrelated tracker readers can observe staged writes until
+commit or recovery completes. Schema registration is idempotent and
+precedes the item batch. The lease covers the state read, planning, preview and
+publication, and releases last. Observed newer native revisions supersede this import even when their author and
+transaction message match; the SDK race limitation above still applies. Relationship target ids are remapped to portable slugs and back, including
+kinds, source references and author/time provenance; SDK edge authorship is reasserted
+by its native mutation path. Import computes selective SDK additions/removals over the
+represented relationship identities. An edge can be removed only if the current or a
+previous portable document explicitly carried it; omitted targets remain unknown here.
+Native Task, canceled, missing, artifact, foreign and otherwise unrepresented links stay
+untouched. Native links added or removed after export also survive unchanged imports.
+Unrelated native edge edits do not revoke authority over other portable edges. Mixed batches preview creations before updates so the SDK resolves new targets; represented legacy targets outside the input join the guarded read set. Legacy identity and provenance come from immutable creation history. A skipped target closes
+transitively over every dependent row with the same reason before selecting mutations.
+Unchanged compares current SDK content with incoming values through the SDK canonical
+and mutation projections, including SDK-normalized dependency provenance. Saved input
+bytes never establish that current content is unchanged. A
+local target absent from an imported inventory refuses before writes. Exported links
+to canceled, artifact or missing/non-memory targets are omitted from the portable local
+graph and reported as `omitted_links: [{slug, target, kind, reason}]` in the typed export
+receipt. Neither export nor re-import treats these receipts as deletion instructions. Foreign
+records are excluded before decoding package metadata and reported as `skipped` entries.
+An occupied import ID grants no ownership by itself. Planning validates the
+full SDK birth; import recovery never reverses native writes. An independent private tracker applies the intended
+node request through the SDK; its complete read-back document and immutable creation message are frozen in the intent
+before native writes. The observed target never supplies expected metadata. Only
+SDK-generated creation/update timestamps are excluded from that comparison. Extra
+priority, custom metadata or dependencies remain foreign even with a copied creation
+marker. The birth fingerprint also travels in immutable SDK creation history, so
+tracker clones retain it without disposable transaction journals. A native birth
+version makes missing or altered evidence a refusal rather than a legacy fallback. Edited retries
+keep foreign births skipped; older unsealed markers use their publication receipts. Older intents are retired with an audit reason and replanned from current SDK state;
+their frozen requests are never replayed. SDK mutation hooks check changed creation proposals immediately before persistence. Later edits
+still own only represented fields. Legacy history fingerprints remain valid after
+namespace initialization; explicit tracker namespaces and birth identities stay strict.
+Native tag creates and updates use the SDK serializer, preserving comma-containing,
+quoted, whitespace and Unicode tags across both harnesses.
+Ownership and content use one certified SDK snapshot. Exports stage their complete directory and publish with
+a rename; matching peer publication succeeds, differing publication refuses without
+overwriting it.
+
+Installed extension code stays outside item validation. When the tracker contains
+packages, preview builds a private disposable projection from SDK-certified item
+paths, admitted history streams and guarded SDK schema/settings, then runs the same
+SDK mutation preview. Package dependency links and foreign files remain untouched.
+Every projection boundary has crash and competing-native-edit coverage; the final saved-base
+check still guards the original tracker, subject to the documented native-writer race. The pinned SDK has no preview path filter or
+host-bound batch method (the latter is tracked by
+[pm-cli#1598](https://github.com/unbraind/pm-cli/issues/1598)).
+
+The existing CLI commands return compact host TOON or `--json` counts; policy imports
+also return `skipped` entries with a slug, reason and optional typed `import_conflict`
+containing the item, fields, base/current fingerprints and remedy. Bodies and renewal histories are kept in files
+rather than echoed in the receipt. Refusals preserve their typed `code` and safe
+`required` remedy in the SDK host's JSON error, including `origin_missing` and its
+explicit `--create` option. SDK clients use `importDir`, `exportDir`,
+`PortableImportOptions`, `PortableImportResult`, `ImportConflict`, `PortableExportResult`, `PortableGuidance`,
+`PortablePolicyManifest`, `PortableBaseline`, `PortableFields`, `PortableOrigin`,
+`LegacyOriginManifest`, `LegacyOriginRecord` and the pure `parsePolicy`/`parseLegacyOrigins` validators. See the [typed
+example](examples/portable-guidance.ts) and [public-tracker validation](docs/portable-guidance-validation.md). The state-machine property executes 500 independent seeded
+sequences (master seed `0x1363cafe`) with 22,933 SDK-read state checks over both
+harnesses, older-manifest replays, native body/field/relationship edits,
+whitespace/CRLF, link additions/removals, repeated delete/re-import generations,
+peer edits at observed forward-publication and recovery boundaries and mixed bounded/unbounded guidance. Every
+journal boundary is sampled across the model, including intent, each mutation and
+the node, data and provenance commits. One hundred fresh-tracker branches include
+foreign ownership arriving after a creation crash. Newer native edits after crashes, foreign ownership and restoring an
+older native body are checked against the independent reference and no-dangling
+invariant. Every
+failing sequence prints its master seed, sequence seed, operation and step. One hundred
+fresh Node workers run five sequences each, bounding Node 22 coverage bookkeeping
+without reducing state coverage. The parent verifies each worker and its complete
+SDK-read receipt; workers inherit coverage collection.
+A separate legacy fidelity law runs 500 sequences with master seed `0x13631d07`.
+It compares native SDK values after a fresh import, permitting only the exact fields
+reported as lossy, and then tests post-export renames with identical replacements.
+Inputs include retained edges after link removal, native field/slug edits, whitespace,
+typed relationship additions/removals, native Task and canceled targets, and byte-preserved inventories from both exporting harnesses.
+Three additional ownership laws each run 500 seeded sequences through both harnesses:
+identity (`import(export(T))` into T changes no SDK-returned field), locality (only
+explicit portable edits change), and foreign preservation (intervening native edits
+survive). Their masters are `325300385`, `342209445` and `359118505`, with sequence
+seed `(master + imul(index, 0x9e3779b9)) >>> 0`. The reference copies SDK state and
+applies only the explicitly selected changes directly through the SDK; it imports no
+production ownership/projection helpers. Every comparison includes unknown/native-only
+fields, all relationship target classes and all registered built-in kind spellings. Each law
+runs 250 bounded and 250 entirely unbounded inventories, with 250 native-origin and 250 genuinely imported-origin records.
+Only the SDK-managed modification clock is excluded for records deliberately edited by
+the reference. Identity compares every returned field, including that clock.
+
+The legacy Claude/AGENTS/Cursor importer uses the same selective ownership and SDK
+transaction machinery. Its unversioned wiki text proves additions, not removal
+ownership, so absent references never clear native links. Existing original source
+bytes and native bookkeeping remain untouched. Latest revised legacy source bytes are
+retained in SDK ownership receipts for byte-preserving re-export; later native semantic
+edits use the policy export path. The CLI and embedded SDK both delegate to these
+importers; there is no separate package sync writer.
+
+### Without git
+
+Policy import/export, renewal and retrieval work in initialized plain directories,
+with no Git executable or ancestor repository. GitHub synchronization and other
+repository features of the pm host still require their own Git prerequisites.
 
 ## SDK
 

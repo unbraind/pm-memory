@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseMutationReceipt } from '@unbrained/pm-cli/sdk';
-import { exportDir, importDir, remember, verify } from '../index.ts';
+import { exportDir, importDir, remember, verify, POLICY_MANIFEST } from '../index.ts';
+import type { PortablePolicyManifest } from '../index.ts';
 import { tracker, snapshot } from './helpers.ts';
 
 test('generated exports link only emitted facts across both harnesses', async t => {
@@ -22,9 +23,9 @@ test('generated exports link only emitted facts across both harnesses', async t 
   for (const to of ['claude-code', 'agents-md'] as const) {
     const output = join(root, to);
     await exportDir(output, { ...options, to });
-    const content = await readFile(join(output, to === 'claude-code' ? 'source.md' : 'memories/source.md'), 'utf8');
-    assert.match(content, to === 'claude-code' ? /\[\[active\]\]/ : /\[\[memories-active\]\]/);
-    assert.doesNotMatch(content, /\b(?:archived|memory)\b/);
+    const manifest = JSON.parse(await readFile(join(output, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+    assert.deepEqual(manifest.guidance.find(row => row.slug === 'source')!.relationships.map(edge => edge.slug), ['active']);
+    assert.deepEqual(manifest.guidance.map(row => row.slug).sort(), ['active', 'source']);
     const next = await tracker(t);
     assert.equal((await importDir(output, { ...next.options, from: to })).unresolved_links, 0);
   }
@@ -45,15 +46,27 @@ test('preserved and revised source references resolve inside the emitted directo
   const rows = await store.read(); const target = rows.find(row => row.slug === 'target')!;
   await client.update(target.id, { status: 'canceled', closeReason: 'Synthetic archive' });
   const output = join(root, 'output');
-  assert.deepEqual(await exportDir(output, { ...options, to: 'claude-code' }), { exported: 3, byte_preserved: 1 });
-  assert.equal(await readFile(join(output, 'source.md'), 'utf8'), 'See target, target-file, memory, absent and [[stable]].\n');
-  assert.equal(await readFile(join(output, 'stable.md'), 'utf8'), files['stable.md']);
+  const exported = await exportDir(output, { ...options, to: 'claude-code' });
+  exported.omitted_links?.sort((a, b) => a.reason.localeCompare(b.reason));
+  assert.deepEqual(exported, {
+    exported: 4, byte_preserved: 0,
+    lossy: [
+      { slug: 'source', fields: ['relationships', 'relationships.author_source'], reason: 'External targets are unknown in this inventory; SDK-authored relationship provenance is reasserted on fresh creation' },
+      { slug: 'memory', fields: ['slug', 'title', 'description', 'body', 'kind', 'why', 'how', 'pinned', 'tags', 'relationships', 'artifact', 'document'], reason: 'Native index artifact is regenerated; its record is outside this policy inventory' },
+    ],
+    omitted_links: [
+      { slug: 'source', target: rows.find(row => row.artifact)!.id, kind: 'related', reason: 'artifact' },
+      { slug: 'source', target: target.id, kind: 'related', reason: 'canceled' },
+    ],
+  });
+  assert.equal((await readFile(join(output, 'memories/source.md'), 'utf8')).split('\n').slice(1).join('\n'), files['source.md']);
+  assert.match(await readFile(join(output, 'memories/stable.md'), 'utf8'), /Stable guidance/);
   assert.doesNotMatch(await readFile(join(output, 'MEMORY.md'), 'utf8'), /\]\(target-file\.md\)/);
   const next = await tracker(t);
   assert.equal((await importDir(output, { ...next.options, from: 'claude-code' })).unresolved_links, 0);
   await remember('Revised target content', { ...options, kind: 'reference', update: 'target' });
   const revised = join(root, 'revised'); await exportDir(revised, { ...options, to: 'claude-code' });
-  assert.match(await readFile(join(revised, 'source.md'), 'utf8'), /\[\[target\]\], \[\[target\]\]/);
+  assert.match(await readFile(join(revised, 'memories/source.md'), 'utf8'), /\[\[target\]\], \[\[target-file\]\]/);
   const last = await tracker(t);
   assert.equal((await importDir(revised, { ...last.options, from: 'claude-code' })).unresolved_links, 0);
 });
@@ -78,8 +91,8 @@ test('export removes ambiguous aliases and refuses colliding re-imported keys be
   await writeFile(join(source, 'front.md'), front);
   await importDir(source, { ...options, from: 'claude-code' });
   const output = join(root, 'resolved'); await exportDir(output, { ...options, to: 'claude-code' });
-  assert.equal(await readFile(join(output, 'source.md'), 'utf8'), 'See alias, [[first]] and [[front]].\n');
-  assert.equal(await readFile(join(output, 'front.md'), 'utf8'), front.replace('and [[absent]]', 'and absent'));
+  assert.match(await readFile(join(output, 'memories/source.md'), 'utf8'), /See \[\[alias\]\], \[\[first\]\] and \[\[front\]\]/);
+  assert.match(await readFile(join(output, 'memories/front.md'), 'utf8'), /See \[\[first\]\] and \[\[absent\]\]/);
   const next = await tracker(t);
   assert.equal((await importDir(output, { ...next.options, from: 'claude-code' })).unresolved_links, 0);
   const collision = await tracker(t);
@@ -87,7 +100,8 @@ test('export removes ambiguous aliases and refuses colliding re-imported keys be
   await writeFile(file, '---\nname: memories-native\n---\nImported fact\n');
   await importDir(file, { ...collision.options, from: 'agents-md' });
   await remember('Native guidance', { ...collision.options, kind: 'project', slug: 'native' });
-  const before = await snapshot(collision.root);
-  await assert.rejects(exportDir(join(collision.root, 'refused'), { ...collision.options, to: 'agents-md' }), /duplicate slugs/);
-  assert.deepEqual(await snapshot(collision.root), before);
+  const outputPath = join(collision.root, 'namespaced');
+  await exportDir(outputPath, { ...collision.options, to: 'agents-md' });
+  const manifest = JSON.parse(await readFile(join(outputPath, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+  assert.deepEqual(manifest.guidance.map(row => row.path).sort(), ['memories/memories-native.md', 'memories/native.md']);
 });

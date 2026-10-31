@@ -74,7 +74,7 @@ test('content edits invalidate renewal evidence while verification and recall do
   assert.equal((await recall('release', options)).memories![0].validity, 'current');
   await store.fields(second.id, { pinned: false });
   assert.equal(guidanceState(await get('policy', options), Date.now()), 'needs-renewal');
-  await assert.rejects(exportDir(join(options.workspace, 'unused'), { ...options, to: 'agents-md' }), refusal('validity'));
+  assert.equal((await exportDir(join(options.workspace, 'unused'), { ...options, to: 'agents-md' })).exported, 3);
 });
 
 test('renewals across independent processes preserve both evidence revisions in native history', async t => {

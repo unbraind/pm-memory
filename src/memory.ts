@@ -1,5 +1,7 @@
+import { contentRevision } from './content.ts';
+import { isCanceled, statusRegistry } from './lifecycle.ts';
 import { randomBytes } from 'node:crypto';
-import { parseMutationReceipt } from '@unbrained/pm-cli/sdk';
+import { parseMutationReceipt, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { Memory, MemoryOptions, Packet, RememberOptions, RecallRow, GuidanceOptions } from './types.ts';
 import { accounted, budget, digest, kind, MemoryError, pack, privacy, similarity, slug, text, words } from './core.ts';
 import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, validateVectors, INCOMPLETE_EMBEDDINGS } from './embeddings.ts';
@@ -39,19 +41,20 @@ export async function remember(fact: string, options: RememberOptions): Promise<
     if (!unchanged || previous.pinned !== pinned) Object.assign(fields, { verdict: 'unknown', verified_at: '', edited: true });
     let id: string;
     if (previous === undefined) {
-      const created = await store.client.run('create', { options: { title, body: fact, type: 'Knowledge', tags: (options.tags ?? []).join(','), allowDuplicate: true, ...metadata(fields) } });
+      const created = await store.client.run('create', { options: { title, body: fact, type: 'Knowledge', ...itemDocumentToMutationOptions(JSON.stringify({ tags: options.tags ?? [] }), 'create'), allowDuplicate: true, ...metadata(fields) } });
       id = parseMutationReceipt(created).id;
     } else {
       await store.history(previous.id);
-      await store.client.update(previous.id, { title, body: fact, ...(previous.status === 'canceled' ? { status: 'open' } : {}), ...(options.tags === undefined ? {} : { tags: options.tags.join(',') }), message: 'Revise durable agent memory' });
-      await store.fields(previous.id, fields); id = previous.id;
+      const revision: Record<string, unknown> = { title, body: fact, ...(isCanceled(previous) ? { status: (await statusRegistry(store.workspace)).open_status } : {}), ...(options.tags === undefined ? {} : itemDocumentToMutationOptions(JSON.stringify({ tags: options.tags }), 'update')), ...metadata(fields), message: 'Revise durable agent memory' };
+      if (!unchanged || previous.pinned !== pinned) contentRevision(revision, unchanged ? previous.updated : undefined);
+      await store.client.run('update', { id: previous.id, options: revision }); id = previous.id;
     }
     for (const target of targets) await store.link(id, target);
     return { id, slug: key, updated: previous !== undefined };
   });
 }
 /** Filter archived memories and lossless index artifacts out of active retrieval. */
-export function active(memories: readonly Memory[]): Memory[] { return memories.filter(item => item.status !== 'canceled' && !item.artifact); }
+export function active(memories: readonly Memory[]): Memory[] { return memories.filter(item => !isCanceled(item) && !item.artifact); }
 /** Rank normalized lexical evidence with inverse document frequency, length normalization and bounded priors. */
 export function scored(memories: readonly Memory[], query: string): { item: Memory; score: number; lexical: number; prior: number }[] {
   const now = Date.now();

@@ -126,7 +126,7 @@ test('exports refresh stale indexes, nested paths and canceled imported facts', 
   const native = await remember('New memory context', { ...options, kind: 'project', slug: 'native' });
   const out = join(root, 'out'); await exportDir(out, { ...options, to: 'claude-code' });
   const index = await readFile(join(out, 'MEMORY.md'), 'utf8');
-  assert.match(index, /\(nested\/standing.md\)/); assert.match(index, /\(native.md\)/); assert.doesNotMatch(index, /obsolete/);
+  assert.match(index, /\(memories\/nested-standing.md\)/); assert.match(index, /\(memories\/native.md\)/); assert.doesNotMatch(index, /obsolete/);
   const imported = (await store.read()).find(item => item.slug === 'nested-standing')!;
   await store.client.update(imported.id, { status: 'canceled', closeReason: 'Synthetic archive' });
   await store.client.update(native.id, { status: 'canceled', closeReason: 'Synthetic native archive' });
@@ -137,8 +137,8 @@ test('exports refresh stale indexes, nested paths and canceled imported facts', 
   const next = await tracker(t); await importDir(agentsSource, { ...next.options, from: 'agents-md' });
   await remember('New native instructions', { ...next.options, kind: 'feedback', slug: 'added' });
   const agentsOut = join(root, 'agents-out'); await exportDir(agentsOut, { ...next.options, to: 'agents-md' });
-  assert.match(await readFile(join(agentsOut, 'AGENTS.md'), 'utf8'), /Existing guidance/);
-  assert.match(await readFile(join(agentsOut, 'AGENTS.md'), 'utf8'), /New native instructions/);
+  assert.match(await readFile(join(agentsOut, 'memories/agents.md'), 'utf8'), /Existing guidance/);
+  assert.match(await readFile(join(agentsOut, 'memories/added.md'), 'utf8'), /New native instructions/);
 });
 
 /** Planning refuses all conflicts before directory creation; publication failures leave no destination. */
@@ -155,12 +155,12 @@ test('refused and failed exports leave filesystem snapshots intact', async t => 
   const occupiedBefore = await snapshot(occupied);
   await assert.rejects(exportDir(occupied, { ...options, to: 'claude-code' }), /nonempty directory/);
   assert.deepEqual(await snapshot(occupied), occupiedBefore);
-  // A parent/file name collision fails partway through staging, exercising cleanup of already written bytes.
+  // Canonical policy paths avoid old source collisions; an interrupted staged file still cleans up.
   const first = (await store.read()).find(item => item.slug === 'first')!;
   await store.fields(first.id, { source: 'claude-code:relative-file', path: 'one.md', original: Buffer.from(first.body).toString('base64'), edited: false });
   await store.fields(second.id, { source: 'claude-code:relative-file', path: 'one.md/nested.md', original: Buffer.from('Second export fixture').toString('base64'), edited: false });
   const beforeFailure = await readdir(root);
-  await assert.rejects(exportDir(join(root, 'failed'), { ...options, to: 'claude-code' }));
+  await assert.rejects(exportDir(join(root, 'failed'), { ...options, to: 'claude-code', onStep: step => { if (step.startsWith('file:')) throw new Error('Synthetic staged write failure'); } }), /staged write failure/);
   assert.deepEqual(await readdir(root), beforeFailure);
 });
 
@@ -231,5 +231,7 @@ test('in-process injected client keeps author precedence and content-only timest
   await store.fields(imported.id, { changed_at: '2020-01-01T00:00:00.000Z' });
   await writeFile(source, '---\nname: "Formatting fixture"\n---\nUnchanged semantic guidance.\n');
   assert.equal((await importDir(source, { ...options, from: 'claude-code' })).updated, 1);
+  assert.equal((await store.read()).find(item => item.id === imported.id)!.document!.original, Buffer.from(await readFile(source)).toString('base64'));
+  assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unchanged, 1);
   assert.equal((await store.read()).find(item => item.id === imported.id)!.updated, '2020-01-01T00:00:00.000Z');
 });

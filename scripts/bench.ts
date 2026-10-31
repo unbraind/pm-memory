@@ -36,7 +36,7 @@ export interface Metrics {
 }
 /** Default to equal document ages while allowing controlled pin and age evaluations. */
 export function fixtureMemories(fixture: RecallFixture): Memory[] {
-  return fixture.memories.map(item => ({ ...item, id: item.slug, description: '', why: '', how: '', kind: 'project', pinned: item.pinned ?? false, source: 'synthetic', updated: item.updated ?? '2026-01-01T00:00:00.000Z', merge: '', recalls: 0, verdict: 'unknown', status: 'open', tags: [], path: '', original: '', edited: false, artifact: false, links: [] }));
+  return fixture.memories.map(item => ({ ...item, id: item.slug, description: '', why: '', how: '', kind: 'project', pinned: item.pinned ?? false, source: 'synthetic', updated: item.updated ?? '2026-01-01T00:00:00.000Z', merge: '', recalls: 0, verdict: 'unknown', status: 'open', tags: [], path: '', original: '', edited: false, artifact: false, relationships: [], links: [] }));
 }
 /** Average true recall at k and reciprocal rank, including misses as zero. */
 export function metrics(rankings: readonly string[][], queries: RecallFixture['queries']): Metrics {

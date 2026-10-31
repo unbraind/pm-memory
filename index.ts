@@ -11,7 +11,7 @@ export { consolidate } from './src/consolidate.ts';
 /** Inspect typed refusals and full-packet host token accounting. */
 export { MemoryError, packetTokens } from './src/core.ts';
 /** Public typed harness, memory and receipt contracts. */
-export type { MemoryOptions, RememberOptions, MemoryKind, Harness, Memory, Packet, RecallRow, Verdict, Claim, ClaimResult, Proposal } from './src/types.ts';
+export type { MemoryOptions, RememberOptions, MemoryKind, Harness, HarnessDocument, Memory, Packet, RecallRow, Verdict, Claim, ClaimResult, Proposal } from './src/types.ts';
 /** Activate memory commands and registered Knowledge fields in any pm host. */
 export default defineExtension({ name: 'pm-memory', version: "2026.10.31", description: 'Shared long-term agent memory as typed pm context', activate: register });
 
@@ -30,3 +30,14 @@ export type { GuidanceWindow, GuidanceState, GuidanceOptions, RenewOptions } fro
 /** Authorize purpose-limited recall, withdraw consent and inspect text-free output lineage. */
 export { grantConsent, withdrawConsent, createView, inspectView, VIEW_FIELDS } from './src/consent.ts';
 export type { ViewField, ConsentPolicy, ConsentLedger, ViewSource, ViewManifest, ViewPacket, ViewOptions } from './src/consent.ts';
+
+/** Versioned portable policy metadata and validated recoverable import contracts. */
+export { POLICY_MANIFEST, parsePolicy } from './src/portable.ts';
+export type { PortableRelationship, PortableGuidance, PortablePolicyManifest, PortableImportOptions, PortableImportResult, ImportConflict, PortableExportResult, PortableLossyField } from './src/portable.ts';
+/** Immutable portable ownership metadata used by selective harness updates. */
+export type { PortableBaseline, PortableFields } from './src/portable-ownership.ts';
+
+/** Immutable origin and byte-preserved legacy companion contracts. */
+export { LEGACY_ORIGINS, parseLegacyOrigins } from './src/transfer.ts';
+export type { LegacyOriginManifest, LegacyOriginRecord } from './src/transfer.ts';
+export type { PortableOrigin } from './src/portable-origin.ts';

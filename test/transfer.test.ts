@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, readFile, writeFile, symlink, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { exportDir, importDir, remember } from '../index.ts';
+import { exportDir, importDir, remember, POLICY_MANIFEST } from '../index.ts';
+import type { PortablePolicyManifest } from '../index.ts';
 import { harness, safePath } from '../src/transfer.ts';
 import { Store } from '../src/store.ts';
 import { tracker, snapshot } from './helpers.ts';
@@ -25,6 +26,11 @@ async function fixture(root: string, files = FIXTURE): Promise<string> {
   return source;
 }
 
+/** Require a typed native-field skip while keeping the source import API successful. */
+async function assertNativeConflict(source: string, options: Parameters<typeof importDir>[1]): Promise<void> {
+  const result = await importDir(source, options); assert.ok('skipped' in result); assert.ok(result.skipped.some(row => row.conflict?.code === 'import_conflict'));
+}
+
 test('Claude Code import is idempotent and exports every original file byte-identically after recall and verify metadata changes', async t => {
   const { root, options, store } = await tracker(t); const source = await fixture(root);
   const result = await importDir(source, { ...options, from: 'claude-code' });
@@ -38,16 +44,18 @@ test('Claude Code import is idempotent and exports every original file byte-iden
   assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unchanged, 5);
   assert.deepEqual(await snapshot(options.workspace), before);
   const exported = join(root, 'export');
-  assert.deepEqual(await exportDir(exported, { ...options, to: 'claude-code' }), { exported: 5, byte_preserved: 5 });
+  const { lossy, ...counts } = await exportDir(exported, { ...options, to: 'claude-code' });
+  assert.deepEqual(counts, { exported: 6, byte_preserved: 5 });
+  assert.deepEqual(lossy?.map(({ slug, fields }) => ({ slug, fields })), ['build', 'review'].map(slug => ({ slug, fields: ['relationships.author_source'] })));
   for (const name of Object.keys(FIXTURE)) assert.ok((await readFile(join(exported, name))).equals(await readFile(join(source, name))));
-  assert.equal((await exportDir(exported, { ...options, to: 'claude-code' })).exported, 5);
+  assert.equal((await exportDir(exported, { ...options, to: 'claude-code' })).exported, 6);
   await writeFile(join(source, 'review.md'), FIXTURE['review.md'] + '\nNew guidance.\n');
   assert.equal((await importDir(source, { ...options, from: 'claude-code' })).updated, 1);
   await assert.rejects(exportDir(exported, { ...options, to: 'claude-code' }), /overwrite/);
   await remember('Revised build instructions', { ...options, kind: 'project', update: 'build' });
-  await assert.rejects(importDir(source, { ...options, from: 'claude-code' }), /independently edited/);
+  await assertNativeConflict(source, { ...options, from: 'claude-code' });
   const revised = join(root, 'revised'); await exportDir(revised, { ...options, to: 'claude-code' });
-  assert.match(await readFile(join(revised, 'build.md'), 'utf8'), /Revised build instructions/);
+  assert.match(await readFile(join(revised, 'memories/build.md'), 'utf8'), /Revised build instructions/);
 });
 
 test('native memories export portable Claude Code and AGENTS.md files with links', async t => {
@@ -55,12 +63,14 @@ test('native memories export portable Claude Code and AGENTS.md files with links
   const first = await remember('Standing safety guidance', { ...options, kind: 'user', slug: 'standing', why: 'Consistency', how: 'Read first', pin: true });
   const second = await remember('Code review guidance', { ...options, kind: 'project', slug: 'review', links: [first.id] });
   const out = join(root, 'native'); assert.equal((await exportDir(out, { ...options, to: 'claude-code' })).byte_preserved, 0);
-  assert.match(await readFile(join(out, 'review.md'), 'utf8'), /\[\[standing\]\]/);
+  const inventory = JSON.parse(await readFile(join(out, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+  assert.equal(inventory.guidance.find(row => row.slug === 'review')!.relationships[0].slug, 'standing');
   assert.match(await readFile(join(out, 'MEMORY.md'), 'utf8'), /standing.md/);
   const agents = join(root, 'agents'); await exportDir(agents, { ...options, to: 'agents-md' });
-  assert.match(await readFile(join(agents, 'AGENTS.md'), 'utf8'), /Standing safety guidance/);
+  assert.match(await readFile(join(agents, 'memories/standing.md'), 'utf8'), /Standing safety guidance/);
   const next = await tracker(t);
-  const imported = await importDir(join(agents, 'AGENTS.md'), { ...next.options, from: 'agents-md' }); assert.equal(imported.imported, 1);
+  await assert.rejects(importDir(join(agents, 'AGENTS.md'), { ...next.options, from: 'agents-md' }), /manifest/);
+  const imported = await importDir(agents, { ...next.options, from: 'agents-md' }); assert.equal(imported.imported, 2);
   const agentsOut = join(root, 'agents-out'); await exportDir(agentsOut, { ...next.options, to: 'agents-md' });
   assert.equal(await readFile(join(agentsOut, 'AGENTS.md'), 'utf8'), (await readFile(join(agents, 'AGENTS.md'), 'utf8')).replace(/\[\[([a-z0-9_-]+)\]\]/g, '$1'));
   const cursor = join(root, 'cursor'); await mkdir(cursor); await writeFile(join(cursor, 'memory.mdc'), '---\ndescription: Context\n---\n# Cursor guidance\nUse typed memory.');
@@ -126,10 +136,10 @@ test('native semantic changes refuse re-import and empty source files round-trip
   const source = await fixture(root, { 'empty.md': '', 'note.md': 'Original semantic reference' });
   await importDir(source, { ...options, from: 'claude-code' });
   const output = join(root, 'original'); await exportDir(output, { ...options, to: 'claude-code' });
-  assert.equal((await readFile(join(output, 'empty.md'))).length, 0);
+  assert.equal((await readFile(join(output, 'memories/empty.md'), 'utf8')).split('\n').slice(1).join('\n'), '');
   const item = (await store.read()).find(row => row.slug === 'note')!;
   await store.client.update(item.id, { body: 'Changed through another pm surface' });
-  await assert.rejects(importDir(source, { ...options, from: 'claude-code' }), /independently edited/);
+  await assertNativeConflict(source, { ...options, from: 'claude-code' });
   const revised = join(root, 'native-revised'); await exportDir(revised, { ...options, to: 'claude-code' });
-  assert.match(await readFile(join(revised, 'note.md'), 'utf8'), /Changed through another pm surface/);
+  assert.match(await readFile(join(revised, 'memories/note.md'), 'utf8'), /Changed through another pm surface/);
 });

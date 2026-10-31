@@ -29,14 +29,14 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     if (command === 'utility') return await utility(text(ctx.args[0]), base);
     if (command === 'get') return await get(text(ctx.args[0]), base);
     if (command === 'index') return await index({ ...base, validity: guidancePolicy(options.validity), budget: options.budget === undefined ? undefined : Number(options.budget) });
-    if (command === 'import') return await importDir(text(ctx.args[0]), { ...base, from: harness(options.from), allowEmail: options.allowEmail === true });
+    if (command === 'import') return await importDir(text(ctx.args[0]), { ...base, from: harness(options.from), allowEmail: options.allowEmail === true, createMissingOrigins: options.create === true });
     if (command === 'export') return await exportDir(text(ctx.args[0]), { ...base, to: harness(options.to, true) as 'claude-code' | 'agents-md' });
     if (command === 'verify') return await verify({ ...base, root: options.root === undefined ? undefined : (Array.isArray(options.root) ? options.root : [options.root]).map(text), slug: options.slug === undefined ? undefined : text(options.slug), network: options.network === true });
     if (command === 'consolidate') return await consolidate({ ...base, apply: options.apply === true, semantic: semanticMode(options.semantic), minAgeDays: options.minAgeDays === undefined ? undefined : Number(options.minAgeDays) });
     throw new MemoryError('invalid', 'Unknown memory command', 'Run pm memory --help');
   } catch (error) {
     const refusal = error instanceof MemoryError ? error : new MemoryError('sdk', 'Memory operation could not complete', 'Check source permissions, tracker integrity and pm health before retrying');
-    throw createPmCliExpectedError(`memory ${refusal.code}: ${refusal.message}. Remedy: ${refusal.remedy}`, { exitCode: refusal.code === 'privacy' ? 4 : refusal.code === 'duplicate' || refusal.code === 'conflict' ? 3 : 2 });
+    throw createPmCliExpectedError(`memory ${refusal.code}: ${refusal.message}. Remedy: ${refusal.remedy}`, { exitCode: refusal.code === 'privacy' ? 4 : refusal.code === 'duplicate' || refusal.code === 'conflict' ? 3 : 2, context: { code: refusal.code, required: refusal.remedy } });
   }
 }
 /** Native flag descriptions include concrete examples in every option's help entry. */
@@ -62,6 +62,7 @@ const OPTIONS: Record<string, string> = {
   pin: 'Prioritize standing guidance (example: remember "Run gates" --kind project --pin)',
   'force-new': 'Permit a distinct similar memory (example: --force-new --slug release-policy-v2)',
   'allow-email': 'Explicitly permit email addresses, never credentials (example: --allow-email)',
+  create: 'Explicitly recreate a missing origin without adopting an unrelated alias (example: --create)',
   budget: 'Bound the entire rendered packet in estimated tokens (example: --budget 800)',
   from: 'Read claude-code, agents-md or cursor files (example: --from claude-code)',
   to: 'Write claude-code or agents-md files (example: --to claude-code)',
@@ -108,7 +109,7 @@ export function register(api: ExtensionApi): void {
     ['utility', [], [], 'slug'],
     ['get', [], [], 'slug'],
     ['index', ['budget', 'validity'], [], ''],
-    ['import', ['from'], ['allow-email'], 'source'],
+    ['import', ['from'], ['allow-email', 'create'], 'source'],
     ['export', ['to'], [], 'directory'],
     ['verify', ['slug', 'root'], ['network'], ''],
     ['consolidate', ['min-age-days', 'semantic'], ['apply'], ''],

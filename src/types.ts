@@ -1,4 +1,4 @@
-import type { PmClient } from '@unbrained/pm-cli/sdk';
+import type { PmClient, Dependency } from '@unbrained/pm-cli/sdk';
 
 /** Supported semantic memory classes shared by every harness. */
 export const KINDS = ['user', 'feedback', 'project', 'reference'] as const;
@@ -6,6 +6,19 @@ export const KINDS = ['user', 'feedback', 'project', 'reference'] as const;
 export type MemoryKind = typeof KINDS[number];
 /** A supported memory import harness. */
 export type Harness = 'claude-code' | 'agents-md' | 'cursor';
+/** Exact editable document, independent of native semantic fields and birth bookkeeping. */
+export interface HarnessDocument {
+  /** Version of the complete-byte representation. */
+  version: 1;
+  /** Parser and exporter for the source bytes. */
+  harness: Harness;
+  /** Legacy stores the full file; policy stores exact body bytes framed by retained legacy metadata. */
+  format: 'legacy' | 'policy';
+  /** Confined source file name. */
+  path: string;
+  /** Every source byte, encoded without changing order, keys or whitespace. */
+  original: string;
+}
 /** A memory claim's current evidence state. */
 export type Verdict = 'verified' | 'stale' | 'unknown';
 /** Explicit tracker binding; no ancestor tracker discovery is performed. */
@@ -42,10 +55,16 @@ export interface RememberOptions extends MemoryOptions {
 }
 /** Complete projection of one validated Knowledge item. */
 export interface Memory {
+  /** Latest complete harness document, persisted through SDK item mutations. */
+  document?: HarnessDocument;
+  /** Exact policy payload bytes; a changed native body supersedes a stale representation. */
+  policyBody?: HarnessDocument;
   /** Native pm item identity. */
   id: string;
   /** Encoded source consent and text-free output lineage; absence is legacy unscoped data. */
   consent?: string;
+  /** Legacy import digest retained for read compatibility; it grants no field ownership. */
+  importSnapshot?: string;
   /** Latest evidence-backed policy window, if explicitly bounded. */
   validity?: GuidanceWindow;
   /** Stable memory key. */
@@ -78,6 +97,8 @@ export interface Memory {
   verdict: Verdict;
   /** Native lifecycle state. */
   status: string;
+  /** SDK registry cancellation for a custom status; the native status id is retained. */
+  canceled?: boolean;
   /** Searchable tags. */
   tags: string[];
   /** Safe relative import name, retained only for export. */
@@ -88,6 +109,8 @@ export interface Memory {
   edited: boolean;
   /** Directory indexes are lossless artifacts rather than facts. */
   artifact: boolean;
+  /** Complete typed native edges retained by portable policy transfers. */
+  relationships: Dependency[];
   /** Native relationship targets used by generated export. */
   links: string[];
   /** Native supersession targets, distinct from general related links. */

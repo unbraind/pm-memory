@@ -1,3 +1,4 @@
+import { statusRegistry } from './lifecycle.ts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { certifyCompleteListResult, getHistoryPath, PmClient, readHistoryEntries, readSettings, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { LockLease, PmActionName, PmClientRunArgs } from '@unbrained/pm-cli/sdk';
@@ -6,10 +7,15 @@ import type { Memory, MemoryOptions } from './types.ts';
 import { kind, MemoryError, slug } from './core.ts';
 import { readWindow } from './guidance.ts';
 import { writerLock } from './writer-lock.ts';
+import { ensureTrackerOrigin } from './portable-origin.ts';
+import { readDocument } from './portable-source.ts';
+
+/** Complete native SDK rows can be decoded from the same snapshot used for ownership. */
+type MemoryCorpus = Awaited<ReturnType<PmClient['listAllComplete']>>['items'];
 
 /** All memory metadata uses registered SDK fields, including lossless source artifacts. */
 export const MEMORY_FIELDS: SchemaFieldDefinition[] = [
-  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility', 'consent'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
+  ...['slug', 'kind', 'why', 'how', 'source', 'verified_at', 'verdict', 'path', 'original', 'reason', 'changed_at', 'merge', 'validity', 'utility', 'consent', 'renewals', 'import_snapshot', 'origin', 'birth', 'document', 'policy_body'].map(name => ({ name: `memory_${name}`, type: 'string' as const, optional: true })),
   ...['pinned', 'edited', 'artifact'].map(name => ({ name: `memory_${name}`, type: 'boolean' as const, optional: true })),
   { name: 'memory_recalls', type: 'number', optional: true },
 ];
@@ -40,7 +46,7 @@ class FencedClient extends PmClient {
     return lease === undefined ? this.delegate.run(action, args) : lease.fence(() => this.delegate.run(action, args));
   }
 }
-/** Tracker-bound native SDK client and serializable memory mutation boundary. */
+/** Tracker-bound native SDK client and cooperating package mutation boundary. */
 export class Store {
   /** Per-operation ownership context also isolates simultaneous writes on one Store. */
   readonly leases = new AsyncLocalStorage<LockLease>();
@@ -56,7 +62,7 @@ export class Store {
     const client = options.client === undefined ? new PmClient({ pmRoot: this.workspace, ...(options.author === undefined ? {} : { author: options.author }), noExtensions: true }) : new HostClient(options.client, options.author);
     this.client = new FencedClient(client, this.leases);
   }
-  /** Serialize read-modify-write operations across independent processes and clients. */
+  /** Serialize cooperating package writers across processes; native writers may bypass this lease. */
   async write<T>(run: () => Promise<T>): Promise<T> {
     const lease = await writerLock(this.workspace, this.author);
     try { return await this.leases.run(lease, run); } finally { await lease.release(); }
@@ -67,22 +73,27 @@ export class Store {
     return lease === undefined ? publish() : lease.fence(publish);
   }
   /** Register the custom Knowledge type and compatible metadata through native schema writes. */
-  async register(): Promise<void> {
+  async register(onStep?: (step: string) => void | Promise<void>): Promise<void> {
     const settings = await readSettings(this.workspace);
-    if (!settings.item_types.definitions.some(type => type.name === 'Knowledge')) await this.client.schemaAddType('Knowledge', { folder: 'knowledge', description: 'Durable agent knowledge', defaultStatus: 'open' });
+    if (!settings.item_types.definitions.some(type => type.name === 'Knowledge')) await this.client.schemaAddType('Knowledge', { folder: 'knowledge', description: 'Durable agent knowledge', defaultStatus: (await statusRegistry(this.workspace)).open_status });
+    await onStep?.('schema-type');
     const fields = (await this.client.schemaListFields()).fields;
     for (const field of MEMORY_FIELDS) {
       const found = fields.find(entry => entry.key === field.name);
       if (found !== undefined && found.type !== field.type) throw new MemoryError('schema', 'Incompatible memory field definition', 'Restore the registered memory field type before retrying');
       if (found === undefined) await this.client.schemaAddField(field.name, { type: field.type, description: 'Typed agent memory metadata' });
+      await onStep?.(`schema-field:${field.name}`);
     }
+    await ensureTrackerOrigin(this, onStep);
   }
   /** Read a certified full corpus and refuse duplicated or invalid memory identities. */
-  async read(): Promise<Memory[]> {
-    const corpus = certifyCompleteListResult(await this.client.listAllComplete({ includeBody: true }));
+  async read(only?: ReadonlySet<string>, observed?: Readonly<MemoryCorpus>): Promise<Memory[]> {
+    const items = observed ?? certifyCompleteListResult(await this.client.listAllComplete({ includeBody: true })).items;
     const result: Memory[] = [];
+    const statuses = await statusRegistry(this.workspace);
     const seen = new Set<string>();
-    for (const item of corpus.items) {
+    for (const item of items) {
+      if (only !== undefined && !only.has(item.id)) continue;
       if (item.type !== 'Knowledge' || item.memory_slug === undefined) continue;
       const key = slug(String(item.memory_slug));
       if (seen.has(key)) throw new MemoryError('duplicate', 'Memory slug is not unique', 'Repair duplicate slug metadata through audited pm updates');
@@ -91,7 +102,8 @@ export class Store {
       if (!Number.isSafeInteger(recalls) || recalls < 0) throw new MemoryError('schema', 'Invalid memory recall counter', 'Restore a nonnegative integer counter through pm update');
       const verdict = item.memory_verdict ?? 'unknown';
       if (!['verified', 'stale', 'unknown'].includes(String(verdict))) throw new MemoryError('schema', 'Invalid memory verdict', 'Use verified, stale or unknown');
-      result.push({ ...(item.memory_consent === undefined ? {} : { consent: String(item.memory_consent) }), validity: readWindow(item.memory_validity), id: item.id, slug: key, title: item.title, description: item.description, reason: String(item.memory_reason ?? ''), body: String(item.body), kind: kind(item.memory_kind), why: String(item.memory_why ?? ''), how: String(item.memory_how ?? ''), pinned: item.memory_pinned === true, source: String(item.memory_source ?? 'native:item'), updated: String(item.memory_changed_at ?? item.created_at), merge: String(item.memory_merge ?? ''), recalls, verdict: verdict as Memory['verdict'], status: item.status, tags: item.tags, path: String(item.memory_path ?? ''), original: String(item.memory_original ?? ''), edited: item.memory_edited === true, artifact: item.memory_artifact === true, links: (item.dependencies ?? []).map(edge => edge.id), supersedes: (item.dependencies ?? []).filter(edge => edge.kind === 'supersedes').map(edge => edge.id) });
+      const canceled = statuses.terminal_canceled_statuses.has(item.status) || statuses.canceled_status === item.status;
+      result.push({ document: readDocument(item.memory_document), policyBody: readDocument(item.memory_policy_body), ...(item.memory_consent === undefined ? {} : { consent: String(item.memory_consent) }), importSnapshot: item.memory_import_snapshot === undefined ? undefined : String(item.memory_import_snapshot), validity: readWindow(item.memory_validity), id: item.id, slug: key, title: item.title, description: item.description, reason: String(item.memory_reason ?? ''), body: String(item.body), kind: kind(item.memory_kind ?? 'reference'), why: String(item.memory_why ?? ''), how: String(item.memory_how ?? ''), pinned: item.memory_pinned === true, source: String(item.memory_source ?? 'native:item'), updated: String(item.memory_changed_at ?? item.created_at), merge: String(item.memory_merge ?? ''), recalls, verdict: verdict as Memory['verdict'], status: item.status, ...(canceled !== (item.status === 'canceled') ? { canceled } : {}), tags: item.tags, path: String(item.memory_path ?? ''), original: String(item.memory_original ?? ''), edited: item.memory_edited === true, artifact: item.memory_artifact === true, relationships: item.dependencies ?? [], links: (item.dependencies ?? []).map(edge => edge.id), supersedes: (item.dependencies ?? []).filter(edge => edge.kind === 'supersedes').map(edge => edge.id) });
     }
     return result;
   }

@@ -1,0 +1,24 @@
+id: pm-memory-sdk-transaction-reader
+title: Adopt public SDK transaction inspection and native hash preconditions
+description: "The pinned SDK exposes commitItemMutations and commitWorkspaceTransaction but no public transaction receipt read, inspect, abandon or re-plan API. Upstream unbraind/pm-cli#1597 tracks this surface. The portable-guidance adapter currently reads only its owned SDK receipt journals; no acceptance criterion is blocked. Adopt the public API when it becomes available within the supported host range."
+type: Task
+status: open
+priority: 3
+tags[9]: "gh:unbraind/pm-cli#1576","gh:unbraind/pm-cli#1597","gh:unbraind/pm-cli#1598","gh:unbraind/pm-cli#1620",sdk-gap,"upstream:pm-cli#1576","upstream:pm-cli#1597","upstream:pm-cli#1598","upstream:pm-cli#1620"
+created_at: "2026-10-27T06:21:15.119Z"
+updated_at: "2026-10-29T06:00:03.706Z"
+author: codex-agent
+acceptance_criteria: "Replace owned SDK journal reads with public transaction inspection without weakening crash recovery, CAS, foreign preservation or replay tests"
+parent: pm-memory-0kwy
+comments[5]{created_at,author,text}:
+  "2026-10-27T08:53:47.062Z",codex-agent,"Additional verified SDK adapter limit: previewItemMutations accepts only pmRoot, transactionId, author and mutations; no include/exclude path or authoritative-item projection option exists. Its owned snapshot includes extensions, so installed dependency links can refuse normal imports. The package now projects SDK-certified item documents, relevant exact history streams and guarded SDK schema/settings into a private disposable tracker before invoking the same SDK validator. PmClient still has no host-bound preview method (related upstream issue 1598); that issue covers the public host-context surface, while this managed-directory scoping constraint is a separate observed symptom. Adopt a public scoped preview when available; do not remove validation or copy installed code."
+  "2026-10-27T09:39:43.693Z",codex-agent,"Capability precision: runWorkspaceTransactionGc(dryRun: true) provides status/age sweep decisions, but not the ownership payload or step results needed for recovery, abandonment or replanning. It is not a substitute for the missing full transaction receipt reader tracked by 1597. No GC of foreign or SDK journals was added."
+  "2026-10-29T02:15:08.111Z",codex-agent,"Portable import review confirms the remaining native read-to-write gap: the installed public update options have no expectedItemHash precondition (upstream 1576), and commitWorkspaceTransaction serializes transactions without excluding ordinary SDK/CLI writes (upstream 1620, verified on SDK 2026.10.25 and 2026.10.28). Future adoption must replace best-effort final hash/history rereads with the public native precondition when available. Existing receipt-payload reader/abandon/replan and scoped staged-document preview needs remain tracked by upstream 1597/1598. Current compensation cancels creations, preserves incoming/outgoing references, checks the real SDK proposal for unowned field side effects, and restores only still-owned field values; it does not claim native-writer isolation. Evidence and reverts remain on pm-memory-1363 and PR 15."
+  "2026-10-29T05:58:06.040Z",codex-agent,"Round 13 removes import rollback entirely. Imports retain completed forward writes; legacy intents are retired without replay or restoration. Final pre-write SDK-normalized base/history checks remain best effort against ordinary native writers (#1576/#1620). The pinned previewItemMutations declaration still accepts only Pick<CommitItemMutationsOptions, pmRoot | transactionId | author | mutations>; no scoped projection argument is available. No new upstream issue was filed. Removing links to deleted rollback/replan modules; current work and behavioral evidence remain on pm-memory-1363 and PR 15."
+  "2026-10-29T06:00:03.706Z",codex-agent,"Upstream status refresh: #1576 and #1620 remain OPEN. #1597 and #1598 are CLOSED; receipt inspection and host-bound/scoped preview are pinned-2026.10.25 compatibility needs, not current open upstream defects. The supported host floor and repository pin are unchanged. Adoption in a future dependency update should verify the new public declarations before replacing compatibility adapters."
+files[4]{path,scope}:
+  src/portable-ownership.ts,project
+  src/portable-plan.ts,project
+  src/portable-preview.ts,project
+  src/portable-write.ts,project
+body: ""

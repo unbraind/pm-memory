@@ -176,6 +176,22 @@ test('identity policy rejects unapproved authors, committers and newly added hom
   assert.equal(auditIdentities(root).length, 3, 'Historical violations cannot be hidden by a later deletion');
 });
 
+test('identity audit reads complete large merge patches and detects violations beyond the default buffer', () => {
+  const root = identityFixture('identity-large-merge');
+  fixtureGit(root, ['checkout', '-b', 'guidance']);
+  for (const name of ['alpha.txt', 'beta.txt']) {
+    writeFileSync(join(root, name), 'Public guidance line\n'.repeat(30000));
+    fixtureGit(root, ['add', name]); fixtureGit(root, ['commit', '-m', 'Add public guidance fixture']);
+  }
+  fixtureGit(root, ['checkout', 'main']); fixtureGit(root, ['merge', '--no-ff', 'guidance', '-m', 'Merge guidance fixture']);
+  assert.deepEqual(auditIdentities(root), []);
+  assert.equal(runScript('identity-gate.ts', [root]).status, 0);
+  writeFileSync(join(root, 'late.txt'), 'Public guidance line\n'.repeat(60000) + '/' + 'home/fixture/private\n');
+  fixtureGit(root, ['add', 'late.txt']); fixtureGit(root, ['commit', '-m', 'Add late policy violation fixture']);
+  assert.match(auditIdentities(root).join('\n'), /added absolute home path/);
+  assert.equal(runScript('identity-gate.ts', [root]).status, 1);
+});
+
 test('identity policy fails closed on invalid policy and unavailable baseline history', () => {
   const root = identityFixture('identity-invalid');
   const file = join(root, '.github/identity-baseline.txt');

@@ -62,9 +62,9 @@ test('source revisions, provenance, archive and purpose changes invalidate prior
   await store.fields(item.id, { artifact: true });
   await assert.rejects(grantConsent('source', settings), refused);
   await assert.rejects(withdrawConsent('missing', settings), refused);
-  assert.equal((await exportDir(root + '/archived-export', { ...options, to: 'claude-code' })).exported, 1);
+  assert.equal((await exportDir(root + '/archived-export', { ...options, to: 'claude-code' })).exported, 2);
   await client.update(item.id, { status: 'open', message: 'Keep artifact separate' });
-  assert.equal((await exportDir(root + '/artifact-export', { ...options, to: 'claude-code' })).exported, 1);
+  assert.equal((await exportDir(root + '/artifact-export', { ...options, to: 'claude-code' })).exported, 2);
 });
 
 test('view ranking uses requested fields and whole-packet accounting bounds both host formats', async t => {
