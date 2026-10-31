@@ -3,10 +3,11 @@ import { execFile } from 'node:child_process';
 import { realpath, stat, lstat, readdir, open } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep, join, basename, extname, posix } from 'node:path';
 import { homedir } from 'node:os';
-import { GLOBAL_FLAG_CONTRACTS, PM_CORE_COMMAND_NAMES, resolveSubcommandFlagContractsForCommand } from '@unbrained/pm-cli/sdk';
+import { GLOBAL_FLAG_CONTRACTS, PM_CORE_COMMAND_NAMES, resolveSubcommandFlagContractsForCommand, certifyCompleteListResult } from '@unbrained/pm-cli/sdk';
 import { MemoryError, slug } from './core.ts';
 import { active } from './memory.ts';
-import { Store } from './store.ts';
+import { metadata, Store } from './store.ts';
+import { observeTargets, commitNativeFields } from './native-revision.ts';
 import type { Claim, ClaimResult, Memory, MemoryOptions, Verdict } from './types.ts';
 
 /** Dependency and generated trees never contribute evidence. */
@@ -256,7 +257,12 @@ export async function verify(options: MemoryOptions & { root?: string | readonly
   if (options.slug !== undefined) slug(options.slug);
   const roots = options.root ?? process.cwd(); const source = await evidence(roots, options.workspace);
   const store = new Store(options);
-  const memories = active(await store.read()).filter(item => options.slug === undefined || item.slug === options.slug);
+  const { memories, observed } = await store.write(async () => {
+    const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
+    const memories = active(await store.read(corpus)).filter(item => options.slug === undefined || item.slug === options.slug);
+    const ids = new Set(memories.map(item => item.id));
+    return { memories, observed: await observeTargets(store, corpus.filter(item => ids.has(item.id))) };
+  });
   if (options.slug !== undefined && memories.length === 0) throw new MemoryError('missing', 'Memory slug does not exist', 'Use memory index to select an active slug');
   await searchClaims(memories.flatMap(item => extractClaims([item.title, item.body, item.why, item.how].join('\n'))), source);
   const checked = new Map<string, ClaimResult>();
@@ -278,8 +284,7 @@ export async function verify(options: MemoryOptions & { root?: string | readonly
     if (planned.length > 0) await store.register();
     for (const { item, claims, verdict } of planned) {
       const now = current.get(item.id);
-      if (now === undefined || now.updated !== item.updated || JSON.stringify([now.title, now.body, now.why, now.how]) !== JSON.stringify([item.title, item.body, item.why, item.how])) { skipped.push(item.slug); continue; }
-      await store.fields(item.id, { verdict, reason: claims.filter(claim => claim.verdict === 'stale').map(claim => claim.reason!).join('; '), verified_at: new Date().toISOString() });
+      if (now === undefined || !await commitNativeFields(store, item.id, observed.get(item.id)!.proof, metadata({ verdict, reason: claims.filter(claim => claim.verdict === 'stale').map(claim => claim.reason!).join('; '), verified_at: new Date().toISOString() }))) { skipped.push(item.slug); continue; }
       results.push({ slug: item.slug, verdict, claims });
     }
     return { checked: results.length, stale: results.filter(result => result.verdict === 'stale').length, skipped, results };
