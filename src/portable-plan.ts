@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { writeFileAtomic, deriveMutationTransactionId, WorkspaceTransactionInterruptedError, commitWorkspaceTransaction, appendWorkspaceAuditEvent, getHistoryPath, readHistoryEntries, hashHistoryStream } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, ItemDocument } from '@unbrained/pm-cli/sdk';
-import { commitPortableBatch, documentHash, nativeState, publishPending, validNativeProof } from './portable-write.ts';
+import { commitPortableBatch, publishPending, validNativeProof } from './portable-write.ts';
 import type { Publication } from './portable-write.ts';
 import { digest, MemoryError } from './core.ts';
 import type { PortableImportResult, PortableImportOptions } from './portable.ts';
@@ -47,17 +47,8 @@ export interface ExpectedTarget {
   /** SDK hash of the expected immutable history prefix. */
   history: string;
 }
-/** Bind the exact planning corpus to immutable history before exposing the read boundary. */
-export async function observeTargets(store: Store, corpus: Awaited<ReturnType<Store['client']['listAllComplete']>>['items']): Promise<ReadonlyMap<string, Awaited<ReturnType<typeof nativeState>>>> {
-  const schema = await trackerSchema(store.workspace);
-  const observed = new Map<string, Awaited<ReturnType<typeof nativeState>>>();
-  for (const { body, ...metadata } of corpus) {
-    const state = await nativeState(store, metadata.id);
-    if (documentHash({ metadata, body: String(body ?? '') }, schema) !== state.proof.hash) throw new MemoryError('conflict', 'Observed native corpus changed before history capture', 'Export the current item and retry; no newer base was adopted');
-    observed.set(metadata.id, state);
-  }
-  return observed;
-}
+export { observeTargets } from './native-revision.ts';
+import { observeTargets, documentHash, nativeState } from './native-revision.ts';
 /** Reuse frozen documents and history heads; timestamps never select or refresh a base. */
 export async function expectedTargets(store: Store, targets: readonly Pick<ExpectedTarget, 'id' | 'slug' | 'origin'>[], observed?: Awaited<ReturnType<typeof observeTargets>>): Promise<ExpectedTarget[]> {
   return Promise.all(targets.map(async target => {

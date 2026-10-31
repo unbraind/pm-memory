@@ -153,7 +153,7 @@ test('utility ledger validation refuses corrupt cohorts instead of dropping rows
 test('actual native observe and utility commands work without git in compact TOON and JSON', async t => {
   const { root, workspace, options, client } = await tracker(t);
   const directory = join(workspace, 'extensions', 'pm-memory'); await mkdir(directory, { recursive: true });
-  await writeFile(join(directory, 'manifest.json'), JSON.stringify({ name: 'pm-memory', version: '2026.10.19', entry: 'entry.js', capabilities: ['commands', 'schema'] }));
+  await writeFile(join(directory, 'manifest.json'), JSON.stringify({ name: 'pm-memory', version: '2026.10.19', entry: 'entry.js', capabilities: ['commands', 'schema', 'hooks'] }));
   await writeFile(join(directory, 'entry.js'), `export { default } from ${JSON.stringify(new URL('../index.ts', import.meta.url).href)};\n`);
   /** Invoke the installed pm host with git absent from PATH and ancestor discovery fenced. */
   const cli = gitlessCli(root, workspace);

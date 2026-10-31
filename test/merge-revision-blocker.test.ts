@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getHistoryPath, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import { remember, consolidate, MemoryError } from '../index.ts';
-import { nativeState } from '../src/portable-write.ts';
+import { nativeState } from '../src/native-revision.ts';
 import { tracker } from './helpers.ts';
 
 test('legacy frozen merge intent must refuse a same-time native body ABA before replay', async t => {

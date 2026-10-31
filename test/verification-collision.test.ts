@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import { createServer } from 'node:http';
 import { remember, verify } from '../index.ts';
 import { tracker, clonedTracker } from './helpers.ts';
-import { nativeState, sameNativeProof } from '../src/portable-write.ts';
+import { nativeState, sameNativeProof } from '../src/native-revision.ts';
+import type { NativeProof } from '../src/native-revision.ts';
 
 test('verification property: timestamp collisions never authorize another semantic or source revision', { timeout: 600000 }, async t => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-06-01T12:00:00.000Z') });
@@ -15,13 +16,13 @@ test('verification property: timestamp collisions never authorize another semant
   const address = endpoint.address(); assert.ok(address && typeof address === 'object');
   const base = await tracker(t);
   const memory = await remember(`Review http://127.0.0.1:${address.port}/claim`, { ...base.options, slug: 'alpha', kind: 'reference' });
-  /** Keep every represented source byte valid while varying its independently edited payload. */
-  const source = (format: 'legacy' | 'policy') => JSON.stringify({ version: 1, harness: 'agents-md', format, path: 'AGENTS.md', original: Buffer.from('Native C').toString('base64') });
+  await base.client.schemaAddField('external_payload', { type: 'string', description: 'Opaque independently owned payload' });
+  await base.client.schemaAddField('external_context', { type: 'string', description: 'Opaque independently owned context' });
   const mutations: Record<string, unknown>[] = [
     {},
     { memoryChangedAt: '2026-06-02T12:00:00.000Z' },
     { description: 'Native C' }, { memoryKind: 'project' }, { tags: ['native-c'] }, { memoryPinned: true },
-    { memoryDocument: source('legacy') }, { memoryPolicyBody: source('policy') },
+    { externalPayload: JSON.stringify({ payload: 'Native C' }) }, { externalContext: JSON.stringify({ context: 'Native C' }) },
     { memoryOriginal: Buffer.from('Native C').toString('base64') },
     { memorySource: 'agents-md:relative-file' }, { memoryPath: 'AGENTS.md' }, { memorySlug: 'native-c' },
     { title: 'Native C' }, { body: 'Native C' }, { memoryWhy: 'Native C' }, { memoryHow: 'Native C' },
@@ -37,6 +38,7 @@ test('verification property: timestamp collisions never authorize another semant
       signalRequest = arrive;
       let finish: () => void = () => {}; release = new Promise<void>(resolve => { finish = resolve; });
       const before = await nativeState(target.store, memory.id);
+      let abaProof: NativeProof | undefined;
       const checking = verify({ ...target.options, root: target.root, network: true });
       await requested;
       try {
@@ -46,7 +48,7 @@ test('verification property: timestamp collisions never authorize another semant
           await target.client.update(memory.id, { body: before.document!.body });
           const after = await nativeState(target.store, memory.id);
           assert.equal(after.proof.hash, before.proof.hash, 'ABA must return the complete SDK content hash to its saved value');
-          assert.equal(sameNativeProof(after.proof, before.proof), false, 'immutable history must still distinguish ABA');
+          abaProof = after.proof;
         }
         const changed = (await target.client.get(memory.id, { full: true })).item;
         assert.equal(changed.updated_at, '2026-06-01T12:00:00.000Z', `case=${index}: force native timestamp collision`);
@@ -54,6 +56,7 @@ test('verification property: timestamp collisions never authorize another semant
       } finally { finish(); }
       const result = await checking;
       assert.equal(result.checked, index === 0 ? 1 : 0, `case=${index} field=${Object.keys(options)[0]}`);
+      if (abaProof !== undefined) assert.equal(sameNativeProof(abaProof, before.proof), false, 'immutable history must still distinguish ABA');
       assert.deepEqual(result.skipped, index === 0 ? [] : ['alpha']);
       assert.equal((await target.client.get(memory.id, { full: true })).item.memory_verdict, index === 0 ? 'verified' : 'unknown');
       if (index === 0) {

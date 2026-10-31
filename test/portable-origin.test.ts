@@ -86,7 +86,7 @@ test('origin catalog uses immutable SDK creation fields and ignores foreign hist
   assert.equal(creator(a.id, entries[0], undefined)!.origin.tracker, origin.creation);
   assert.equal(creator(a.id, { ...entries[0], patch: null as unknown as typeof entries[0]['patch'] }, id), undefined);
   await assert.rejects(itemOrigin(source.store, 'missing-id'), refusal);
-  const live = await source.store.read(new Set([a.id]));
+  const live = await source.store.read(undefined, new Set([a.id]));
   assert.equal(selectOrigin(origin, live, catalog, false)!.id, a.id);
   const missingNamespace = { creators: [{ ...catalog.creators[0], origin: { ...origin, tracker: origin.creation } }] };
   assert.throws(() => selectOrigin(origin, [], missingNamespace, false), refusal);

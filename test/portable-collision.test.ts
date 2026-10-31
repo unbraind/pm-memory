@@ -6,7 +6,7 @@ import { getHistoryPath, readHistoryEntries, WorkspaceTransactionInterruptedErro
 import { importDir, exportDir, remember, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { Harness, PortablePolicyManifest } from '../index.ts';
 import { expectedTargets, observeTargets } from '../src/portable-plan.ts';
-import { nativeState } from '../src/portable-write.ts';
+import { nativeState } from '../src/native-revision.ts';
 import { tracker, importHarness, clonedTracker } from './helpers.ts';
 
 /** Seed each public adapter using real native history, with an editable harness revision. */

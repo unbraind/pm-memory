@@ -32,7 +32,7 @@ export async function ownedMemories(store: Store, corpus: Awaited<ReturnType<Sto
     if (born !== undefined && (born.type !== 'Knowledge' || typeof born.memory_slug !== 'string' || typeof born.memory_source !== 'string' || !OWNED_SOURCES.includes(born.memory_source) || (born.memory_source.endsWith(':relative-file') && await legacyBirth(store, item.id, born) === undefined) || !await recordedCreation(store, item.id))) foreign.push(item);
   }
   const allowed = new Set(corpus.filter(item => !foreign.some(record => record.id === item.id)).map(item => item.id));
-  return { foreign, memories: await store.read(allowed, corpus) };
+  return { foreign, memories: await store.read(corpus, allowed) };
 }
 /** Freeze the same ownership, normalized documents and immutable history for every import adapter. */
 export async function readImportSnapshot(store: Store) {

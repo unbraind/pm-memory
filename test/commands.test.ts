@@ -17,7 +17,7 @@ function cli(root: string, workspace: string, args: string[], author = 'memory-t
 
 test('all commands activate and actual host recall/index stay bounded in TOON and JSON', async t => {
   const { options, workspace, root } = await tracker(t); await installExtension(workspace);
-  const activation = await activateExtensionForTest(extension, { capabilities: ['commands', 'schema'] }); assert.equal(activation.failed.length, 0);
+  const activation = await activateExtensionForTest(extension, { capabilities: ['commands', 'schema', 'hooks'] }); assert.equal(activation.failed.length, 0);
   const help = cli(root, workspace, ['--help']); assert.equal(help.status, 0, help.stderr);
   for (const command of ['remember', 'recall', 'get', 'index', 'import', 'export', 'verify', 'consolidate']) assert.ok(help.stdout.includes(command));
   const importHelp = cli(root, workspace, ['import', '--help']);

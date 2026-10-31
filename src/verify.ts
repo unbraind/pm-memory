@@ -7,8 +7,7 @@ import { GLOBAL_FLAG_CONTRACTS, PM_CORE_COMMAND_NAMES, resolveSubcommandFlagCont
 import { MemoryError, slug } from './core.ts';
 import { active } from './memory.ts';
 import { metadata, Store } from './store.ts';
-import { observeTargets } from './portable-plan.ts';
-import { commitNativeFields } from './portable-write.ts';
+import { observeTargets, commitNativeFields } from './native-revision.ts';
 import type { Claim, ClaimResult, Memory, MemoryOptions, Verdict } from './types.ts';
 
 /** Dependency and generated trees never contribute evidence. */
@@ -260,7 +259,7 @@ export async function verify(options: MemoryOptions & { root?: string | readonly
   const store = new Store(options);
   const { memories, observed } = await store.write(async () => {
     const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
-    const memories = active(await store.read(undefined, corpus)).filter(item => options.slug === undefined || item.slug === options.slug);
+    const memories = active(await store.read(corpus)).filter(item => options.slug === undefined || item.slug === options.slug);
     const ids = new Set(memories.map(item => item.id));
     return { memories, observed: await observeTargets(store, corpus.filter(item => ids.has(item.id))) };
   });
@@ -282,7 +281,7 @@ export async function verify(options: MemoryOptions & { root?: string | readonly
     const current = new Map(active(await store.read()).map(item => [item.id, item]));
     const results: { slug: string; verdict: Verdict; claims: ClaimResult[] }[] = [];
     const skipped: string[] = [];
-    if (planned.length > 0) await store.register();
+    if (planned.length > 0 && store.hostClient === undefined) await store.register();
     for (const { item, claims, verdict } of planned) {
       const now = current.get(item.id);
       if (now === undefined || !await commitNativeFields(store, item.id, observed.get(item.id)!.proof, metadata({ verdict, reason: claims.filter(claim => claim.verdict === 'stale').map(claim => claim.reason!).join('; '), verified_at: new Date().toISOString() }))) { skipped.push(item.slug); continue; }

@@ -1,6 +1,7 @@
 import { trackerSchema } from './lifecycle.ts';
-import { documentHash, validNativeProof } from './portable-write.ts';
-import type { NativeProof } from './portable-write.ts';
+import { validNativeProof } from './portable-write.ts';
+import { documentHash } from './native-revision.ts';
+import type { NativeProof } from './native-revision.ts';
 import { validRelationship } from './portable-relationships.ts';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -187,7 +188,7 @@ export async function legacyBirth(store: Store, id: string, created: NonNullable
   try {
     const source = sourceDocument(String(created.memory_path), Buffer.from(String(created.memory_original), 'base64'), String(created.memory_source).split(':')[0] as Harness);
     const { document } = await getItemAt(id, '1', { pmRoot: store.workspace });
-    const [born] = await store.read(new Set([id]), [{ ...document.metadata, body: document.body }]);
+    const [born] = await store.read([{ ...document.metadata, body: document.body }], new Set([id]));
     const actual = portableFields(born, born.body); const decoded = portableFields({ ...source, pinned: false, tags: [] }, source.body);
     if (actual.body !== decoded.body) return undefined;
     return { fields: Object.fromEntries(['body' as const, ...source.represented].filter(field => actual[field] === decoded[field]).map(field => [field, actual[field]])), source: { original: source.original } };
@@ -317,7 +318,7 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
       if (target !== undefined) {
         const index = entries.length - 1 - position;
         const { document } = await getItemAt(item.id, String(index + 1), { pmRoot: store.workspace });
-        const [historical] = await store.read(new Set([item.id]), [{ ...document.metadata, body: document.body }]);
+        const [historical] = await store.read([{ ...document.metadata, body: document.body }], new Set([item.id]));
         const fields = portableFields(historical, historical.body);
         const exact = target.proof === undefined
           ? Object.entries(target.fields).every(([key, value]) => fields[key as keyof PortableFields] === value) && inheritEdges(target.relationships, historical.relationships, false).every(edge => historical.relationships.some(current => edgeKey(current) === edgeKey(edge) && edgeHash(current) === edgeHash(edge)))
