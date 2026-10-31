@@ -32,13 +32,16 @@ for (const noop of [false, true]) test(`native publication rechecks a real peer 
   const evidence = { verdict: 'verified', reason: '', verified_at: at };
   if (noop) await target.store.fields(target.id, evidence);
   const expected = (await nativeState(target.store, target.id)).proof;
+  const version = expected.version; assert.ok(version);
   const options = metadata(evidence); let peer: unknown;
   // Evaluating the real mutation input dispatches an independent SDK writer after the first guard.
   Object.defineProperty(options, 'memoryVerdict', { enumerable: true, get: () => {
-    const script = "import { PmClient } from '@unbrained/pm-cli/sdk'; const client = new PmClient({cwd:process.argv[3],pmRoot:process.argv[2],author:'native-peer',noExtensions:true}); await client.update(process.argv[1],{body:'Native C'}); console.log(JSON.stringify((await client.get(process.argv[1],{full:true})).item));";
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script, target.id, target.workspace, target.root], { cwd: process.cwd(), encoding: 'utf8', timeout: 30000, env: { PATH: process.env.PATH, HOME: target.root, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' } });
+    const script = "import { mock } from 'node:test'; import { PmClient } from '@unbrained/pm-cli/sdk'; mock.timers.enable({apis:['Date'],now:Date.parse(process.argv[4])}); const client = new PmClient({cwd:process.argv[3],pmRoot:process.argv[2],author:'native-peer',noExtensions:true}); await client.update(process.argv[1],{body:'Native C'}); console.log(JSON.stringify((await client.get(process.argv[1],{full:true})).item));";
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script, target.id, target.workspace, target.root, version], { cwd: process.cwd(), encoding: 'utf8', timeout: 30000, env: { PATH: process.env.PATH, HOME: target.root, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' } });
     assert.equal(result.status, 0, result.stderr);
-    peer = JSON.parse(result.stdout) as unknown;
+    const item = JSON.parse(result.stdout) as { updated_at: string };
+    assert.equal(item.updated_at, version, 'force an independent native timestamp collision at the SDK publication boundary');
+    peer = item;
     return 'verified';
   } });
   assert.equal(await target.store.write(() => commitNativeFields(target.store, target.id, expected, options)), false);
