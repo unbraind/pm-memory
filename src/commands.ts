@@ -12,6 +12,7 @@ import type { ObserveOptions } from './utility-types.ts';
 import { guidancePolicy, renew } from './guidance.ts';
 import { createView, grantConsent, withdrawConsent, inspectView, viewFields } from './consent.ts';
 import { MEMORY_FIELDS } from './store.ts';
+import { registerNativeHost } from './native-host.ts';
 
 /** Dispatch native command operands to the documented in-process API. */
 export async function runCommand(command: string, ctx: CommandHandlerContext): Promise<unknown> {
@@ -94,6 +95,7 @@ const HELP: Record<string, [string, string, string]> = {
 };
 /** Register native commands, useful help, renderer behavior and Knowledge metadata. */
 export function register(api: ExtensionApi): void {
+  registerNativeHost(api);
   api.registerItemFields(MEMORY_FIELDS);
   api.registerItemTypes([{ name: 'Knowledge', folder: 'knowledge', description: 'Durable agent knowledge', default_status: 'open' }]);
   for (const [name, strings, booleans, argument] of [

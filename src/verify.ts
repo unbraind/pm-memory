@@ -281,7 +281,7 @@ export async function verify(options: MemoryOptions & { root?: string | readonly
     const current = new Map(active(await store.read()).map(item => [item.id, item]));
     const results: { slug: string; verdict: Verdict; claims: ClaimResult[] }[] = [];
     const skipped: string[] = [];
-    if (planned.length > 0) await store.register();
+    if (planned.length > 0 && store.hostClient === undefined) await store.register();
     for (const { item, claims, verdict } of planned) {
       const now = current.get(item.id);
       if (now === undefined || !await commitNativeFields(store, item.id, observed.get(item.id)!.proof, metadata({ verdict, reason: claims.filter(claim => claim.verdict === 'stale').map(claim => claim.reason!).join('; '), verified_at: new Date().toISOString() }))) { skipped.push(item.slug); continue; }

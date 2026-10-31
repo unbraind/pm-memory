@@ -3,6 +3,7 @@ import type { ItemDocument } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { Store } from './store.ts';
 import { digest, MemoryError } from './core.ts';
+import { guardedHostUpdate } from './native-host.ts';
 
 /** Hydrated schema inferred from the SDK serializer's public resolver. */
 export type TrackerSchema = Awaited<ReturnType<typeof resolveTransactionSchema>>['schema'];
@@ -19,7 +20,8 @@ function installGuard(run: BeforeMutationHook, name: string): void {
 }
 /** Publish native evidence only for the exact saved SDK revision, including the SDK no-op path. */
 export async function commitNativeFields(store: Store, id: string, expected: NativeProof, options: Record<string, unknown>): Promise<boolean> {
-  return store.fence(() => runWithActiveExtensions({ path: store.workspace, noExtensions: true }, async () => {
+  /** Preserve the host scope for injected clients; isolate only the default SDK path. */
+  const publish = async () => {
     let moved = false;
     /** Read and normalize the native revision through the same path used during capture. */
     const matches = async () => sameNativeProof((await nativeState(store, id)).proof, expected);
@@ -29,13 +31,15 @@ export async function commitNativeFields(store: Store, id: string, expected: Nat
       const candidates = [proof, { ...proof, hash: documentHash(context.before, await trackerSchema(store.workspace)) }];
       if (!candidates.every(candidate => sameNativeProof(candidate, expected))) { moved = true; throw new MemoryError('conflict', 'Native verification revision changed', 'Retry verification against the current native item; existing fields were retained'); }
     };
-    installGuard(guard, 'pm-memory-verification-revision');
+    if (store.hostClient === undefined) installGuard(guard, 'pm-memory-verification-revision');
     if (!await matches()) return false;
     try {
-      const result = await update(id, { author: store.invocationAuthor, ...options, message: 'Verify unchanged native memory snapshot' }, { pmRoot: store.workspace });
+      const fields = { author: store.invocationAuthor, ...options, message: 'Verify unchanged native memory snapshot' };
+      const result = store.hostClient !== undefined ? await guardedHostUpdate(store, store.hostClient, id, guard, fields) : await update(id, fields, { pmRoot: store.workspace });
       return result.changed_fields.length > 0 || await matches();
     } catch (error) { if (moved) return false; throw error; }
-  }));
+  };
+  return store.hostClient !== undefined ? publish() : store.fence(() => runWithActiveExtensions({ path: store.workspace, noExtensions: true }, publish));
 }
 /** Hash both native reads and SDK hook documents through the identical SDK canonical serializer. */
 export function documentHash(document: ItemDocument | null, schema?: TrackerSchema): string | null { return document === null ? null : digest(serializeItemDocument(canonicalDocument(document, { schema }), { schema })); }

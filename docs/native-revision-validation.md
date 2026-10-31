@@ -18,6 +18,18 @@ must still match. A changed revision is skipped; existing native fields remain.
 Unchanged snapshots remain admissible as wall-clock time advances. Environment,
 explicit invocation and per-call audit authors retain SDK precedence.
 
+Injected clients publish through the existing fenced host dispatcher. Extension
+activation registers the revision guard alongside a private read handshake. The
+handshake calls the SDK guard runner with a deliberately denied, non-persisting
+discovery operation; only the matching async-local guard can attest. The actual
+update is awaited inside that host read scope, preserving policy hooks until it
+settles. Inactive hooks, missing mutation guards, out-of-process clients and
+foreign trackers refuse with `MemoryError` code `host_guard` before any update.
+The full changed-field response is requested so SDK no-ops retain read-back
+validation. Injected verification uses active host fields without repairing
+persistent schema, so unavailable guards leave schema and workspace history
+unchanged too. The default client keeps its isolated standalone path.
+
 ## Acceptance and evidence
 
 | Acceptance | Evidence |

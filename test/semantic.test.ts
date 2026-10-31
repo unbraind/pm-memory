@@ -603,7 +603,7 @@ test('non-git process runs real SDK semantic recall with no git executable and n
   const processFile = join(import.meta.dirname, 'semantic-process.ts');
   const direct = await child([processFile, workspace, endpoint], env, root); assert.equal(direct.status, 0, direct.stderr); assert.equal(JSON.parse(direct.stdout).memories[0].slug, 'oidc');
   const extension = join(workspace, 'extensions', 'pm-memory'); await mkdir(extension, { recursive: true });
-  await writeFile(join(extension, 'manifest.json'), JSON.stringify({ name: 'pm-memory', version: '2026.10.19', entry: 'entry.js', capabilities: ['commands', 'schema'] }));
+  await writeFile(join(extension, 'manifest.json'), JSON.stringify({ name: 'pm-memory', version: '2026.10.19', entry: 'entry.js', capabilities: ['commands', 'schema', 'hooks'] }));
   await writeFile(join(extension, 'entry.js'), `export { default } from ${JSON.stringify(new URL('../index.ts', import.meta.url).href)};\n`);
   const cli = join(import.meta.dirname, '../node_modules/.bin/pm');
   for (const mode of ['auto', 'off']) {

@@ -52,7 +52,7 @@ export function assertTestsPassed(result: SpawnSyncReturns<string>, expectedName
 /** Install the source extension in a genuine temporary CLI host. */
 export async function installExtension(workspace: string): Promise<void> {
   const dir = join(workspace, 'extensions', 'pm-memory'); await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, 'manifest.json'), JSON.stringify({ name: 'pm-memory', version: '2026.10.19', entry: 'entry.js', capabilities: ['commands', 'schema'] }));
+  await writeFile(join(dir, 'manifest.json'), JSON.stringify({ name: 'pm-memory', version: '2026.10.19', entry: 'entry.js', capabilities: ['commands', 'schema', 'hooks'] }));
   await writeFile(join(dir, 'entry.js'), `export { default } from ${JSON.stringify(new URL('../index.ts', import.meta.url).href)};\n`);
 }
 
