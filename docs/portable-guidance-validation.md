@@ -1,11 +1,16 @@
+> Earlier pass claims and model counts below are superseded. PR #15 at 6f8c8ad failed Node 22/26 CI. Current merged-head gates and CI receipts are pending; no historical count certifies this candidate.
+
 # Portable guidance validation
 
-The 2026-10-30 review round stops with the whole identity class still blocked in
-legacy native merge recovery. Candidate fixes remain unpushed. The retained
-same-time ABA regression reproduces an old merge payload overwriting a native
-value restored after the frozen intent. See [the split plan](portable-guidance-split-plan.md)
-for the proposed landing order, exact focused/revert evidence and incomplete
-release gates. Focused passes below do not certify this PR for release.
+This round integrates the native revision foundation merged in PR #30. Complete
+SDK document hashes and immutable history heads protect verification and portable
+publication, including injected host policy hooks. Merge recovery now recognizes
+only its saved history prefixes and uniquely named forward steps. Legacy merge
+receipts remain readable and exportable; automatic replay refuses safely.
+
+The earlier split decision is retained in [the historical split plan](portable-guidance-split-plan.md).
+Current npm, Bun and pushed-head CI evidence is pending below; earlier counts do
+not certify the current candidate.
 
 Imports are forward-only; conflicts are reported, never rolled back. The current
 implementation supersedes the historical compensation and cancellation designs.
@@ -93,6 +98,13 @@ after a plain birth and content aged 0, 29, 30, 31 and 400 days. Freshness tests
 require body and content-derived metadata to appear in the same native history write.
 Fresh-target tests also check complete source bytes, including unknown frontmatter,
 when deciding whether to retain an exported content timestamp.
+
+The owned-state driver now uses 100 fresh Node workers of five cases to bound Node
+22 coverage bookkeeping. The original 500 seeds, case operations and assertions
+are unchanged. Every batch must return its exact complete receipt; cancellation
+or failure cannot increase the completed count. The replay model independently
+tracks values retained by successful publications and invalidates that retention
+after a later native edit, including ABA; a no-op cannot certify an unretained field.
 Existing companion conflict tests now require whole-item preservation before an
 explicitly reconciled retry; all original successful-retry assertions remain. The
 complete-document law additionally asserts recency and verification invalidation.
@@ -116,11 +128,11 @@ control; restoring the fix passes. The original colon regex did not reproduce a
 runtime timeout in the measured probes; its CodeQL finding is addressed by removing
 the overlapping terms while preserving the old parser's accepted values.
 
-## Current review verification
+## Superseded review evidence — current verification pending
 
-The final source passes seven original blocker controls, eight operational-age
+The previous candidate reported seven original blocker controls, eight operational-age
 controls, the five unchanged source-safety tests, and one rebuilt packed critical
-root in native Node and Bun. The packed root includes six pin-age controls in
+root in native Node and Bun. That historical packed root included six pin-age controls in
 addition to the peer, recovery, scalar and JSON/TOON checks. Function reverts and
 restored results are recorded on the pm item.
 
@@ -142,7 +154,7 @@ results remain required; queued or skipped checks provide no approval.
   successful writes and reruns converge without duplicate identities or dangling
   relationships.
 - `test/portable-model.test.ts`: 500 stateful sequences, master seed
-  `0x1363cafe`, 22,933 SDK read-back comparisons on completion. Operations include
+  `0x1363cafe`, a target of 22,933 SDK read-back comparisons on completion; this is not current-head completion evidence. Operations include
   old manifest replay, native edits, whitespace/CRLF, mixed bounded/unbounded
   guidance, links, ownership changes, deletion/re-import, interruption and retry.
   The reference model is independent of importer ownership and merge helpers.
@@ -161,7 +173,7 @@ commands, behavioral revert receipts and exact-head CI links are recorded on
 The number of configured model sequences is not a claim that a pending CI run
 completed them. Gate receipts distinguish passed, failed and incomplete checks.
 
-## Focused current implementation evidence
+## Superseded focused implementation evidence
 
 | Check | Completed evidence |
 | --- | --- |
