@@ -47,7 +47,7 @@ npx --package=@unbrained/pm-cli pm package install pm-memory
 bunx --bun --package @unbrained/pm-cli pm package install pm-memory
 ```
 
-Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The peer host minimum is 2026.10.23; the pinned development host is 2026.10.24. Node 22.18 or later is required.
+Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The peer host minimum is 2026.10.23; the pinned development host is 2026.10.27. Node 22.18 or later is required.
 
 
 ## Consent-scoped recall views
