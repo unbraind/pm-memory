@@ -190,13 +190,17 @@ test('interrupted mixed graphs keep reserved node IDs and never delete a newer p
       if (!event.stepId?.includes('-nodes-') || event.transition !== 'step_recorded') return;
       old = (await target.client.listAllComplete()).items.find(item => item.memory_slug === 'beta')!.id;
       if (peer) await target.client.update(old, { body: 'Peer beta wins' });
-      throw new Error('Roll back newly created nodes');
+      throw new Error('Interrupt after the created node was recorded');
     } }));
     assert.ok(old);
     if (peer) {
       const result = await importDir(path, { ...target.options, from: 'agents-md' }); assert.ok(result.updated === 1 || 'skipped' in result && result.skipped.some(row => row.slug === 'beta'));
       assert.equal((await target.client.get(old, { full: true })).item.body, 'Peer beta wins');
-      const repeated = await importDir(path, { ...target.options, from: 'agents-md' }); assert.ok('skipped' in repeated); assert.ok(repeated.skipped.some(row => row.slug === 'beta')); assert.equal((await target.client.get(old, { full: true })).item.body, 'Peer beta wins');
+      const stable = (await target.client.listAllComplete({ includeBody: true })).items;
+      const repeated = await importDir(path, { ...target.options, from: 'agents-md' });
+      assert.equal(repeated.updated, 0); assert.equal(repeated.unchanged, 3, 'unchanged source fields retain the native edit without another item write');
+      assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, stable);
+      assert.equal((await target.client.get(old, { full: true })).item.body, 'Peer beta wins');
     } else {
       await importDir(path, { ...target.options, from: 'agents-md' });
       const items = (await target.client.listAllComplete({ includeBody: true })).items;

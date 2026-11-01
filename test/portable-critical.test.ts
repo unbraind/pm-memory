@@ -190,11 +190,11 @@ test('native pre-write guard interruptions remain crash-recoverable', async t =>
   for (const mode of ['create', 'update'] as const) {
     const base = await fixture(t, mode); const target = base.template; let rollingBack = false;
     await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md', onStep: step => {
-      if (step === 'write-guard' && (true)) throw new WorkspaceTransactionInterruptedError();
+      if (step === 'write-guard') throw new WorkspaceTransactionInterruptedError();
     }, onTransition: event => {
       if (event.transactionId.endsWith('-rollback')) rollingBack = true;
-
     } }), WorkspaceTransactionInterruptedError);
+    assert.equal(rollingBack, false, 'forward imports never start rollback transactions');
     assert.equal((await target.client.get(base.id, { full: true })).item.body, 'Alpha A');
     const result = await importDir(base.path, { ...target.options, from: 'agents-md' });
     assert.equal(result.imported, mode === 'create' ? 1 : 0); assert.equal(result.updated, mode === 'create' ? 0 : 1);

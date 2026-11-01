@@ -186,6 +186,8 @@ function forwardResult(plan: ImportPlan): PortableImportResult {
   for (const [id, outcome] of Object.entries(plan.outcomes)) if (outcome === 'unchanged' ? !skipped.has(id) : applied.has(id)) result[outcome]++;
   return result;
 }
+/** SDK compensation records recovery without reversing successful native writes. */
+export async function retainForwardWrites(): Promise<void> {}
 /** Apply item steps once, retaining partial success and never issuing inverse mutations. */
 export async function applyImport(store: Store, plan: ImportPlan, options: PortableImportOptions): Promise<PortableImportResult> {
   try {
@@ -193,7 +195,7 @@ export async function applyImport(store: Store, plan: ImportPlan, options: Porta
     await mkdir(join(store.workspace, 'runtime'), { recursive: true });
     if (plan.nodes === undefined && plan.mutations.some(row => row.op === 'create')) { plan.nodes = prepareImportNodes(plan); await captureBirths(store, plan); sealBirths(plan); }
     await savePlan(store, plan); await options.onStep?.('intent');
-    await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: plan.transactionId, steps: [{ id: 'attempt', inspect: async () => ({ state: 'pending' }), apply: async () => ({ input: plan.input }), compensate: async () => {} }] });
+    await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: plan.transactionId, steps: [{ id: 'attempt', inspect: async () => ({ state: 'pending' }), apply: async () => ({ input: plan.input }), compensate: retainForwardWrites }] });
     if (plan.nodes !== undefined) {
       await commitPortableBatch(store, plan, `${plan.transactionId}-nodes`, 'nodes', plan.nodes, options);
       const failed = new Set(plan.result.skipped.flatMap(row => row.conflict === undefined ? [] : [row.conflict.item]));

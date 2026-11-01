@@ -112,11 +112,6 @@ test('pending merge receipts refuse intervening source and target edits before a
     await client.update(target.id, { body: scenario === 'target' ? 'Acknowledged intervening target edit' : rows.find(row => row.id === target.id)!.body, status: scenario === 'archived' ? 'canceled' : 'open', closeReason: 'Synthetic concurrent lifecycle change' });
     await store.fields(source.id, { merge: unsafe.includes(scenario) ? scenario : recorded });
     const before = await snapshot(workspace);
-    if (scenario === recorded) {
-      await consolidate({ ...options, apply: true });
-      assert.equal((await store.read()).find(row => row.id === source.id)!.merge, '');
-      continue;
-    }
     await assert.rejects(consolidate({ ...options, apply: true }), /pending memory merge|Pending memory merge/);
     assert.deepEqual(await snapshot(workspace), before);
     assert.notEqual((await store.read()).find(row => row.id === source.id)!.merge, '');
@@ -124,7 +119,8 @@ test('pending merge receipts refuse intervening source and target edits before a
   await client.update(target.id, { body: initialTarget.body });
   await store.fields(target.id, { changed_at: initialTarget.updated });
   await store.fields(source.id, { merge: recorded });
-  await consolidate({ ...options, apply: true });
-  assert.equal((await store.read()).find(row => row.id === target.id)!.body, rows.find(row => row.id === target.id)!.body);
-  assert.equal((await store.read()).find(row => row.id === source.id)!.merge, '');
+  const restored = await snapshot(workspace);
+  await assert.rejects(consolidate({ ...options, apply: true }), /Pending memory merge/);
+  assert.deepEqual(await snapshot(workspace), restored);
+  assert.equal((await store.read()).find(row => row.id === target.id)!.body, initialTarget.body);
 });

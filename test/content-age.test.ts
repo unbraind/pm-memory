@@ -6,7 +6,7 @@ import { getHistoryPath, readHistoryEntries, WorkspaceTransactionInterruptedErro
 import { importDir, remember, renew, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import { policyBody } from '../src/portable.ts';
 import { contentRevision } from '../src/content.ts';
-import { clonedTracker, exportedPolicy, snapshot, tracker, withoutGit } from './helpers.ts';
+import { clonedTracker, exportedPolicy, snapshot, tracker, withoutGit, verifiedSource } from './helpers.ts';
 
 for (const mode of ['native', 'agents-md', 'claude-code'] as const) test(`pin-only changes preserve content recency and invalidate old verification: ${mode}`, async t => {
   const target = await tracker(t); withoutGit(t, target.root);
@@ -89,6 +89,7 @@ test('raw interrupted edge completion retains aged content and native verificati
 });
 
 test('operational unsets preserve age and evidence while pin and content edits invalidate verification', async t => {
+  const empty = {}; contentRevision(empty); assert.deepEqual(empty, {}, 'an empty update cannot create a content revision');
   const target = await tracker(t); withoutGit(t, target.root);
   const memory = await remember('Content unset control', { ...target.options, slug: 'unset', kind: 'reference', why: 'Prior rationale' });
   const old = '2020-01-01T00:00:00.000Z'; const now = new Date().toISOString();
@@ -104,4 +105,17 @@ test('operational unsets preserve age and evidence while pin and content edits i
     assert.equal(actual.memory_verified_at, field === 'memory_merge' ? old : undefined);
     assert.equal(actual.memory_verdict, field === 'memory_merge' ? 'stale' : 'unknown');
   }
+});
+
+test('a peer-completed raw semantic edit still publishes source bytes without replacing native verification', async t => {
+  const target = await verifiedSource(t, 'Alpha A', 'Peer-owned evidence'); const { id, path, old } = target;
+  await writeFile(path, 'Alpha B');
+  const result = await importDir(path, { ...target.options, from: 'agents-md', onStep: async step => {
+    if (step === 'intent') await target.client.update(id, { body: 'Alpha B', title: 'Alpha B' });
+  } });
+  assert.equal(result.updated, 1, 'the exact source artifact still changes');
+  const actual = (await target.client.get(id, { full: true })).item;
+  assert.equal(actual.body, 'Alpha B');
+  assert.deepEqual([actual.memory_changed_at, actual.memory_verdict, actual.memory_verified_at, actual.memory_reason], [old, 'verified', old, 'Peer-owned evidence']);
+  assert.equal(JSON.parse(String(actual.memory_document)).original, Buffer.from('Alpha B').toString('base64'));
 });

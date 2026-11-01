@@ -70,3 +70,14 @@ test('unfenced administrative dispatch and standalone file publication remain av
   assert.equal(await store.fence(async () => 42), 42);
   assert.equal((await store.client.listAllComplete()).items.length, 0);
 });
+
+test('detached native publication cannot reuse a completed fence or released writer lease', async t => {
+  const { store } = await tracker(t); let resume: () => void = () => {}; let delayed: Promise<unknown> | undefined;
+  const ready = new Promise<void>(resolve => { resume = resolve; });
+  await store.write(() => store.fence(async () => {
+    delayed = (async () => { await ready; return store.client.create({ title: 'Detached stale publication', type: 'Task' }); })();
+    assert.equal((await store.client.listAllComplete()).items.length, 0, 'nested SDK reads reuse the active fence');
+  }));
+  const refused = assert.rejects(delayed!, { code: 'lock_lost' }); resume(); await refused;
+  assert.equal((await store.client.listAllComplete()).items.length, 0);
+});

@@ -1,3 +1,4 @@
+import { assertNativeHost } from './native-host.ts';
 import { contentRevision } from './content.ts';
 import { importConflict } from './portable-write.ts';
 import { isCanceled } from './lifecycle.ts';
@@ -168,9 +169,10 @@ export async function importDir(path: string, options: PortableImportOptions): P
   if (new Set(parsed.map(source => source.slug)).size !== parsed.length) throw new MemoryError('duplicate', 'Import names normalize to duplicate slugs', 'Rename the colliding source files');
   const store = new Store(options);
   return store.write(async () => {
+    await assertNativeHost(store);
     const inputHash = digest(JSON.stringify([options.from, input]));
     const recovered = await recoverInput(store, inputHash, options);
-    if (recovered !== undefined) { const { skipped, ...counts } = recovered; return skipped.length === 0 ? counts : { ...counts, skipped }; }
+    if (recovered !== undefined) return recovered;
     const { corpus, foreign, memories: initial, observed } = await readImportSnapshot(store);
     await options.onStep?.('read');
     const settings = await readSettings(store.workspace); const identity = await importIdentity(store, inputHash);
@@ -225,7 +227,7 @@ export async function importDir(path: string, options: PortableImportOptions): P
         const before = prior?.source === undefined ? births.get(previous.id)! : sourceDocument(source.path, Buffer.from(prior.source.original, 'base64'), options.from);
         const scope = [...new Set<keyof PortableFields>(['body', ...source.represented, ...before.represented])];
         const row = sourceOwnership(source, before, previous, references, scope);
-        const patch = ownershipPatch(previous, row, source.body, baselineIds, baselineIds, prior, true, scope);
+        const patch = ownershipPatch(previous, row, source.body, baselineIds, baselineIds, prior, scope);
         patch.conflicts = [...new Set([...patch.conflicts, ...unsetSourceFields(patch.options, source, { present: before.represented, native: previous, metadata: corpus.find(item => item.id === id)!, fields: row.baseline!.fields, owned: prior?.fields })])];
         const next = { version: 1 as const, format: 'legacy' as const, harness: options.from, path: source.path, original: source.original };
         const current = previous.document ?? { ...next, original: prior?.source?.original ?? before.original };
@@ -325,10 +327,12 @@ async function publish(root: string, outputs: Map<string, Buffer>, onStep?: (ste
     try { await rename(staging, root); }
     catch (error) {
       if (!['ENOTEMPTY', 'EEXIST'].includes(String((error as NodeJS.ErrnoException).code))) throw error;
-      for (const [name, bytes] of outputs) {
-        const target = await destination(root, name);
-        if (!(await lstat(target)).isFile() || !(await readFile(target)).equals(bytes)) throw new MemoryError('conflict', 'A peer published different export files', 'Choose a new empty export directory');
-      }
+      try {
+        for (const [name, bytes] of outputs) {
+          const target = await destination(root, name);
+          if (!(await lstat(target)).isFile() || !(await readFile(target)).equals(bytes)) throw new Error('Incomplete peer output');
+        }
+      } catch { throw new MemoryError('conflict', 'A peer published different or incomplete export files', 'Choose a new empty export directory'); }
     }
     await onStep?.('published');
   } finally { await rm(staging, { recursive: true, force: true }); }

@@ -6,6 +6,7 @@ import type { PmClient } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, POLICY_MANIFEST } from '../index.ts';
 import type { Harness, PortablePolicyManifest } from '../index.ts';
 import { tracker, withoutGit, cloneTracker, clonedTracker } from './helpers.ts';
+import { referenceRevision, assertRevisionClock } from './portable-reference.ts';
 
 const START = Number(process.env.PM_MEMORY_GRAMMAR_START);
 const COUNT = Number(process.env.PM_MEMORY_GRAMMAR_COUNT);
@@ -24,7 +25,7 @@ async function emittedFile(directory: string, slug: string, fallback: string) {
   const boundary = bytes.indexOf('\n') + 1; return { path, marker: bytes.slice(0, boundary), text: bytes.slice(boundary) };
 }
 /** Only SDK-managed clocks differ between independent SDK writes and the import transaction. */
-function nativeState(rows: Awaited<ReturnType<PmClient['listAllComplete']>>['items'], changed: string) { return rows.map(row => row.id === changed ? { ...row, updated_at: '<SDK modification clock>' } : row).sort((a, b) => a.id.localeCompare(b.id)); }
+function nativeState(rows: Awaited<ReturnType<PmClient['listAllComplete']>>['items'], changed: string, content: boolean) { return rows.map(row => row.id === changed ? { ...row, ...(content ? { memory_changed_at: '<content revision clock>' } : {}), updated_at: '<SDK modification clock>' } : row).sort((a, b) => a.id.localeCompare(b.id)); }
 
 test(`current grammar law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }, async t => {
   const isolated = await tracker(t); withoutGit(t, isolated.root); await isolated.store.register();
@@ -65,12 +66,19 @@ test(`current grammar law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }, 
         const documentValue = JSON.stringify({ format: 'legacy', harness: from, original: Buffer.from(document).toString('base64'), path: name, version: 1 });
         const options: Record<string, unknown> = { memoryDocument: documentValue };
         if (phase === 0) Object.assign(options, { body: semanticBody, memoryKind: classification, description, title: named ? slug : body, ...(sequence % 2 === 0 ? { memoryWhy: `Rationale ${seed}` } : {}), ...(sequence % 3 === 0 ? { memoryHow: `Application ${seed}` } : {}) });
-        if (phase === 2) Object.assign(options, { body: document, title: document });
+        if (phase === 2) Object.assign(options, { body: document, title: document, description: '', unset: ['memory_kind', ...(sequence % 2 === 0 ? ['memory_why'] : []), ...(sequence % 3 === 0 ? ['memory_how'] : [])] });
+        const prior = (await target.client.get(id, { full: true })).item;
+        const content = referenceRevision(options, prior, new Date().toISOString());
+        if (!content) options.memoryChangedAt = prior.memory_changed_at;
         await client.run('update', { id, options });
         await writeFile(activeInput.path, activeInput.marker + document);
+        const start = Date.now();
         const receipt = await importDir(activeDirectory, { ...target.options, from: phase === 0 && mode === 0 ? from : to });
         assert.equal(receipt.updated, 1, label); assert.equal(receipt.imported, 0, label);
-        assert.deepEqual(nativeState((await target.client.listAllComplete({ includeBody: true })).items, id), nativeState((await client.listAllComplete({ includeBody: true })).items, id), `${label} phase=${phase}`);
+        const actual = (await target.client.listAllComplete({ includeBody: true })).items;
+        assertRevisionClock(actual.find(row => row.id === id)!, content, start, Date.now(), label);
+        if (!content) assert.equal(actual.find(row => row.id === id)!.memory_changed_at, prior.memory_changed_at, `${label}: artifact changes preserve content age`);
+        assert.deepEqual(nativeState(actual, id, content), nativeState((await client.listAllComplete({ includeBody: true })).items, id, content), `${label} phase=${phase}`);
         const output = join(target.root, `after-${phase}`); await exportDir(output, { ...target.options, to });
         const emitted = await emittedFile(output, slug, name); assert.equal(emitted.text, document, `${label} phase=${phase}`);
         const before = (await target.client.listAllComplete({ includeBody: true })).items;
@@ -81,7 +89,7 @@ test(`current grammar law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }, 
       const fresh = await clonedTracker(t, isolated); await importDir(activeDirectory, { ...fresh.options, from: to });
       const actual = (await fresh.client.listAllComplete({ includeBody: true })).items.find(row => row.memory_slug === slug)!;
       const expected = (await client.listAllComplete({ includeBody: true })).items.find(row => row.id === id)!;
-      for (const key of ['title', 'description', 'body', 'memory_kind', 'memory_why', 'memory_how', 'memory_document']) assert.equal(actual[key], expected[key], `${label} fresh ${key}`);
+      for (const key of ['title', 'description', 'body', 'memory_kind', 'memory_why', 'memory_how', 'memory_document']) assert.equal(actual[key], expected[key] ?? new Map<string, unknown>([['memory_kind', 'reference'], ['memory_why', ''], ['memory_how', '']]).get(key), `${label} fresh ${key}`);
       await rm(oracle, { recursive: true });
     } catch (cause) { t.diagnostic(label); throw new Error(label, { cause }); }
   }

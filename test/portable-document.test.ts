@@ -42,6 +42,8 @@ test('unknown frontmatter edits update exactly one document through raw and comp
     const first = '---\r\nname: alpha\r\ncustom: old-value\r\nnested: {key: [1, false, null]}\r\n---\r\n\r\n# Guidance\r\n\r\n## Unrecognized section\r\n\tKeep every byte.  \r\n';
     const { directory: source, name } = await importHarness(target, from, first);
     const input = companion ? join(target.root, 'companion') : source;
+    const owned = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!;
+    await target.store.fields(owned.id, { changed_at: '2020-01-01T00:00:00.000Z', verdict: 'verified', verified_at: '2020-01-01T00:00:00.000Z', reason: 'Document-only baseline evidence' });
     if (companion) await exportDir(input, { ...target.options, to: from });
     const before = (await target.client.listAllComplete({ includeBody: true })).items;
     const second = first.replace('old-value', 'new-value'); await writeFile(join(input, name), second);
@@ -53,11 +55,7 @@ test('unknown frontmatter edits update exactly one document through raw and comp
       const actual = after.find(row => row.id === item.id)!;
       if (item.memory_slug !== 'alpha') assert.deepEqual(actual, item);
       else {
-        const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = item;
-        assert.deepEqual([actual.memory_verified_at, actual.memory_reason], [undefined, undefined]);
-        assert.equal(actual.memory_verdict, 'unknown');
-        assert.ok(Date.parse(String(actual.memory_changed_at)) >= Date.parse(String(item.memory_changed_at)));
-        assert.deepEqual(actual, { ...preserved, memory_document: actual.memory_document, memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at });
+        assert.deepEqual(actual, { ...item, memory_document: actual.memory_document, updated_at: actual.updated_at }, 'artifact edits retain the complete native revision evidence and content age');
       }
     }
     const output = join(target.root, 'output'); await exportDir(output, { ...target.options, to: from });

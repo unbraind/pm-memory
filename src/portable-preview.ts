@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { lstat, readdir, open, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { PmClient, certifyCompleteListResult, readSettings, writeSettings, runWithConfigurationOnlySettings, resolveTransactionSchema, resolveItemTypeRegistry, locateItem, getItemPath, getHistoryPath, previewItemMutations, commitItemMutations, getItemAt, canonicalDocument, serializeItemDocument, readHistoryEntries } from '@unbrained/pm-cli/sdk';
+import { PmClient, certifyCompleteListResult, readSettings, writeSettings, runWithActiveExtensions, runWithConfigurationOnlySettings, resolveTransactionSchema, resolveItemTypeRegistry, locateItem, getItemPath, getHistoryPath, previewItemMutations, commitItemMutations, getItemAt, canonicalDocument, serializeItemDocument, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { validateImportPlan } from './portable-plan.ts';
 import { Store } from './store.ts';
@@ -47,8 +47,11 @@ async function withProjection<T>(store: Store, plan: ImportPlan, excluded: Reado
     const registry = resolveItemTypeRegistry(selected);
     const workspace = join(scratch, '.agents', 'pm');
     const client = new PmClient({ pmRoot: workspace, noExtensions: true, author: plan.author });
-    await client.init('memory-preview', { defaults: true, agentGuidance: 'skip', mergeFence: false });
-    await writeSettings(workspace, selected);
+    // Private validation has no authority over the real tracker's host policies.
+    await runWithActiveExtensions({ path: workspace, noExtensions: true }, async () => {
+      await client.init('memory-preview', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+      await writeSettings(workspace, selected);
+    });
     await copyPreviewFile(join(store.workspace, 'memory-origin.json'), join(workspace, 'memory-origin.json'));
     await onStep?.('preview-settings');
     const items = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
@@ -64,7 +67,7 @@ async function withProjection<T>(store: Store, plan: ImportPlan, excluded: Reado
       await copyPreviewFile(getHistoryPath(store.workspace, target.id), getHistoryPath(workspace, target.id));
       await onStep?.(`preview-history:${target.id}`);
     }
-    result = await run(workspace);
+    result = await runWithActiveExtensions({ path: workspace, noExtensions: true }, () => run(workspace));
     await onStep?.('preview-validated');
   } finally { await rm(scratch, { recursive: true, force: true }); }
   await onStep?.('preview-cleaned');

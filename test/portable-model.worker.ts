@@ -124,7 +124,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
       const client = new PmClient({ pmRoot: workspace, noExtensions: true, author: 'memory-test' });
       const ids = new Map(baseIds);
       const options = { workspace, author: 'memory-test' }; const to = sequence % 2 === 0 ? 'agents-md' : 'claude-code';
-      let model = structuredClone(initial); const baseline = new Map(initial.map(row => [row.slug, structuredClone(row)])); const nativeEdits = new Map<string, Set<string>>(); const exports: SavedModel[] = [];
+      let model = structuredClone(initial); const baseline = new Map(initial.map(row => [row.slug, structuredClone(row)])); const nativeEdits = new Map<string, Set<string>>(); const retained = new Map<string, NodeModel>(); const exports: SavedModel[] = [];
       let operation = 'initialize'; let step = 0; let lastNative = seeded.native; const foreign = new Set<string>();
       /** Assert the entire tracker after every operation, with a stable replay coordinate. */
       const check = async () => {
@@ -170,7 +170,9 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
             } else if (desired !== before) refused = true;
           }
           next.relationships = [...relation.values()].sort((a, b) => a.slug.localeCompare(b.slug) || a.kind.localeCompare(b.kind));
-          if (isDeepStrictEqual(next, row) && !['title', 'description', 'body', 'why', 'how', 'kind', 'pinned', 'tags'].some(key => !isDeepStrictEqual(wanted[key as keyof NodeModel], exported[key as keyof NodeModel])) && isDeepStrictEqual(wanted.relationships, exported.relationships) && ['title', 'description', 'body', 'why', 'how', 'kind', 'pinned', 'tags'].some(key => !isDeepStrictEqual(row[key as keyof NodeModel], wanted[key as keyof NodeModel]))) refused = true;
+          // A no-op has no new publication that can certify an unretained native field.
+          // Retention survives only until that field is edited again, including ABA.
+          if (isDeepStrictEqual(next, row) && ['title', 'description', 'body', 'why', 'how', 'kind', 'pinned', 'tags'].some(key => !isDeepStrictEqual(row[key as keyof NodeModel], wanted[key as keyof NodeModel]) && (dirty.has(key) || !isDeepStrictEqual(retained.get(row.slug)?.[key as keyof NodeModel], row[key as keyof NodeModel])))) refused = true;
           if (!isDeepStrictEqual(next, row)) changes.set(row.slug, next);
           if (refused) { conflicts.add(row.slug); skipped.add(row.slug); changes.delete(row.slug); }
         }
@@ -183,15 +185,15 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         model = model.map(row => skipped.has(row.slug) ? row : changes.get(row.slug) ?? row);
         const result = await importDir(saved.path, { ...options, from: to }); assert.ok('skipped' in result);
         assert.deepEqual([...new Set(result.skipped.map(row => row.slug))].sort(), [...new Set([...skipped, ...conflicts])].sort(), `seed=${seed} operation=${operation}: independent-edit classification`);
-        for (const row of saved.desired) if (!skipped.has(row.slug) && changes.has(row.slug)) { baseline.set(row.slug, structuredClone(row)); nativeEdits.delete(row.slug); }
+        for (const row of saved.desired) if (!skipped.has(row.slug) && changes.has(row.slug)) { baseline.set(row.slug, structuredClone(row)); retained.set(row.slug, structuredClone(model.find(item => item.slug === row.slug)!)); nativeEdits.delete(row.slug); }
 
       };
       /** Commit one independently predicted item, retaining dirty scope on other records. */
       const acceptItem = (saved: SavedModel, slug: string): void => {
-        const desired = structuredClone(saved.desired.find(row => row.slug === slug)!); Object.assign(model.find(row => row.slug === slug)!, desired); baseline.set(slug, desired); nativeEdits.delete(slug);
+        const desired = structuredClone(saved.desired.find(row => row.slug === slug)!); Object.assign(model.find(row => row.slug === slug)!, desired); baseline.set(slug, desired); retained.delete(slug); nativeEdits.delete(slug);
       };
       /** Advance the reference only after a no-edit interrupted batch has recovered. */
-      const acceptRecovery = (saved: SavedModel): void => { model = structuredClone(saved.desired); for (const row of model) baseline.set(row.slug, structuredClone(row)); nativeEdits.clear(); };
+      const acceptRecovery = (saved: SavedModel): void => { model = structuredClone(saved.desired); for (const row of model) baseline.set(row.slug, structuredClone(row)); nativeEdits.clear(); retained.clear(); };
       /** Delete one complete generation, then recreate the same archived input. */
       const recreate = async (saved: SavedModel, label: string) => {
         operation = `delete ${label}`;
@@ -200,7 +202,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         operation = `reimport ${label}`;
         await assert.rejects(importDir(saved.path, { ...options, from: to }), (error: unknown) => error instanceof MemoryError && error.code === 'origin_missing');
         assert.equal((await importDir(saved.path, { ...options, from: to, createMissingOrigins: true })).imported, 3);
-        model.splice(0, model.length, ...structuredClone(saved.desired)); for (const row of model) baseline.set(row.slug, structuredClone(row)); nativeEdits.clear();
+        model.splice(0, model.length, ...structuredClone(saved.desired)); for (const row of model) baseline.set(row.slug, structuredClone(row)); nativeEdits.clear(); retained.clear();
         for (const item of (await client.listAllComplete()).items) ids.set(String(item.memory_slug), item.id);
         await check();
       };
@@ -370,7 +372,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
         }
 
 
-      } catch (error) { throw new Error(`MASTER_SEED=${MASTER_SEED} SEQUENCE_SEED=${seed} sequence=${sequence} step=${step} operation=${operation}`, { cause: error }); }
+      } catch (error) { throw new Error(`MASTER_SEED=${MASTER_SEED} SEQUENCE_SEED=${seed} sequence=${sequence} step=${step} operation=${operation}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
       await rm(root, { recursive: true });
       completed = true;
     });

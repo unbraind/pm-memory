@@ -8,5 +8,6 @@ export function validRelationship(value: unknown, target: 'id' | 'slug'): boolea
   for (const key of ['created_at', 'author', 'source_kind']) if (Object.hasOwn(edge, key) && typeof edge[key] !== 'string') return false;
   if (Object.hasOwn(edge, 'author_source') && (typeof edge.author_source !== 'string' || !['asserted', 'detected', 'legacy'].includes(edge.author_source))) return false;
   if (typeof edge.created_at === 'string' && !isTimestampLiteral(edge.created_at)) return false;
-  try { normalizeDependencySourceKind(edge.source_kind as string | undefined); itemDocumentToMutationOptions(JSON.stringify({ dependencies: [{ ...edge, id: edge[target] }] }), 'update'); return true; } catch { return false; }
+  normalizeDependencySourceKind(edge.source_kind as string | undefined);
+  itemDocumentToMutationOptions(JSON.stringify({ dependencies: [{ ...edge, id: edge[target] }] }), 'update'); return true;
 }

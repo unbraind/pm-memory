@@ -6,6 +6,7 @@ import { canonicalDocument } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, POLICY_MANIFEST } from '../index.ts';
 import type { Harness, PortablePolicyManifest } from '../index.ts';
 import { tracker, withoutGit } from './helpers.ts';
+import { assertRevisionClock } from './portable-reference.ts';
 
 const START = Number(process.env.PM_MEMORY_DOCUMENT_START);
 const COUNT = Number(process.env.PM_MEMORY_DOCUMENT_COUNT);
@@ -68,6 +69,8 @@ test(`complete document law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }
         const stored = (await target.client.get(row.id, { full: true })).item.body; assert.ok(typeof stored === 'string');
         first = prefix + stored;
       }
+      const native = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!;
+      await target.store.fields(native.id, { changed_at: '2020-01-01T00:00:00.000Z', verdict: 'verified', verified_at: '2020-01-01T00:00:00.000Z', reason: `Document law evidence ${seed}` });
       const second = first.replace(oldValue, newValue);
       const exported = join(target.root, `case-${sequence}-a`); await exportDir(exported, { ...target.options, to: from });
       let emitted = name;
@@ -80,6 +83,7 @@ test(`complete document law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }
       const editedFile = join(edited, policy ? emitted : name);
       const marker = policy ? bytes.slice(0, bytes.indexOf('\n') + 1) : '';
       await writeFile(editedFile, marker + second);
+      const started = Date.now();
       const receipt = await importDir(edited, { ...target.options, from });
       assert.equal(receipt.updated, 1, label); assert.equal(receipt.imported, 0, label);
       const after = (await target.client.listAllComplete({ includeBody: true })).items;
@@ -90,10 +94,11 @@ test(`complete document law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }
           const snapshot = JSON.parse(String(nativeBody ? actual.memory_policy_body : actual.memory_document)) as { original: string };
           assert.equal(Buffer.from(snapshot.original, 'base64').toString('utf8'), second, label);
           if (nativeBody) { const { body: _body, ...metadata } = original; assert.equal(actual.body, canonicalDocument({ metadata, body: second }).body, label); }
-          const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = original;
-          assert.equal(actual.memory_verified_at, undefined, label); assert.equal(actual.memory_reason, undefined, label);
-          assert.ok(Date.parse(String(actual.memory_changed_at)) >= Date.parse(String(original.memory_changed_at)), label);
-          assert.deepEqual(actual, { ...preserved, ...(nativeBody ? { body: actual.body, memory_policy_body: actual.memory_policy_body } : { memory_document: actual.memory_document }), memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at }, label);
+          assertRevisionClock(actual, nativeBody, started, Date.now(), label);
+          if (nativeBody) {
+            const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = original;
+            assert.deepEqual(actual, { ...preserved, body: actual.body, memory_policy_body: actual.memory_policy_body, memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at }, label);
+          } else assert.deepEqual(actual, { ...original, memory_document: actual.memory_document, updated_at: actual.updated_at }, `${label}: artifact edits preserve full evidence and age`);
         }
       }
       const output = join(target.root, `case-${sequence}-b`); await exportDir(output, { ...target.options, to: from });

@@ -5,7 +5,7 @@ import type { NativeProof } from './native-revision.ts';
 import { validRelationship } from './portable-relationships.ts';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getHistoryPath, getItemAt, hashHistoryStream, readHistoryEntries, replayHistoryToTarget, itemDocumentToMutationOptions, createRelationshipKindRegistry } from '@unbrained/pm-cli/sdk';
+import { getHistoryPath, getItemAt, hashHistoryStream, readHistoryEntries, replayHistoryToTarget, itemDocumentToMutationOptions, createRelationshipKindRegistry, normalizeDependencySourceKind } from '@unbrained/pm-cli/sdk';
 import type { Dependency } from '@unbrained/pm-cli/sdk';
 import { canonicalProvenance } from './portable.ts';
 import type { PortableGuidance, PortableRelationship } from './portable.ts';
@@ -203,11 +203,17 @@ function edgeHash(edge: Dependency | undefined): string {
   return JSON.stringify(edge === undefined ? null : itemDocumentToMutationOptions(JSON.stringify({ dependencies: [edge] }), 'update'));
 }
 /** A relationship identity includes the native source namespace as well as kind and target. */
-function edgeKey(edge: Dependency): string { return JSON.stringify([edge.id, edge.kind, edge.source_kind ?? '']); }
+function edgeKey(edge: Dependency): string { return JSON.stringify([edge.id, edge.kind, normalizeDependencySourceKind(edge.source_kind) ?? '']); }
+/** Normalize a namespace through the same SDK contract used by dependency publication. */
+function normalizedEdge(edge: Dependency): Dependency {
+  const { source_kind, ...fields } = edge; const source = normalizeDependencySourceKind(source_kind);
+  return { ...fields, ...(source === undefined ? {} : { source_kind: source }) };
+}
 /** Missing edge provenance means unknown: inherit it from the actual SDK value. */
 function inheritEdges(edges: readonly Dependency[], current: readonly Dependency[], strict: boolean): Dependency[] {
-  return edges.map(edge => {
-    const matches = current.filter(prior => prior.id === edge.id && prior.kind === edge.kind && (edge.source_kind === undefined || prior.source_kind === edge.source_kind));
+  return edges.map(value => {
+    const edge = normalizedEdge(value);
+    const matches = current.map(normalizedEdge).filter(prior => prior.id === edge.id && prior.kind === edge.kind && (edge.source_kind === undefined || prior.source_kind === edge.source_kind));
     if (strict && matches.length > 1) throw new MemoryError('conflict', 'Portable relationship namespace is ambiguous', 'Export again and retain source_kind to select the represented relationship; native edges were not changed');
     return matches.length === 1 ? { ...matches[0], ...edge } : edge;
   });
@@ -223,7 +229,7 @@ export function relationshipPatch(before: readonly Dependency[], after: readonly
   return { ...(additions.length === 0 ? {} : itemDocumentToMutationOptions(JSON.stringify({ dependencies: additions }), 'update')), ...(selectors.length === 0 ? {} : { depRemove: selectors }) };
 }
 /** Three-way merge: an unchanged portable value cannot overwrite a native edit. */
-export function ownershipPatch(current: Memory, row: PortableGuidance, body: string, ids: ReadonlyMap<string, string>, baselineIds: ReadonlyMap<string, string>, prior?: PreviousOwnership, removeRepresented = true, fields: readonly (keyof PortableFields)[] = PORTABLE_FIELDS): { options: Record<string, unknown>; ownership: OwnedTarget; conflicts: string[]; base: Record<string, unknown>; current: Record<string, unknown> } {
+export function ownershipPatch(current: Memory, row: PortableGuidance, body: string, ids: ReadonlyMap<string, string>, baselineIds: ReadonlyMap<string, string>, prior?: PreviousOwnership, fields: readonly (keyof PortableFields)[] = PORTABLE_FIELDS): { options: Record<string, unknown>; ownership: OwnedTarget; conflicts: string[]; base: Record<string, unknown>; current: Record<string, unknown> } {
   const incoming = portableFields(row, body); const native = portableFields(current, current.body);
   const baseline = row.baseline?.fields ?? prior?.fields ?? native;
   const options: Record<string, unknown> = {}; const conflicts: string[] = []; const baseValues: Record<string, unknown> = { ...baseline }; const currentValues: Record<string, unknown> = { ...native };
@@ -244,8 +250,7 @@ export function ownershipPatch(current: Memory, row: PortableGuidance, body: str
     const now = graph.find(edge => edgeKey(edge) === key); const next = desired.find(edge => edgeKey(edge) === key);
     const base = exported.find(edge => edgeKey(edge) === key); const old = previouslyOwned?.find(edge => edgeKey(edge) === key);
     if (edgeHash(now) === edgeHash(next)) continue;
-    if (next === undefined && !removeRepresented) continue;
-    const nativeEdit = prior?.nativeRelationships?.some(changed => [now, next, old].some(edge => edge !== undefined && edge.id === changed.id && edge.kind === changed.kind && (edge.source_kind === undefined || edge.source_kind === changed.source_kind)));
+    const nativeEdit = prior?.nativeRelationships?.some(changed => [now, next, old].some(edge => edge !== undefined && edge.id === changed.id && edge.kind === changed.kind && (edge.source_kind === undefined || normalizeDependencySourceKind(edge.source_kind) === normalizeDependencySourceKind(changed.source_kind))));
     if ((previouslyOwned !== undefined && !nativeEdit && edgeHash(now) === edgeHash(old)) || (edgeHash(next) !== edgeHash(base) && edgeHash(now) === edgeHash(base))) {
       const position = graph.findIndex(edge => edgeKey(edge) === key); if (position !== -1) graph.splice(position, 1);
       if (next !== undefined) graph.push(next);
@@ -320,9 +325,7 @@ export async function previousOwnership(store: Store, item: Memory, ids: Readonl
         const { document } = await getItemAt(item.id, String(index + 1), { pmRoot: store.workspace });
         const [historical] = await store.read([{ ...document.metadata, body: document.body }], new Set([item.id]));
         const fields = portableFields(historical, historical.body);
-        const exact = target.proof === undefined
-          ? Object.entries(target.fields).every(([key, value]) => fields[key as keyof PortableFields] === value) && inheritEdges(target.relationships, historical.relationships, false).every(edge => historical.relationships.some(current => edgeKey(current) === edgeKey(edge) && edgeHash(current) === edgeHash(edge)))
-          : target.proof.length === index + 1 && target.proof.history === hashHistoryStream(entries.slice(0, index + 1)) && target.proof.hash === documentHash(document, await trackerSchema(store.workspace));
+        const exact = target.proof !== undefined && target.proof.length === index + 1 && target.proof.history === hashHistoryStream(entries.slice(0, index + 1)) && target.proof.hash === documentHash(document, await trackerSchema(store.workspace));
         if (exact) return retained(target, fields);
       }
     }

@@ -5,6 +5,7 @@
 ### Added
 
 - SDK revision foundation and native verification ([pm-memory-native-revision-foundation](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-native-revision-foundation.toon))
+- Preserve guidance validity in portable harness round trips ([pm-memory-1363](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-1363.toon))
 
 ## 2026.10.28 - 2026-10-28
 

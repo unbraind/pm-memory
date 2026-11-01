@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { remember, importDir, POLICY_MANIFEST } from '../index.ts';
+import { policyBody } from '../src/portable.ts';
+import { nativeState } from '../src/native-revision.ts';
+import { exportedPolicy, snapshot } from './helpers.ts';
+import { nativeFixture } from './native-host-helpers.ts';
+
+for (const harness of ['agents-md', 'claude-code'] as const) for (const edit of ['body', 'pin', 'edge', 'unchanged'] as const) test(`satisfied portable ${edit} cannot certify an unretained native value: ${harness}`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-06-01T12:00:00.000Z') });
+  const target = await nativeFixture(t);
+  await remember('Dependent beta', { ...target.options, slug: 'beta', kind: 'reference', links: [target.id] });
+  await remember('Independent gamma', { ...target.options, slug: 'gamma', kind: 'reference' });
+  const { path, manifest } = await exportedPolicy(target, 'fulfilled-locality', harness);
+  const row = manifest.guidance.find(row => row.slug === 'alpha')!;
+  if (edit === 'pin') row.pinned = true;
+  if (edit === 'edge') row.relationships.push({ slug: 'gamma', kind: 'related' });
+  await writeFile(join(path, POLICY_MANIFEST), JSON.stringify(manifest));
+  await writeFile(join(path, row.path), policyBody(row, edit === 'body' ? 'Fulfilled body B' : target.saved.document!.body));
+  const first = await importDir(path, { ...target.options, from: harness });
+  assert.equal(first.updated, edit === 'unchanged' ? 0 : 1);
+  await target.client.update(target.id, { description: 'Independent native description C' });
+  assert.equal((await nativeState(target.store, target.id)).proof.version, target.saved.proof.version, 'all different native generations share the same timestamp');
+  const before = await snapshot(target.workspace);
+  const rows = (await target.client.listAllComplete({ includeBody: true })).items;
+  const retry = await importDir(path, { ...target.options, from: harness });
+  assert.equal(retry.updated, 0);
+  assert.ok('skipped' in retry);
+  assert.equal(retry.unchanged, 1);
+  assert.deepEqual(retry.skipped.map(row => row.slug).sort(), ['alpha', 'beta'], 'a no-op cannot claim unretained native values');
+  assert.ok(retry.skipped.every(row => row.conflict?.fields.includes('description')));
+  assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, rows);
+  assert.deepEqual(await snapshot(target.workspace), before, 'a refusal preserves native fields, history and evidence');
+});

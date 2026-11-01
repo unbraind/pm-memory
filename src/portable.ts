@@ -1,3 +1,4 @@
+import { assertNativeHost } from './native-host.ts';
 import { contentRevision } from './content.ts';
 import { isCanceled } from './lifecycle.ts';
 import { validRelationship } from './portable-relationships.ts';
@@ -29,7 +30,7 @@ export async function ownedMemories(store: Store, corpus: Awaited<ReturnType<Sto
   // A foreign native record cannot acquire memory ownership by changing only its current tags.
   for (const item of corpus) if (item.type === 'Knowledge' && item.memory_slug !== undefined && !foreign.some(row => row.id === item.id)) {
     const born = await creationMetadata(store, item.id);
-    if (born !== undefined && (born.type !== 'Knowledge' || typeof born.memory_slug !== 'string' || typeof born.memory_source !== 'string' || !OWNED_SOURCES.includes(born.memory_source) || (born.memory_source.endsWith(':relative-file') && await legacyBirth(store, item.id, born) === undefined) || !await recordedCreation(store, item.id))) foreign.push(item);
+    if (born === undefined || (born.type !== 'Knowledge' || typeof born.memory_slug !== 'string' || typeof born.memory_source !== 'string' || !OWNED_SOURCES.includes(born.memory_source) || (born.memory_source.endsWith(':relative-file') && await legacyBirth(store, item.id, born) === undefined) || !await recordedCreation(store, item.id))) foreign.push(item);
   }
   const allowed = new Set(corpus.filter(item => !foreign.some(record => record.id === item.id)).map(item => item.id));
   return { foreign, memories: await store.read(corpus, allowed) };
@@ -347,6 +348,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
   await options.onStep?.('validated');
   const store = new Store(options);
   return store.write(async () => {
+    await assertNativeHost(store);
     const recovered = await recoverInput(store, inputHash, options);
     if (recovered !== undefined) return recovered;
     const { corpus, foreign, memories: current, observed } = await readImportSnapshot(store);
@@ -409,8 +411,9 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
           update.conflicts = [...new Set([...update.conflicts, ...unsetSourceFields(update.options, sourceDocument(wire.path, Buffer.from(wire.original, 'base64'), wire.harness), base)])];
         }
         if (document !== undefined) {
-          const patch = documentPatch(previous, document, wire === undefined ? document.original : row.document?.original ?? owned?.source?.original ?? previous.original, owned?.sourceEdited, documentHash ?? row.baseline?.documentHash);
-          Object.assign(update.options, patch.options); if (patch.conflict) { update.conflicts.push('document'); update.base.document = documentHash ?? row.baseline?.documentHash; update.current.document = previous.document === undefined ? undefined : digest(encodeDocument(previous.document)); }
+          const expectedDocument = documentHash ?? (row.document === undefined ? undefined : row.baseline?.documentHash);
+          const patch = documentPatch(previous, document, wire === undefined ? document.original : row.document?.original ?? owned?.source?.original ?? previous.original, owned?.sourceEdited, expectedDocument);
+          Object.assign(update.options, patch.options); if (patch.conflict) { update.conflicts.push('document'); update.base.document = expectedDocument; update.current.document = previous.document === undefined ? undefined : digest(encodeDocument(previous.document)); }
           if (patch.options.memoryDocument !== undefined) documentHash = digest(encodeDocument(document));
         }
         if (policyBody !== undefined && !update.conflicts.includes('body')) {

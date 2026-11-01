@@ -32,24 +32,38 @@ class HostClient extends PmClient {
     return this.host.run(action, { ...args, author: args.author ?? this.author });
   }
 }
+/** One currently held publication fence; detached async continuations cannot retain its authority. */
+interface ActiveFence { lease: LockLease; active: boolean }
+/** Reuse only this async context's live fence, avoiding nested SDK-hook deadlocks. */
+async function fenceLease<T>(leases: AsyncLocalStorage<LockLease>, fences: AsyncLocalStorage<ActiveFence>, run: () => Promise<T>): Promise<T> {
+  const lease = leases.getStore(); const held = fences.getStore();
+  if (lease === undefined || held?.lease === lease && held.active) return run();
+  return lease.fence(async () => {
+    const current = { lease, active: true };
+    try { return await fences.run(current, run); } finally { current.active = false; }
+  });
+}
 /** Fence each SDK dispatch at publication, retaining independent concurrent write contexts. */
 class FencedClient extends PmClient {
   /** Underlying SDK or injected host client. */
   readonly delegate: PmClient;
   /** Current asynchronous writer generation, absent outside a write. */
   readonly leases: AsyncLocalStorage<LockLease>;
+  /** Shared publication scope for nested native hooks and intent writes. */
+  readonly fences: AsyncLocalStorage<ActiveFence>;
   /** Wrap native dispatch without replacing its schema or attribution behavior. */
-  constructor(delegate: PmClient, leases: AsyncLocalStorage<LockLease>) { super(); this.delegate = delegate; this.leases = leases; }
+  constructor(delegate: PmClient, leases: AsyncLocalStorage<LockLease>, fences: AsyncLocalStorage<ActiveFence>) { super(); this.delegate = delegate; this.leases = leases; this.fences = fences; }
   /** Refuse stale writers before native item or schema publication begins. */
   override run(action: PmActionName, args: PmClientRunArgs = {}): Promise<unknown> {
-    const lease = this.leases.getStore();
-    return lease === undefined ? this.delegate.run(action, args) : lease.fence(() => this.delegate.run(action, args));
+    return fenceLease(this.leases, this.fences, () => this.delegate.run(action, args));
   }
 }
 /** Tracker-bound native SDK client and cooperating package mutation boundary. */
 export class Store {
   /** Per-operation ownership context also isolates simultaneous writes on one Store. */
   readonly leases = new AsyncLocalStorage<LockLease>();
+  /** Async-local, live-only publication scopes shared with the native dispatcher. */
+  readonly fences = new AsyncLocalStorage<ActiveFence>();
   /** Fenced host dispatcher, or standalone SDK client with extension recursion disabled. */
   readonly client: PmClient;
   /** Explicit initialized tracker storage directory. */
@@ -64,7 +78,7 @@ export class Store {
   constructor(options: MemoryOptions) {
     this.workspace = options.workspace; this.author = options.author ?? 'pm-memory'; this.invocationAuthor = options.author; this.hostClient = options.client;
     const client = options.client === undefined ? new PmClient({ pmRoot: this.workspace, ...(options.author === undefined ? {} : { author: options.author }), noExtensions: true }) : new HostClient(options.client, options.author);
-    this.client = new FencedClient(client, this.leases);
+    this.client = new FencedClient(client, this.leases, this.fences);
   }
   /** Serialize cooperating package writers across processes; native writers may bypass this lease. */
   async write<T>(run: () => Promise<T>): Promise<T> {
@@ -73,8 +87,7 @@ export class Store {
   }
   /** Fence external file publication against the current writer generation. */
   async fence<T>(publish: () => Promise<T>): Promise<T> {
-    const lease = this.leases.getStore();
-    return lease === undefined ? publish() : lease.fence(publish);
+    return fenceLease(this.leases, this.fences, publish);
   }
   /** Register the custom Knowledge type and compatible metadata through native schema writes. */
   async register(onStep?: (step: string) => void | Promise<void>): Promise<void> {

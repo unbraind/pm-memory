@@ -145,7 +145,7 @@ Verification extracts delimited paths, `fn()` calls, `--flags`, exact `package@v
 
 `--network` enables `npm view` version checks and URL HEAD checks. Without it, network claims remain unknown. One confidently absent claim makes a memory stale; all claims must verify for a verified verdict; no claims or incomplete evidence yields unknown. Textual presence does not establish runtime correctness. Network outages and denied endpoints remain unknown. Verification reports changed or archived snapshots in `skipped` without overwriting their verdicts.
 
-Consolidation changes nothing without `--apply`. Applied duplicate merges retain old content in the surviving item, link the originals and cancel the duplicate with a reason. Supersession recognizes overlapping headings/slug tokens with explicit opposite guidance (`enable/disable`, `always/never`, `required/forbidden`); it normalizes toggle negations and requires exclusive opposing signals with matching subjects. Always/never requires the same remaining guidance. It adds a native `supersedes` edge and a comment. It is a lexical proposal, so review the dry run before applying. Archive proposals require stale status with a persisted confident reason, zero recalls, no pin, and `memory_changed_at` content age of at least 30 days. Use `--min-age-days 60` to change the threshold. Recall and verify leave content age unchanged. Legacy memories fall back to creation time. Merge targets remain active; durable merge receipts let retries finish without appending content twice. All original items and history remain available.
+Consolidation changes nothing without `--apply`. Applied duplicate merges retain old content in the surviving item, link the originals and cancel the duplicate with a reason. Supersession recognizes overlapping headings/slug tokens with explicit opposite guidance (`enable/disable`, `always/never`, `required/forbidden`); it normalizes toggle negations and requires exclusive opposing signals with matching subjects. Always/never requires the same remaining guidance. It adds a native `supersedes` edge and a comment. It is a lexical proposal, so review the dry run before applying. Archive proposals require stale status with a persisted confident reason, zero recalls, no pin, and `memory_changed_at` content age of at least 30 days. Use `--min-age-days 60` to change the threshold. Recall and verify leave content age unchanged. Legacy memories fall back to creation time. Merge targets remain active; durable merge receipts let retries finish without appending content twice. An intervening native edit causes a conflict even when its content returns to the old value. Older pending receipts without revision proofs require reconciliation or clearing of the reported `memory_merge` field through an audited update before retrying. Original items remain readable and exportable, with their history retained.
 
 ## Outcome-linked utility
 
@@ -232,8 +232,7 @@ Invalid bounds or policy, nonstanding targets and exhausted revisions produce `M
 
 `memory export` writes the version 1 policy format for native/portable guidance,
 including entirely unbounded and empty inventories. A purely legacy imported file
-inventory keeps its legacy export only when every emitted file can be preserved byte for byte. Otherwise it uses the policy format. Both `--to agents-md` and `--to claude-code` produce `pm-memory-
-policy.json`, `memories/<slug>.md` body files and the harness index. Keep this directory
+inventory keeps its legacy export only when every emitted file can be preserved byte for byte. Otherwise it uses the policy format. Both `--to agents-md` and `--to claude-code` produce `pm-memory-policy.json`, `memories/<slug>.md` body files and the harness index. Keep this directory
 together. The index links to bodies and labels inclusive start/exclusive end bounds; it
 never duplicates bounded text as unbounded advice. A standalone exported body or index
 refuses import without its manifest.
@@ -268,7 +267,7 @@ native renewal refuses an older import. Adjacent files outside the inventory are
 with reasons. These integrity checks are not signatures: import only trusted exports; a
 party that rewrites both the manifest and its markers can author a different policy.
 
-### Imports and rollback
+### Imports and recovery
 
 Import applies the complete desired state of each source-owned field. Removing a
 previously carried directive or wiki link removes that owned value through the SDK;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, readFile, writeFile, rm, chmod, cp } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile, rm, chmod, cp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WorkspaceTransactionInterruptedError, getHistoryPath, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import { remember, renew, get, guidanceState, exportDir, importDir, parsePolicy, POLICY_MANIFEST, MemoryError } from '../index.ts';
@@ -286,6 +286,15 @@ test('independent trackers recognize identical export peer success and refuse di
     if (different) await assert.rejects(publish, /peer published different/); else assert.equal((await publish).exported, 3);
     assert.deepEqual((await manifest(out)).guidance[0].validity, (await manifest(source.path)).guidance[0].validity);
   }
+});
+
+test('an incomplete export peer is a typed conflict and its output remains untouched', async t => {
+  const source = await fixture(t); const out = join(source.root, 'incomplete-peer');
+  await assert.rejects(exportDir(out, { ...source.options, to: 'agents-md', onStep: async step => {
+    if (step === 'permissions') { await mkdir(out); await writeFile(join(out, 'peer-note.md'), 'Incomplete peer output'); }
+  } }), error => error instanceof MemoryError && error.code === 'conflict' && /incomplete/.test(error.message));
+  assert.deepEqual(await readdir(out), ['peer-note.md']);
+  assert.equal(await readFile(join(out, 'peer-note.md'), 'utf8'), 'Incomplete peer output');
 });
 
 test('the last invalid row prevents every earlier row from being written', async t => {

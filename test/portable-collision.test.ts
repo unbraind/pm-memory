@@ -99,7 +99,7 @@ test('planning capture refuses stale content and freezes history even for same-t
   const observed = await observeTargets(target.store, corpus);
   await target.client.update(memory.id, { body: 'Native C' });
   assert.equal((await target.client.get(memory.id, { full: true })).item.updated_at, corpus[0].updated_at);
-  await assert.rejects(observeTargets(target.store, corpus), error => error instanceof MemoryError && error.code === 'conflict');
+  await assert.rejects(() => observeTargets(target.store, corpus), { code: 'conflict' });
   await target.client.update(memory.id, { body: 'Original A' });
   const [base] = await expectedTargets(target.store, [{ id: memory.id, slug: 'alpha' }], observed);
   const actual = await nativeState(target.store, memory.id);

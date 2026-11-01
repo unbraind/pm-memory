@@ -14,7 +14,7 @@ import { digest } from '../src/core.ts';
 
 /** Bound child model lifetimes, retain coverage and require their complete assertion receipt. */
 export async function runModelWorker(t: TestContext, worker: URL, variables: Record<string, string>, receipt: string): Promise<void> {
-  const child = spawn(process.execPath, ['--test', '--test-reporter=tap', fileURLToPath(worker)], { env: { ...testEnvironment(process.env), ...variables }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['--test', '--test-concurrency=1', '--test-reporter=tap', fileURLToPath(worker)], { env: { ...testEnvironment(process.env), ...variables }, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill(); });
   let output = ''; child.stdout.on('data', chunk => { output += String(chunk); }); child.stderr.on('data', chunk => { output += String(chunk); });
   const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
@@ -158,4 +158,19 @@ export function gitlessCli(root: string, workspace: string): (args: string[]) =>
 /** Require every local relationship in a closed SDK corpus to resolve. */
 export function assertClosedGraph(items: readonly { id: string; dependencies?: Dependency[] }[]): void {
   assert.ok(items.every(item => (item.dependencies ?? []).every(edge => items.some(target => target.id === edge.id))), 'SDK state contains a dangling edge');
+}
+
+/** Seed an imported raw source with old native verification for peer-completion controls. */
+export async function verifiedSource(t: TestContext, text: string, reason: string) {
+  const target = await tracker(t); withoutGit(t, target.root); const path = join(target.root, 'alpha.md');
+  await writeFile(path, text); await importDir(path, { ...target.options, from: 'agents-md' });
+  const id = (await target.client.listAllComplete()).items[0].id; const old = '2020-01-01T00:00:00.000Z';
+  await target.store.fields(id, { changed_at: old, verdict: 'verified', verified_at: old, reason });
+  return { ...target, path, id, old };
+}
+
+/** Read this package's actual durable intent after admission, without synthesizing SDK requests. */
+export async function readImportPlan(workspace: string): Promise<ImportPlan> {
+  const { payload } = JSON.parse(await readFile(join(workspace, 'runtime', 'memory-policy-import.json'), 'utf8')) as { payload: string };
+  return JSON.parse(payload) as ImportPlan;
 }

@@ -29,6 +29,7 @@ export function encodeDocument(document: object): string {
 }
 /** Compare complete input documents, never a whitelist of recognized YAML or Markdown fields. */
 export function documentPatch(item: Pick<Memory, 'document'>, next: HarnessDocument, baseline: string | undefined, nativeEdit = false, expectedHash?: string): { options: Record<string, unknown>; conflict: boolean } {
+  if (item.document === undefined && (nativeEdit || expectedHash !== undefined)) return { options: {}, conflict: true };
   const current = item.document ?? { ...next, original: baseline };
   if (encodeDocument(current) === encodeDocument(next)) return { options: {}, conflict: false };
   const expected = expectedHash ?? (baseline === undefined ? undefined : digest(encodeDocument({ ...next, original: baseline })));

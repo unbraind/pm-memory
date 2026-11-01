@@ -1,35 +1,33 @@
 import { resolve } from 'node:path';
-import { certifyCompleteListResult, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, runWithActiveExtensions, setActiveExtensionHooks, create, update, commitWorkspaceTransaction } from '@unbrained/pm-cli/sdk';
+import { certifyCompleteListResult, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, runWithActiveExtensions, create, update, commitWorkspaceTransaction, itemDocumentToMutationOptions, resolveRuntimeFieldRegistry } from '@unbrained/pm-cli/sdk';
 import type { ItemDocument, BulkItemMutation, WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { ImportPlan } from './portable-plan.ts';
 import type { Store } from './store.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { savePlan, importIdentity } from './portable-plan.ts';
+import { savePlan, importIdentity, retainForwardWrites } from './portable-plan.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
 import { foreignMemories, type ImportConflict, type PortableImportOptions } from './portable.ts';
 import { birthDocument } from './portable-preview.ts';
 import { digest, MemoryError } from './core.ts';
 
-import { documentHash, nativeState, sameNativeProof, trackerSchema } from './native-revision.ts';
+import { guardedHostCreate, guardedHostUpdate } from './native-host.ts';
+import { installStandaloneGuard, documentHash, nativeState, sameNativeProof, trackerSchema } from './native-revision.ts';
 import type { NativeProof } from './native-revision.ts';
 
-/** Install a package publication guard only for the standalone portable path. */
-function installGuard(run: BeforeMutationHook, name: string): void {
-  setActiveExtensionHooks({ beforeCommand: [], afterCommand: [], onRead: [], onIndex: [], onWrite: [], beforeMutation: [{ layer: 'project', name, run }] });
-}
-/** Reject malformed native fingerprints before interpreting recovery or publication data. */
-export function validNativeProof(value: unknown): value is NativeProof {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const row = value as NativeProof;
-  return (row.hash === null || typeof row.hash === 'string' && /^[a-f0-9]{64}$/.test(row.hash)) && typeof row.history === 'string' && /^[a-f0-9]{64}$/.test(row.history) && Number.isSafeInteger(row.length) && row.length >= 0 && (row.version === null || typeof row.version === 'string');
-}
+export { validNativeProof } from './native-revision.ts';
+/** Native keys for exactly the semantic option scope carried by portable requests. */
+const SEMANTIC_OPTIONS: ReadonlyMap<string, string> = new Map([['title', 'title'], ['description', 'description'], ['body', 'body'], ['tags', 'tags'], ['memoryKind', 'memory_kind'], ['memoryWhy', 'memory_why'], ['memoryHow', 'memory_how'], ['memoryPinned', 'memory_pinned']]);
+/** SDK-normalized fields that invalidate verification when their actual values change. */
+const SEMANTIC_FIELDS: ReadonlySet<string> = new Set(SEMANTIC_OPTIONS.values());
 /** One in-flight forward publication, needed only to recognize a write interrupted before its receipt. */
 export interface Publication {
   /** Immutable target and unique publication journal identity. */
   id: string;
   /** Unique per-write SDK receipt identity, never a content-only key. */
   transactionId: string;
+  /** Unique SDK publication message; older interrupted proposals cannot establish ownership. */
+  message?: string;
   /** Stable native step used to finish this same publication after interruption. */
   stepId: string;
   /** Exact SDK history position before this forward write. */
@@ -66,7 +64,7 @@ export function assertBase(id: string, base: ItemDocument | null, before: ItemDo
 /** Recover only the exact SDK history append represented by the durable forward proposal. */
 async function publicationResult(store: Store, pending: Publication): Promise<{ owner: string; targets: OwnedTarget[] } | undefined> {
   const entries = await readHistoryEntries(getHistoryPath(store.workspace, pending.id), pending.id); const length = pending.before.length + 1;
-  if (entries.length < length || hashHistoryStream(entries.slice(0, pending.before.length)) !== pending.before.history) return undefined;
+  if (pending.message === undefined || entries.length < length || entries[pending.before.length].message !== pending.message || hashHistoryStream(entries.slice(0, pending.before.length)) !== pending.before.history) return undefined;
   const { document } = await getItemAt(pending.id, String(length), { pmRoot: store.workspace });
   if (documentHash(document, await trackerSchema(store.workspace)) !== pending.proposed) return undefined;
   const target = { ...pending.target, proof: { hash: pending.proposed, length, history: hashHistoryStream(entries.slice(0, length)), version: document.metadata.updated_at } };
@@ -77,7 +75,10 @@ export async function publishPending(store: Store, plan: ImportPlan, options?: P
   const pending = plan.publication; if (pending === undefined) return;
   await options?.onStep?.('recover-publication');
   const result = await publicationResult(store, pending);
-  if (result !== undefined) await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${pending.transactionId}-snapshot`, steps: [{ id: pending.stepId, inspect: async () => ({ state: 'applied', result: JSON.parse(JSON.stringify(result)) as WorkspaceTransactionJsonValue }), apply: async () => JSON.parse(JSON.stringify(result)) as WorkspaceTransactionJsonValue, compensate: async () => {} }], onTransition: options?.onTransition });
+  if (result !== undefined) {
+    const snapshot = async () => JSON.parse(JSON.stringify(result)) as WorkspaceTransactionJsonValue;
+    await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${pending.transactionId}-snapshot`, steps: [{ id: pending.stepId, inspect: async () => ({ state: 'applied', result: await snapshot() }), apply: snapshot, compensate: retainForwardWrites }], onTransition: options?.onTransition });
+  }
   delete plan.publication; await savePlan(store, plan); await options?.onStep?.('recover-recorded');
 }
 /** Read an input-keyed planned outcome without consulting inherited object properties. */
@@ -93,6 +94,9 @@ async function dependencyConflict(store: Store, plan: ImportPlan, target: OwnedT
   }
   return undefined;
 }
+/** A peer already satisfied the actual SDK-normalized input; no revision-only write is authorized. */
+class CompletedInput extends Error {}
+
 /** Recheck a saved field base in the SDK's actual pre-write hook; plain writers can still race the later publication. */
 async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMutation, target: OwnedTarget, base: ItemDocument | null, options: PortableImportOptions, stepId: string): Promise<void> {
   const identity = await importIdentity(store, plan.input); let completed: NativeProof | undefined;
@@ -100,10 +104,12 @@ async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMu
   const initial = await nativeState(store, mutation.id);
   if (mutation.op === 'create' && initial.document !== null || mutation.op === 'update' && initial.document === null) throw new ImportMoved(importConflict(mutation.id, ['id'], { id: base?.metadata.id }, { id: initial.document?.metadata.id }));
   assertBase(mutation.id, base, initial.document, initial.document);
-  await runWithActiveExtensions({ path: store.workspace, noExtensions: true }, async () => {
-    const schema = await trackerSchema(store.workspace); let failure: unknown;
+  const publish = async () => {
+    const schema = await trackerSchema(store.workspace); let failure: unknown; let preserveRevision = false; let normalized: Record<string, unknown> = {};
+    const suffix = mutation.op === 'create' ? `-nodes ${mutation.id} create memory-birth-v1:${digest(plan.births!.find(row => row.id === mutation.id)!.document)}` : ` forward ${mutation.id}`;
+    const message = `bulk-item-transaction ${identity.transactionId}${suffix}`;
     const guard: BeforeMutationHook = async context => {
-      if (resolve(context.pm_root) !== resolve(store.workspace) || (context.after?.metadata.id ?? context.before?.metadata.id) !== mutation.id) return;
+      if (context.operation !== mutation.op || resolve(context.pm_root) !== resolve(store.workspace) || context.after!.metadata.id !== mutation.id) return;
       try {
         await options.onStep?.('write-guard');
         const dependency = await dependencyConflict(store, plan, target); if (dependency !== undefined) throw new ImportMoved(dependency);
@@ -120,30 +126,49 @@ async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMu
         const birth = plan.births?.find(row => row.id === mutation.id);
         if (context.before === null && birth !== undefined && birth.document !== birthDocument(context.after!, schema)) throw new ImportMoved(importConflict(mutation.id, ['birth'], { birth: birth.document }, { birth: birthDocument(context.after!, schema) }));
         if (documentHash(context.before, schema) !== state.proof.hash) throw new ImportMoved(importConflict(mutation.id, ['revision'], { revision: documentHash(context.before, schema) }, { revision: state.proof.hash }));
-        plan.publication = { id: mutation.id, transactionId: identity.transactionId, stepId, before: state.proof, proposed: documentHash(context.after, schema)!, target };
+        if (mutation.op === 'update' && !preserveRevision && Object.hasOwn(mutation.options!, 'memoryChangedAt') && fields.every(field => !SEMANTIC_FIELDS.has(field))) {
+          const document = Object.fromEntries([...SEMANTIC_OPTIONS].filter(([option]) => Object.hasOwn(mutation.options!, option)).map(([, key]) => [key, key === 'body' ? context.after!.body : context.after!.metadata[key]]));
+          normalized = itemDocumentToMutationOptions(JSON.stringify(document), 'update', {}, resolveRuntimeFieldRegistry(schema).definitions);
+          throw new CompletedInput();
+        }
+        plan.publication = { id: mutation.id, transactionId: identity.transactionId, message, stepId, before: state.proof, proposed: documentHash(context.after, schema)!, target };
         await savePlan(store, plan);
       } catch (error) { failure = error; throw error; }
     };
-    installGuard(guard, 'pm-memory-forward-base');
-    try {
-      const suffix = mutation.op === 'create' ? `-nodes ${mutation.id} create memory-birth-v1:${digest(plan.births!.find(row => row.id === mutation.id)!.document)}` : ` forward ${mutation.id}`;
-      const common = { ...mutation.options, author: plan.author, message: `bulk-item-transaction ${identity.transactionId}${suffix}` };
-      if (mutation.op === 'create') await create({ ...common, id: mutation.id }, { pmRoot: store.workspace });
+    if (store.hostClient === undefined) installStandaloneGuard(guard, 'pm-memory-forward-base');
+    const dispatch = async () => {
+      const common: Record<string, unknown> = { ...mutation.options, ...(preserveRevision ? normalized : {}), author: plan.author, message };
+      if (preserveRevision) {
+        for (const field of ['memoryChangedAt', 'memoryVerdict', 'memoryVerifiedAt', 'memoryReason']) delete common[field];
+        const unset = (common.unset as string[] | undefined ?? []).filter(field => !['memory_verified_at', 'memory_reason'].includes(field));
+        if (unset.length > 0) common.unset = unset; else delete common.unset;
+      }
+      if (mutation.op === 'create') {
+        if (store.hostClient === undefined) await create({ ...common, id: mutation.id }, { pmRoot: store.workspace });
+        else await guardedHostCreate(store, store.hostClient, mutation.id, guard, common);
+      }
       else {
-        const result = await update(mutation.id, common, { pmRoot: store.workspace });
+        const result = store.hostClient === undefined ? await update(mutation.id, common, { pmRoot: store.workspace }) : await guardedHostUpdate(store, store.hostClient, mutation.id, guard, common);
         if (result.changed_fields.length === 0) {
           const current = await nativeState(store, mutation.id); assertBase(mutation.id, base, current.document, current.document);
           const dependency = await dependencyConflict(store, plan, target); if (dependency !== undefined) throw new ImportMoved(dependency);
           if (plannedOutcome(plan, mutation.id) === 'updated') plan.outcomes![mutation.id] = 'unchanged';
         }
       }
-    } catch (error) { throw failure ?? error; }
-  });
+    };
+    try { await dispatch(); } catch (error) {
+      const cause = failure ?? error;
+      if (!(cause instanceof CompletedInput)) throw cause;
+      preserveRevision = true; failure = undefined;
+      try { await dispatch(); } catch (retryError) { throw failure ?? retryError; }
+    }
+  };
+  if (store.hostClient === undefined) await runWithActiveExtensions({ path: store.workspace, noExtensions: true }, publish); else await publish();
   if (plannedOutcome(plan, mutation.id) !== 'unchanged') (plan.applied ??= []).push(mutation.id);
   await options.onStep?.('written');
   const result = plan.publication === undefined ? undefined : await publicationResult(store, plan.publication); completed = result?.targets[0].proof;
   return JSON.parse(JSON.stringify(result ?? null)) as WorkspaceTransactionJsonValue;
-  }, compensate: async () => {} }], onTransition: options.onTransition });
+  }, compensate: retainForwardWrites }], onTransition: options.onTransition });
   if (completed !== undefined) Object.assign(plan.expected.find(row => row.id === mutation.id)!, { length: completed.length, history: completed.history, version: completed.version });
   delete plan.publication; await savePlan(store, plan);
   await options.onStep?.('publication');
@@ -156,7 +181,7 @@ function skipItem(plan: ImportPlan, id: string, conflict: ImportConflict): void 
     if (plan.result.skipped.some(row => row.conflict?.item === current)) continue;
     const slug = plan.expected.find(row => row.id === current)!.slug;
     plan.result.skipped.push({ slug, reason: `import_conflict: Foreign or independently edited native content retained: ${conflict.fields.join(', ')}`, conflict: { ...conflict, item: current, ...(current === id ? {} : { dependency: id }) } });
-    for (const target of plan.ownership ?? []) if (target.graph.some(edge => edge.id === current)) pending.push(target.id);
+    for (const target of plan.ownership!) if (target.graph.some(edge => edge.id === current)) pending.push(target.id);
   }
 }
 /** Journal forward item steps with no domain compensation: interruptions retain every completed write. */

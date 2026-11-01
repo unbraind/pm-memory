@@ -7,6 +7,7 @@ import { PmClient, DEPENDENCY_KIND_VALUES } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, renew, POLICY_MANIFEST } from '../index.ts';
 import type { PortableGuidance, PortablePolicyManifest } from '../index.ts';
 import { tracker, cloneTracker } from './helpers.ts';
+import { referenceRevision, assertRevisionClock } from './portable-reference.ts';
 
 const LAW = process.env.PM_MEMORY_LAW!;
 const START = Number(process.env.PM_MEMORY_LAW_START);
@@ -43,8 +44,8 @@ async function edit(directory: string, row: PortableGuidance, action: Record<str
   await writeFile(join(directory, POLICY_MANIFEST), JSON.stringify(manifest));
 }
 /** Compare every SDK-returned field; only the SDK-managed modification clock is nondeterministic. */
-function compare(actual: Rows, expected: Rows, changedId: string | undefined, label: string): void {
-  const values = (rows: Rows) => rows.map(row => row.id === changedId ? { ...row, updated_at: '<SDK modification clock>' } : row).sort((a, b) => a.id.localeCompare(b.id));
+function compare(actual: Rows, expected: Rows, changedId: string | undefined, content: boolean, label: string): void {
+  const values = (rows: Rows) => rows.map(row => row.id === changedId ? { ...row, ...(content ? { memory_changed_at: '<content revision clock>' } : {}), updated_at: '<SDK modification clock>' } : row).sort((a, b) => a.id.localeCompare(b.id));
   assert.deepEqual(values(actual), values(expected), label);
 }
 
@@ -119,15 +120,18 @@ test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, 
       let expected = current;
       const changed = Object.keys(referenceAction).length > 0;
       const oracle = join(target.root, `oracle-${sequence}`);
+      const content = referenceRevision(referenceAction, current.find(row => row.id === alphaId)!, new Date().toISOString());
       if (changed) {
         await mkdir(oracle);
         const client = await cloneTracker(target, oracle);
         await client.run('update', { id: alphaId, options: referenceAction });
         expected = (await client.listAllComplete({ includeBody: true })).items;
       }
+      const start = Date.now();
       await importDir(directory, { ...target.options, from: to });
       const actual = (await target.client.listAllComplete({ includeBody: true })).items;
-      compare(actual, expected, changed ? alphaId : undefined, `${label} kind=${requestedKind} targetClass=${chosen}`);
+      assertRevisionClock(actual.find(row => row.id === alphaId)!, content, start, Date.now(), label);
+      compare(actual, expected, changed ? alphaId : undefined, content, `${label} kind=${requestedKind} targetClass=${chosen}`);
       if (LAW === 'identity') assert.deepEqual(actual, before, label);
       await rm(directory, { recursive: true }); if (changed) await rm(oracle, { recursive: true });
     } catch (cause) { t.diagnostic(`${label} cause=${cause instanceof Error ? cause.message : String(cause)}`); throw new Error(`${label} kind=${requestedKind} targetClass=${chosen}`, { cause }); }

@@ -12,6 +12,7 @@ import { Store } from '../src/store.ts';
 import { rank } from '../src/memory.ts';
 import { checkClaim, directoryEvidence, searchClaims } from '../src/verify.ts';
 import { tracker, snapshot } from './helpers.ts';
+import { nativeHost } from './native-host-helpers.ts';
 
 // Each scanner must finish under an independent operating-system deadline.
 for (const [label, input] of [['URL', 'http://!:' + '!:'.repeat(50000)], ['base64 email', 'aB+/'.repeat(50000)], ['JWT header', 'eyJ-'.repeat(50000)]]) test(`privacy scans adversarial ${label} characters within a fixed time bound`, { timeout: 20000 }, async t => {
@@ -94,23 +95,23 @@ test('semantic age survives recall and verify and advances only on changed conte
   assert.ok((await store.read()).find(item => item.id === first.id)!.updated > '2021');
 });
 
-/** Replay a receipt captured from a real merge, then exercise a failed cancellation using filesystem permissions. */
-test('merge receipts resume after body publication without duplicate appends', { skip: process.getuid?.() === 0 ? 'root ignores permission bits' : false }, async t => {
+/** Resume a real interrupted host write without manufacturing a historical recovery generation. */
+test('merge receipts resume after body publication without duplicate appends', async t => {
   const { options, store, workspace } = await tracker(t);
   const older = await remember('Repeated build guidance', { ...options, kind: 'project', slug: 'old' });
   const target = await remember('Repeated build guidance', { ...options, kind: 'project', slug: 'new', forceNew: true });
-  await consolidate({ ...options, apply: true });
-  const history = await readFile(getHistoryPath(workspace, older.id), 'utf8');
-  assert.ok(history.includes('memory_merge'), history);
-  const events = await readHistoryEntries(getHistoryPath(workspace, older.id), older.id);
-  const receipt = events.flatMap(entry => entry.patch).find(op => op.path.endsWith('/memory_merge') && 'value' in op && typeof op.value === 'string' && op.value !== '');
-  assert.ok(receipt && 'value' in receipt && typeof receipt.value === 'string', JSON.stringify(events));
-  await store.fields(older.id, { merge: receipt.value });
-  await store.client.update(older.id, { status: 'open' });
+  let denied = 0;
+  await nativeHost(workspace, async client => {
+    await assert.rejects(consolidate({ ...options, client, apply: true }), /policy|guard/iu);
+  }, context => {
+    if (context.before?.metadata.id === older.id && context.after?.metadata.status === 'canceled') {
+      denied++; return { allow: false, code: 'test_merge_crash', remediation: 'Resume the durable forward intent' };
+    }
+  });
+  assert.equal(denied, 1);
   const body = String((await store.client.get(target.id, { full: true })).item.body);
+  assert.equal(body.split('### Consolidated context').length, 2);
   const pending = await consolidate(options); assert.ok(pending.proposals.some(proposal => proposal.slug === 'old' && proposal.target === 'new'));
-  const directory = join(workspace, 'knowledge'); await chmod(directory, 0o500);
-  try { await assert.rejects(consolidate({ ...options, apply: true })); } finally { await chmod(directory, 0o700); }
   await consolidate({ ...options, apply: true });
   assert.equal(String((await store.client.get(target.id, { full: true })).item.body), body);
   assert.equal((await store.read()).find(item => item.id === older.id)!.status, 'canceled');
