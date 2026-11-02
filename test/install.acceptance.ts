@@ -191,10 +191,13 @@ if (mode === 'setup') {
 else {
   const before = JSON.parse(await readFile(input + '.native.json', 'utf8'));
   const actual = (await client.get(before.id, { full: true })).item;
-  const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = before;
-  assert.deepEqual([actual.memory_verified_at, actual.memory_reason], [undefined, undefined]);
+  const { memory_verified_at: _verification, memory_reason: _reason, memory_document: _document, memory_changed_at: _changed, updated_at: _updated, ...preserved } = before;
+  assert.ok([undefined, ''].includes(actual.memory_verified_at), 'verification evidence must not survive an edit');
+  assert.ok([undefined, ''].includes(actual.memory_reason), 'verification evidence must not survive an edit');
   assert.ok(Date.parse(actual.memory_changed_at) >= Date.parse(before.memory_changed_at));
-  assert.deepEqual(actual, { ...preserved, memory_document: actual.memory_document, memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at });
+  assert.ok(Date.parse(actual.updated_at) >= Date.parse(before.updated_at));
+  const { memory_document: _actualDocument, memory_changed_at: _actualChanged, updated_at: _actualUpdated, memory_verified_at: _actualVerification, memory_reason: _actualReason, ...rest } = actual;
+  assert.deepEqual(rest, { ...preserved, memory_verdict: 'unknown' });
   assert.equal(JSON.parse(actual.memory_document).original, Buffer.from(bytes(value)).toString('base64'));
   assert.equal(await readFile(join(location, name), 'utf8'), bytes(value));
   assert.equal((await importDir(location, { workspace: process.env.PM_PATH, author: 'memory-consumer', from })).updated, 0);
@@ -239,8 +242,10 @@ if (operation === 'setup') {
   const before = JSON.parse(await readFile(directory + '.before.json', 'utf8')); const actual = (await client.get(before.id, { full: true })).item;
   const document = JSON.stringify({ format: 'legacy', harness: from, original: Buffer.from(edited).toString('base64'), path: source, version: 1 });
   const { memory_verified_at: _verification, memory_reason: _reason, ...preserved } = before;
-  assert.deepEqual([actual.memory_verified_at, actual.memory_reason], [undefined, undefined]);
+  assert.ok([undefined, ''].includes(actual.memory_verified_at), 'verification evidence must not survive an edit');
+  assert.ok([undefined, ''].includes(actual.memory_reason), 'verification evidence must not survive an edit');
   assert.ok(Date.parse(actual.memory_changed_at) >= Date.parse(before.memory_changed_at));
+  assert.ok(Date.parse(actual.updated_at) >= Date.parse(before.updated_at));
   assert.deepEqual(actual, { ...preserved, description: 'New source hook', memory_kind: 'feedback', memory_document: document, memory_changed_at: actual.memory_changed_at, memory_verdict: 'unknown', updated_at: actual.updated_at });
   const freshRoot = directory + '-fresh'; const fresh = new PmClient({ pmRoot: freshRoot, author: 'memory-consumer', noExtensions: true });
   await fresh.init('grammar-fresh', { defaults: true, agentGuidance: 'skip', mergeFence: false });

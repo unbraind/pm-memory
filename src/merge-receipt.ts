@@ -56,9 +56,9 @@ async function recover(store: Store, source: Memory, target: Memory, receipt: Me
   if (published && await payloadHash(store, destination.document!) !== receipt.target_after || canceled && !published) throw refusal(source);
   return { source: saved, target: destination, published, canceled };
 }
-/** Publish every merge step through the same complete revision and host-policy guard. */
-async function writeStep(store: Store, source: Memory, id: string, before: NativeProof, fields: Record<string, unknown>, message: string): Promise<void> {
-  if (!await commitNativeFields(store, id, before, fields, message)) throw refusal(source);
+/** Publish every merge step through the same complete revision and host-policy guard, rechecking every additionally certified item. */
+async function writeStep(store: Store, source: Memory, id: string, before: NativeProof, fields: Record<string, unknown>, message: string, certify?: ReadonlyMap<string, NativeProof>): Promise<void> {
+  if (!await commitNativeFields(store, id, before, fields, message, certify)) throw refusal(source);
 }
 /** Capture and publish a merge, or resume only its exact forward history steps. Legacy intents refuse safely. */
 export async function performMerge(store: Store, source: Memory, memories: readonly Memory[], observed: ReadonlyMap<string, Awaited<ReturnType<typeof nativeState>>>, apply: boolean, selectedTarget?: string): Promise<void> {
@@ -67,7 +67,7 @@ export async function performMerge(store: Store, source: Memory, memories: reado
     const pending = pendingMerge(source);
     target = memories.find(item => item.slug === pending.target && !isCanceled(item));
     receipt = pending.receipt as MergeReceipt;
-    if (target === undefined || receipt.version !== 2 || typeof receipt.id !== 'string' || !/^[a-f0-9-]{36}$/.test(receipt.id) || receipt.target_id !== target.id || typeof receipt.body !== 'string' || typeof receipt.changed_at !== 'string' || !validNativeProof(receipt.source_before) || receipt.source_before.length < 1 || !validNativeProof(receipt.target_before) || typeof receipt.target_after !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.target_after)) throw refusal(source);
+    if (target === undefined || receipt.version !== 2 || typeof receipt.id !== 'string' || !/^[a-f0-9-]{36}$/.test(receipt.id) || receipt.target_id !== target.id || typeof receipt.body !== 'string' || typeof receipt.changed_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(receipt.changed_at) || !validNativeProof(receipt.source_before) || receipt.source_before.length < 1 || !validNativeProof(receipt.target_before) || typeof receipt.target_after !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.target_after)) throw refusal(source);
   } else {
     if (!apply) return;
     target = memories.find(item => item.slug === selectedTarget && !isCanceled(item));
@@ -86,20 +86,21 @@ export async function performMerge(store: Store, source: Memory, memories: reado
     for (const field of fields.unset as string[]) delete after.metadata[field];
     receipt = { version: 2, id, target: target.slug, target_id: target.id, body, changed_at, source_before: sourceBase.proof, target_before: prepared.proof, target_after: await payloadHash(store, after) };
     const encoded = JSON.stringify(receipt);
-    await writeStep(store, source, source.id, sourceBase.proof, { memoryMerge: encoded }, `Memory merge ${id} intent`);
+    await writeStep(store, source, source.id, sourceBase.proof, { memoryMerge: encoded }, `Memory merge ${id} intent`, new Map([[target.id, prepared.proof]]));
     source = { ...source, merge: encoded };
   }
   let progress;
   try { progress = await recover(store, source, target, receipt); } catch { throw refusal(source); }
   if (!apply) return;
   if (!progress.published) {
-    await writeStep(store, source, target.id, progress.target.proof, revisionFields(receipt), `Memory merge ${receipt.id} publish`);
+    await writeStep(store, source, target.id, progress.target.proof, revisionFields(receipt), `Memory merge ${receipt.id} publish`, new Map([[source.id, progress.source.proof]]));
     progress = await recover(store, source, target, receipt);
   }
   if (!progress.canceled) {
-    await writeStep(store, source, source.id, progress.source.proof, { status: (await statusRegistry(store.workspace)).canceled_status, closeReason: `Merged context linked to ${target.slug}; content retained` }, `Memory merge ${receipt.id} cancel`);
+    await writeStep(store, source, source.id, progress.source.proof, { status: (await statusRegistry(store.workspace)).canceled_status, closeReason: `Merged context linked to ${target.slug}; content retained` }, `Memory merge ${receipt.id} cancel`, new Map([[target.id, progress.target.proof]]));
     const current = (await store.read()).find(item => item.id === source.id)!;
     progress = await recover(store, current, target, receipt);
   }
-  await writeStep(store, source, source.id, progress.source.proof, { memoryMerge: '' }, `Memory merge ${receipt.id} finish`);
+  // Finalization certifies the published target position again inside the same admission hook that clears the receipt.
+  await writeStep(store, source, source.id, progress.source.proof, { memoryMerge: '' }, `Memory merge ${receipt.id} finish`, new Map([[target.id, progress.target.proof]]));
 }

@@ -264,6 +264,8 @@ test('document envelopes validate complete bytes and preserve earlier absent sna
   assert.deepEqual(documentPatch({}, document, document.original), { options: {}, conflict: false });
   assert.ok(documentPatch({}, document, undefined).options.memoryDocument);
   const edited = { ...document, original: Buffer.from('---\ncustom: changed\n---\nBody').toString('base64') };
+  // A stored document is never overwritten when no expected hash can be derived from a baseline.
+  assert.deepEqual(documentPatch({ document }, edited, undefined), { options: {}, conflict: true });
   assert.deepEqual(documentPatch({ document }, edited, undefined, true), { options: {}, conflict: true });
   assert.deepEqual(documentPatch({}, edited, undefined, true), { options: {}, conflict: true });
   assert.ok(documentPatch({ document }, edited, document.original).options.memoryDocument);

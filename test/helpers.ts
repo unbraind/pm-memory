@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdtemp, rm, readdir, readlink, readFile, mkdir, writeFile, cp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TestContext } from 'node:test';
@@ -19,6 +19,20 @@ export async function runModelWorker(t: TestContext, worker: URL, variables: Rec
   let output = ''; child.stdout.on('data', chunk => { output += String(chunk); }); child.stderr.on('data', chunk => { output += String(chunk); });
   const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
   assert.equal(code, 0, output); assert.ok(output.includes(receipt), `Missing complete SDK-verified worker receipt: ${output}`);
+}
+
+/** Default worker fan-out width: SDK batches are I/O bound, so twice the cores stays affordable on small runners. */
+export function modelWorkerPool(): number { return Number(process.env.PM_MEMORY_WORKER_POOL ?? Math.min(16, Math.max(4, availableParallelism() * 2))); }
+
+/** Run independent model-worker batches concurrently through one bounded pool; every batch still reports its own receipt. */
+export async function runModelWorkerPool(t: TestContext, worker: URL, configurations: readonly Record<string, string>[], receipts: readonly string[]): Promise<void> {
+  if (configurations.length !== receipts.length) throw new Error('Every pooled worker batch requires exactly one receipt');
+  let next = 0; const failures: (Error | undefined)[] = [];
+  /** One pool lane claims batches by index until the list is exhausted or a lane observes a failure. */
+  const lane = async () => { for (let index = next++; index < configurations.length; index = next++) { try { await runModelWorker(t, worker, configurations[index], receipts[index]); } catch (error) { failures[index] = error as Error; return; } } };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(modelWorkerPool(), configurations.length)) }, lane));
+  const observed = failures.filter(error => error !== undefined);
+  if (observed[0] !== undefined) throw new Error(`${observed.length} pooled worker batch(es) failed; first failure follows`, { cause: observed[0] });
 }
 
 /** Initialize a real tracker and register cleanup before any mutations. */

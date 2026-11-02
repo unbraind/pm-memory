@@ -2,16 +2,18 @@ id: pm-memory-c3gv
 title: Refuse stale merge receipts after intervening memory edits
 description: "Follow-up on an already-resolved PR 1 thread, outside the ten currently unresolved review requests: receipt replay can overwrite acknowledged target edits or cancel a subsequently edited source."
 type: Issue
-status: open
+status: in_progress
 priority: 2
 tags[3]: "gh:unbraind/pm-memory#15",identity,review-blocker
 created_at: "2026-10-19T19:35:29.756Z"
-updated_at: "2026-10-30T16:23:55.876Z"
+updated_at: "2026-11-02T04:16:45.435Z"
+assignee: pi-memory
+claim_principal: pi-memory
 author: codex-agent
 estimated_minutes: 60
 acceptance_criteria: Capture and validate target and source revisions before receipt replay; preserve or refuse intervening edits without clearing the pending operation; retain exactly-once retries without intervening edits; prove with synthetic real-tracker interruption tests and both unchanged release gates.
 parent: pm-memory-0kwy
-comments[8]{created_at,author,text}:
+comments[10]{created_at,author,text}:
   "2026-10-19T22:54:13.683Z",codex-agent,"Self-review reproduced unsafe pending merge replay. Added durable semantic revision bindings for source and destination, validate every pending receipt before planned writes, accept before/after publication states for exactly-once retry, and refuse stale, missing, archived or legacy receipt states while retaining evidence. Synthetic real-tracker regressions cover intervening native source and target edits."
   "2026-10-19T23:00:31.569Z",codex-agent,"Revert proof: restore only consolidate to the starting implementation, retain revision helpers and regression tests, then node --test --test-name-pattern=\"pending merge receipts\" test/review-r5.test.ts fails with the intended missing-refusal assertion. Fixed implementation preserves current source/target bodies and pending receipt bytes on refusal; unchanged before-publication and after-publication receipts remain retryable."
   "2026-10-19T23:17:06.001Z",codex-agent,"Verified at source head 8876955: both full immutable release gates passed 132/132 tests plus 2/2 packed consumers at 100% coverage. Source and target native edits, malformed and legacy receipts, missing or archived targets refuse without durable changes; before- and after-publication retries remain exactly-once. Implementation complete; left in progress for orchestrator verification, with claim released."
@@ -20,10 +22,18 @@ comments[8]{created_at,author,text}:
   "2026-10-22T12:02:47.727Z",codex-agent,"Review evidence correction for PRRT_kwDOVPw2oc6vDHmD: current main 68a7321c8e11d5f419b7b4653d028b0ccbdbc5df retains the pending merge receipt regression in test/review-r5.test.ts:93-127. It checks intervening source/target edits, malformed/legacy receipts and exactly-once recovery against src/consolidate.ts:96-101. Corrected resolution and close_reason to cite test/review-r5.test.ts instead of test/consolidate.test.ts. Earlier comments are retained as historical records; this clarification supersedes the incorrect citation. Existing closed status, closure timestamps and all other delivery evidence remain unchanged. Implementation and test files are identical to current main; this tracker-only correction is verified by the evidence itself, without a source-code revert."
   "2026-10-30T15:54:38.582Z",codex-agent,"Reopened after a real non-git tracker reproduction of a remaining identity-class blocker. A receipt captured from an actual successful consolidation is placed as a pending intent; an independent native edit changes the survivor to Native C and then restores its prior body while Date is fixed. The complete SDK content hash returns to its original value, but immutable history grows by two. Current consolidate replay accepts the old semantic-plus-time digest, overwrites the restored native body with the frozen merged payload, and cancels the source. This is a package receipt protocol gap, not a claim that the SDK lacks an API. test/merge-revision-blocker.test.ts retains the failing regression. Fix needs a versioned receipt with immutable source/target generations, durable publication evidence, and an explicit legacy read/evaluate/export compatibility corpus; no existing history may be rewritten. PR #15 remains blocked, and no code from this round is pushed."
   "2026-10-30T16:23:55.876Z",codex-agent,"Final pinned pm run retains the failing regression: 0/1 passed, source_status=canceled, replay_error=false. The old merged body replaces the restored native body even though the complete SDK document hash returned to its saved value and native history advanced by two. PR #15 now contains the verified split plan. Keep this regression failing until versioned recovery binds immutable endpoint generations; do not skip it, lower thresholds, rewrite history, or treat the locally passing candidate controls as whole-class closure."
-files[4]:
+  "2026-11-02T00:08:38.129Z",pi-memory,"Fresh agent orientation for the finalization-blocker round on PR #15: merged origin/main (5a0c851) into the branch; changelog:check passes at the merged head. Confirmed the open hole at src/merge-receipt.ts:104: the finish step clears the receipt guarding only the source proof, so a target edit at that finalization hook is undetected. Plan: extend the native pre-write guard so every receipt step (intent, publish, cancel, finish) rechecks every item it certifies against immutable SDK history inside the same admission hook, with regressions injected at each finalization hook through the real host policy path."
+  "2026-11-02T00:16:42.866Z",pi-memory,"Finalization blocker fixed. commitNativeFields now accepts a certification map rechecked inside the same SDK pre-write admission hook and before dispatch: src/native-revision.ts (guard + pre-check), src/merge-receipt.ts writeStep passes it for every receipt step (intent certifies the prepared target, publish certifies the source intent, cancel and finish certify the published target). A target ABA restore at any finalization hook now refuses with a typed conflict and keeps the receipt. Revert proof: removing only the certification maps makes the three new hook-injection regressions fail (verified locally: finish/cancel/publish resume tests fail 3/3 on the reverted implementation, pass with the fix). Also validated changed_at canonical-UTC validation, and merge-history ABA suites still pass (28/28 across merge/native suites)."
+files[7]:
   - path: src/consolidate.ts
     scope: project
     note: Delivery evidence reverified on main
+  - path: src/merge-receipt.ts
+    scope: project
+  - path: src/native-revision.ts
+    scope: project
+  - path: test/merge-receipt.test.ts
+    scope: project
   - path: test/merge-revision-blocker.test.ts
     scope: project
   - path: test/review-r1.test.ts

@@ -27,13 +27,15 @@ export function readDocument(value: unknown): HarnessDocument | undefined {
 export function encodeDocument(document: object): string {
   return JSON.stringify(Object.fromEntries(Object.entries(document).sort(([a], [b]) => a.localeCompare(b))));
 }
-/** Compare complete input documents, never a whitelist of recognized YAML or Markdown fields. */
+/** Compare complete input documents, never a whitelist of recognized YAML or Markdown fields.
+ * A stored document is only ever replaced against a derivable expected hash, so a caller that supplies neither a
+ * baseline nor an expected hash can never overwrite independently stored document bytes. */
 export function documentPatch(item: Pick<Memory, 'document'>, next: HarnessDocument, baseline: string | undefined, nativeEdit = false, expectedHash?: string): { options: Record<string, unknown>; conflict: boolean } {
   if (item.document === undefined && (nativeEdit || expectedHash !== undefined)) return { options: {}, conflict: true };
   const current = item.document ?? { ...next, original: baseline };
   if (encodeDocument(current) === encodeDocument(next)) return { options: {}, conflict: false };
   const expected = expectedHash ?? (baseline === undefined ? undefined : digest(encodeDocument({ ...next, original: baseline })));
-  if ((item.document !== undefined && expected !== undefined && digest(encodeDocument(item.document)) !== expected) || (nativeEdit && expected === undefined)) return { options: {}, conflict: true };
+  if ((item.document !== undefined && expected !== undefined && digest(encodeDocument(item.document)) !== expected) || (nativeEdit && expected === undefined) || (item.document !== undefined && expected === undefined)) return { options: {}, conflict: true };
   return { options: { memoryDocument: encodeDocument(next) }, conflict: false };
 }
 
