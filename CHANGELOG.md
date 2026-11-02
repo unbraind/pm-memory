@@ -5,11 +5,16 @@
 ### Added
 
 - Preserve guidance validity in portable harness round trips ([pm-memory-1363](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-1363.toon))
-- SDK revision foundation and native verification ([pm-memory-native-revision-foundation](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-native-revision-foundation.toon))
 
 ### Fixed
 
 - Refuse stale merge receipts after intervening memory edits ([pm-memory-c3gv](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-c3gv.toon))
+
+## 2026.11.2 - 2026-11-02
+
+### Added
+
+- SDK revision foundation and native verification ([pm-memory-native-revision-foundation](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-native-revision-foundation.toon))
 
 ## 2026.10.28 - 2026-10-28
 
