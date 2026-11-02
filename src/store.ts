@@ -1,4 +1,4 @@
-import { statusRegistry } from './lifecycle.ts';
+import { statusRegistry, canceledStatus } from './lifecycle.ts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { certifyCompleteListResult, getHistoryPath, PmClient, readHistoryEntries, readSettings, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { LockLease, PmActionName, PmClientRunArgs } from '@unbrained/pm-cli/sdk';
@@ -107,7 +107,7 @@ export class Store {
   async read(observed?: Readonly<MemoryCorpus>, only?: ReadonlySet<string>): Promise<Memory[]> {
     const items = observed ?? certifyCompleteListResult(await this.client.listAllComplete({ includeBody: true })).items;
     const result: Memory[] = [];
-    const statuses = await statusRegistry(this.workspace);
+    let statuses: Awaited<ReturnType<typeof statusRegistry>> | undefined;
     const seen = new Set<string>();
     for (const item of items) {
       if (only !== undefined && !only.has(item.id)) continue;
@@ -119,7 +119,9 @@ export class Store {
       if (!Number.isSafeInteger(recalls) || recalls < 0) throw new MemoryError('schema', 'Invalid memory recall counter', 'Restore a nonnegative integer counter through pm update');
       const verdict = item.memory_verdict ?? 'unknown';
       if (!['verified', 'stale', 'unknown'].includes(String(verdict))) throw new MemoryError('schema', 'Invalid memory verdict', 'Use verified, stale or unknown');
-      const canceled = statuses.terminal_canceled_statuses.has(item.status) || statuses.canceled_status === item.status;
+      statuses ??= await statusRegistry(this.workspace);
+      /** Preserve the literal legacy status alongside registry-derived cancellation roles. */
+      const canceled = canceledStatus(item.status, statuses);
       result.push({ document: readDocument(item.memory_document), policyBody: readDocument(item.memory_policy_body), ...(item.memory_consent === undefined ? {} : { consent: String(item.memory_consent) }), importSnapshot: item.memory_import_snapshot === undefined ? undefined : String(item.memory_import_snapshot), validity: readWindow(item.memory_validity), id: item.id, slug: key, title: item.title, description: item.description, reason: String(item.memory_reason ?? ''), body: String(item.body), kind: kind(item.memory_kind ?? 'reference'), why: String(item.memory_why ?? ''), how: String(item.memory_how ?? ''), pinned: item.memory_pinned === true, source: String(item.memory_source ?? 'native:item'), updated: String(item.memory_changed_at ?? item.created_at), merge: String(item.memory_merge ?? ''), recalls, verdict: verdict as Memory['verdict'], status: item.status, ...(canceled !== (item.status === 'canceled') ? { canceled } : {}), tags: item.tags, path: String(item.memory_path ?? ''), original: String(item.memory_original ?? ''), edited: item.memory_edited === true, artifact: item.memory_artifact === true, relationships: item.dependencies ?? [], links: (item.dependencies ?? []).map(edge => edge.id), supersedes: (item.dependencies ?? []).filter(edge => edge.kind === 'supersedes').map(edge => edge.id) });
     }
     return result;

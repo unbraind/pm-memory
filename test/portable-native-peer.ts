@@ -16,7 +16,7 @@ export async function peerWriter(t: TestContext, root: string) {
     let entered!: () => void; let entryFailed!: (error: Error) => void; let finish!: (item: unknown) => void; let fail!: (error: Error) => void;
     const started = new Promise<void>((resolve, reject) => { entered = resolve; entryFailed = reject; });
     const done = new Promise<unknown>((resolve, reject) => { finish = resolve; fail = reject; });
-    void done.catch(() => {});
+    void done.catch(() => {}); void started.catch(() => {});
     /** A lost native worker is a test failure, never a silently pending promise. */
     const exited = (code: number | null, signal: string | null) => { const error = new Error(`Peer exited during request (${code ?? signal}): ${stderr}`); entryFailed(error); fail(error); child.off('message', receive); };
     child.once('exit', exited);

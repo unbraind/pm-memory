@@ -63,7 +63,12 @@ export async function ensureTrackerOrigin(store: Store, onStep?: (step: string) 
     await store.fence(() => writeFileAtomic(staging, JSON.stringify({ owner: 'pm-memory-origin:1', id })));
     await onStep?.('origin-staged');
     try { await store.fence(() => link(staging, join(store.workspace, TRACKER_ORIGIN_FILE))); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw new MemoryError('origin_missing', 'Tracker origin publication interrupted', 'Retry initialization; retain the tracker namespace and foreign files'); }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST') { /* A competing successful publication wins truthfully. */ }
+      else if (code === 'ENOENT') throw new MemoryError('origin_missing', 'Tracker origin publication interrupted', 'Retry initialization; retain the tracker namespace and foreign files');
+      else throw error;
+    }
     await onStep?.('origin-published');
     return (await readTrackerOrigin(store))!;
   } finally { await rm(staging, { force: true }); }
@@ -79,7 +84,7 @@ export function creator(id: string, entry: HistoryEntry, tracker: string | undef
     if (!validOrigin(origin)) return undefined;
   } else { const creation = hashHistoryStream([entry]); origin = { tracker: tracker ?? creation, id, creation }; }
   return { id, metadata, origin: origin as PortableOrigin };
-  } catch { return undefined; }
+  } catch { throw new MemoryError('origin_missing', 'Native creation history cannot be decoded', 'Restore verified creation history before importing; no missing origin was inferred'); }
 }
 /** Require forward progress before trusting a bounded SDK history continuation. */
 export function originCursor(page: Pick<Awaited<ReturnType<typeof listMutationEvents>>, 'has_more' | 'next_cursor'>, previous?: string): string | undefined {
@@ -88,7 +93,7 @@ export function originCursor(page: Pick<Awaited<ReturnType<typeof listMutationEv
   return page.next_cursor;
 }
 /** Read every creation through SDK pagination, retaining tombstones without scanning files by hand. */
-export async function originCatalog(store: Store, _liveIds?: ReadonlySet<string>, limit = 1000): Promise<{ tracker?: string; creators: OriginCreator[] }> {
+export async function originCatalog(store: Store, limit = 1000): Promise<{ tracker?: string; creators: OriginCreator[] }> {
   const tracker = await readTrackerOrigin(store); const creators: OriginCreator[] = []; let since: string | undefined;
   for (;;) {
     const page = await listMutationEvents({ pmRoot: store.workspace, type: 'create', full: true, limit, ...(since === undefined ? {} : { since }) });

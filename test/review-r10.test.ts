@@ -81,7 +81,7 @@ test('SDK documentation includes the complete verify return contract', async t =
 });
 
 
-test('export removes ambiguous aliases and refuses colliding re-imported keys before publication', async t => {
+test('export removes ambiguous aliases and namespaces retained colliding keys before publication', async t => {
   const { root, options } = await tracker(t);
   const source = join(root, 'aliases'); await mkdir(source);
   await writeFile(join(source, '!alias!.md'), '---\nname: first\n---\nFirst fact\n');

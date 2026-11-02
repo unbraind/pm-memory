@@ -1,19 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, writeFile, rename } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { exportDir, importDir, remember, renew } from '../index.ts';
 import type { Harness } from '../src/types.ts';
-import { tracker } from './helpers.ts';
+import { tracker, withoutGit } from './helpers.ts';
 
 type Tracker = Awaited<ReturnType<typeof tracker>>;
-/** Confine all scratch tracker discovery without depending on the enclosing checkout. */
-function gitCeiling(t: Parameters<typeof tracker>[0]) {
-  const previous = process.env.GIT_CEILING_DIRECTORIES;
-  process.env.GIT_CEILING_DIRECTORIES = tmpdir();
-  t.after(() => { if (previous === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = previous; });
-}
 /** The oracle reads SDK values directly, independently of exporter field fingerprints. */
 async function semantics(target: Tracker) {
   const rows = (await target.client.listAllComplete({ includeBody: true })).items;
@@ -57,9 +50,8 @@ test('fresh tracker export law covers every portable field and legacy adapter wi
   for (const from of ['claude-code', 'agents-md', 'cursor'] as const) {
     const source = await tracker(t); const alpha = await legacy(source, from, true);
     const changes = { title: 'Native title', description: 'Native description', body: 'Native body\r\n', memoryKind: 'project', memoryWhy: 'Native reason', memoryHow: 'Native application', memoryPinned: true, tags: 'native,portable' };
-    const oldPath = process.env.PATH; const oldCeiling = process.env.GIT_CEILING_DIRECTORIES;
-    process.env.PATH = source.root; process.env.GIT_CEILING_DIRECTORIES = dirname(source.root);
-    try {
+    withoutGit(t, source.root);
+    {
       for (const [field, value] of Object.entries(changes)) {
         await source.client.run('update', { id: alpha.id, options: { [field]: value } });
         for (const to of ['claude-code', 'agents-md'] as const) {
@@ -69,9 +61,6 @@ test('fresh tracker export law covers every portable field and legacy adapter wi
         const original = field === 'tags' ? alpha.tags.join(',') : alpha[key];
         await source.client.run('update', { id: alpha.id, options: { [field]: original } });
       }
-    } finally {
-      if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
-      if (oldCeiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = oldCeiling;
     }
   }
 });
@@ -93,9 +82,8 @@ test('lossless export retains native relationship additions, removals and proven
 });
 
 test('legacy records without modern receipts retain native relationships in fresh exports', async t => {
-  gitCeiling(t);
   for (const linked of [false, true]) {
-    const source = await tracker(t); const alpha = await legacy(source, 'claude-code', false, linked);
+    const source = await tracker(t); withoutGit(t, source.root); const alpha = await legacy(source, 'claude-code', false, linked);
     const beta = (await source.client.listAllComplete()).items.find(row => row.memory_slug === 'beta')!;
     await source.client.run('update', { id: alpha.id, options: linked ? { depRemove: `id=${beta.id},kind=related` } : { dep: `id=${beta.id},kind=supersedes` } });
     // Retain SDK item/history but simulate an older package without ownership journals.
@@ -105,9 +93,8 @@ test('legacy records without modern receipts retain native relationships in fres
 });
 
 test('mixed legacy references never adopt native destination matches for unavailable source targets', async t => {
-  gitCeiling(t);
   for (const reference of ['absent', 'alias']) {
-    const source = await tracker(t); await legacy(source, 'claude-code');
+    const source = await tracker(t); withoutGit(t, source.root); await legacy(source, 'claude-code');
     const directory = join(source.root, 'source');
     if (reference === 'alias') {
       for (const [path, key] of [['!alias!.md', 'first'], ['alias.md', 'second']]) await writeFile(join(directory, path), `---\nname: ${key}\n---\n${key} guidance`);
@@ -124,9 +111,8 @@ test('mixed legacy references never adopt native destination matches for unavail
 });
 
 test('policy selection ignores unusable native legacy bookkeeping without changing SDK state', async t => {
-  gitCeiling(t);
   for (const mode of ['bounded', 'native']) {
-    const source = await tracker(t); const alpha = await legacy(source, 'claude-code');
+    const source = await tracker(t); withoutGit(t, source.root); const alpha = await legacy(source, 'claude-code');
     await rename(join(source.workspace, 'transactions', 'sdk'), join(source.root, 'retained-journals'));
     if (mode === 'bounded') {
       await source.client.run('update', { id: alpha.id, options: { memoryPinned: true, memoryKind: 'project' } });

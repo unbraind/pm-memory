@@ -53,7 +53,7 @@ for (const mode of ['create', 'update'] as const) test(`cross-process exact owne
       if (boundary === undefined) { boundaries.push(label); return; }
       if (index++ !== boundary) return;
       injected = true;
-      try { const plan = JSON.parse(JSON.parse(await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload); prefix = plan.transactionId; } catch { /* Before intent, copy the existing committed import's prefix. */ }
+      try { const plan = JSON.parse(JSON.parse(await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8')).payload); prefix = plan.transactionId; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; /* Before intent, copy the existing committed import's prefix. */ }
       Object.assign(captured, { before: (await target.client.get(base.id, { full: true })).item });
       pending = peer(target.workspace, base.id, target.options.author, prefix); await pending.started;
       if (label !== 'write-guard') Object.assign(captured, { value: await pending.done });
@@ -99,7 +99,10 @@ test('all relationship provenance fields refuse in the pure first pass and prese
     const manifest = structuredClone(original); manifest.guidance[0].relationships = [{ slug: 'beta', kind: 'related', ...provenance }] as PortablePolicyManifest['guidance'][number]['relationships']; assert.doesNotThrow(() => parsePolicy(manifest));
   }
   await writeFile(manifestPath, JSON.stringify(original)); assert.equal((await importDir(path, { ...template.options, from: 'agents-md' })).imported, 1);
-  for (const value of [null, [], 3, {}, Object.create({ id: 'x', kind: 'related' }), { id: 'x', kind: 'related', created_at: {} }, { id: 'x', kind: 'related', author_source: ['legacy'] }]) assert.equal(validRelationship(value, 'id'), false);
+  for (const value of [null, [], 3, {}, Object.create({ id: 'x', kind: 'related' }), { id: 'x', kind: 'related', created_at: {} }, { id: 'x', kind: 'related', author_source: ['legacy'] }]) assert.equal(validRelationship(value, 'id'), false, 'Foreign edge shapes must validate to false');
+  assert.equal(validRelationship({ id: 'x', kind: 'related', source_kind: 'custom-provider' }, 'id'), true, 'The SDK preserves arbitrary named source kinds');
+  const unavailable = Object.defineProperty({ id: 'x' }, 'kind', { get() { throw new Error('Synthetic unavailable foreign provenance'); } });
+  assert.equal(validRelationship(unavailable, 'id'), false, 'An unavailable foreign field cannot abort the boolean predicate');
   for (const value of [null, [], {}, { hash: null, history: 'bad', length: 0, version: null }]) { assert.equal(validNativeProof(value), false); }
   t.diagnostic(`PROVENANCE_REFUSALS cases=${cases} before_schema_origin_history=true`);
 });
@@ -140,13 +143,13 @@ test('copied committed markers remain native edits in every provenance channel',
 test('copied cancellation markers cannot recreate a natively deleted origin', async t => {
   const base = await fixture(t, 'create'); const target = base.template; withoutGit(t, target.root);
   await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md', onTransition: event => { if (event.transactionId.endsWith('-snapshot') && event.transition === 'step_recorded') throw new Error('Ordinary refusal'); } }), MemoryError);
-  const catalog = await originCatalog(target.store, new Set((await target.client.listAllComplete()).items.map(row => row.id)));
+  const catalog = await originCatalog(target.store);
   const beta = catalog.creators.find(row => row.metadata.memory_slug === 'beta')!;
   assert.equal((await target.client.get(beta.id, { full: true })).item.status, 'open');
   const deleted = (await readHistoryEntries(getHistoryPath(target.workspace, beta.id), beta.id)).at(-1)!;
   const prefix = /^bulk-item-transaction (\S+) /.exec(deleted.message!)![1];
   const peer = await peerWriter(t, target.root); await peer(target.workspace, base.id, target.options.author, prefix, 'delete').done;
-  const current = await originCatalog(target.store, new Set((await target.client.listAllComplete()).items.map(row => row.id)));
+  const current = await originCatalog(target.store);
   const before = (await target.client.listAllComplete({ includeBody: true })).items;
   await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'origin_missing');
   assert.ok(current.creators.some(row => row.id === base.id));

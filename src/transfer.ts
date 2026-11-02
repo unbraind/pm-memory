@@ -177,7 +177,7 @@ export async function importDir(path: string, options: PortableImportOptions): P
     await options.onStep?.('read');
     const settings = await readSettings(store.workspace); const identity = await importIdentity(store, inputHash);
     const origins = new Map(await Promise.all([...initial, ...foreign].map(async item => [item.id, await creationMetadata(store, item.id)] as const)));
-    const catalog = await originCatalog(store, new Set(corpus.map(item => item.id)));
+    const catalog = await originCatalog(store);
     const selected = new Map<string, Memory>(); const skipped = new Map<string, string>();
     const intakeOrigins = new Map<string, PortableOrigin>(); const births = new Map<string, Source>();
     for (const source of parsed) {

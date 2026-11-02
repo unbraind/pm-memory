@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getHistoryPath, readHistoryEntries, writeFileAtomic, canonicalDocument, serializeItemDocument, getItemPath, resolveItemTypeRegistry, readSettings, WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
 import { ensureTrackerOrigin, readTrackerOrigin, TRACKER_ORIGIN_FILE, originCatalog, validOrigin, creator, selectOrigin, itemOrigin, originCursor, creatorMatchesOrigin } from '../src/portable-origin.ts';
@@ -10,8 +10,8 @@ import { policyBody, POLICY_MANIFEST } from '../src/portable.ts';
 import { previousOwnership } from '../src/portable-ownership.ts';
 import { tracker, snapshot, crashAtStep, exportedPolicy } from './helpers.ts';
 
-/** Metadata refusals retain foreign bytes and provide an actionable typed result. */
-const refusal = (error: unknown) => error instanceof MemoryError && error.code === 'origin_missing' && error.remedy.length > 0;
+/** Metadata refusals retain foreign bytes and name the specific refusal under test. */
+const refusal = (detail: string) => (error: unknown) => error instanceof MemoryError && error.code === 'origin_missing' && error.remedy.length > 0 && error.message.includes(detail);
 
 test('raw planning retains a foreign SDK birth stream replaced after source admission', async t => {
   for (const from of ['agents-md', 'claude-code'] as const) {
@@ -63,11 +63,11 @@ test('tracker namespaces refuse foreign files and never overwrite or follow them
   const source = await tracker(t); const file = join(source.workspace, TRACKER_ORIGIN_FILE);
   for (const value of ['{', 'null', '[]', '{}', JSON.stringify({ owner: 'foreign', id: randomUUID() }), JSON.stringify({ owner: 'pm-memory-origin:1', id: 3 }), JSON.stringify({ owner: 'pm-memory-origin:1', id: 'bad' }), JSON.stringify({ owner: 'pm-memory-origin:1', id: randomUUID(), extra: true })]) {
     await writeFile(file, value); const before = await snapshot(source.workspace);
-    await assert.rejects(ensureTrackerOrigin(source.store), refusal); assert.deepEqual(await snapshot(source.workspace), before);
+    await assert.rejects(ensureTrackerOrigin(source.store), refusal('origin metadata')); assert.deepEqual(await snapshot(source.workspace), before);
   }
-  await rm(file); await mkdir(file); await assert.rejects(readTrackerOrigin(source.store), refusal); await rm(file, { recursive: true });
+  await rm(file); await mkdir(file); await assert.rejects(readTrackerOrigin(source.store), refusal('unavailable')); await rm(file, { recursive: true });
   const other = join(source.root, 'other'); await writeFile(other, 'foreign'); await symlink(other, file);
-  await assert.rejects(ensureTrackerOrigin(source.store), refusal); assert.equal(await readFile(other, 'utf8'), 'foreign');
+  await assert.rejects(ensureTrackerOrigin(source.store), refusal('unavailable')); assert.equal(await readFile(other, 'utf8'), 'foreign');
 });
 
 test('origin catalog uses immutable SDK creation fields and ignores foreign history subjects', async t => {
@@ -79,32 +79,32 @@ test('origin catalog uses immutable SDK creation fields and ignores foreign hist
   await source.client.create({ title: 'Foreign Task' });
   await source.client.run('create', { options: { title: 'Malformed foreign origin', type: 'Knowledge', memorySlug: 'bad-origin', memorySource: 'foreign:tool', memoryOrigin: '{' } });
   await source.client.run('create', { options: { title: 'Unknown foreign origin', type: 'Knowledge', memorySlug: 'unknown-origin', memorySource: 'foreign:tool', memoryOrigin: '{}' } });
-  const catalog = await originCatalog(source.store, undefined, 1); assert.equal(catalog.creators.length, 1);
+  const catalog = await originCatalog(source.store, 1); assert.equal(catalog.creators.length, 1);
   await source.client.run('update', { id: a.id, options: { memorySlug: 'renamed', memoryOrigin: JSON.stringify({ ...origin, id: 'replacement' }) } });
   assert.deepEqual(await itemOrigin(source.store, a.id), origin);
   const entries = await readHistoryEntries(getHistoryPath(source.workspace, a.id), a.id);
   assert.equal(creator(a.id, entries[0], undefined)!.origin.tracker, origin.creation);
-  assert.equal(creator(a.id, { ...entries[0], patch: null as unknown as typeof entries[0]['patch'] }, id), undefined);
-  await assert.rejects(itemOrigin(source.store, 'missing-id'), refusal);
+  assert.throws(() => creator(a.id, { ...entries[0], patch: null as unknown as typeof entries[0]['patch'] }, id), refusal('creation history cannot be decoded'));
+  await assert.rejects(itemOrigin(source.store, 'missing-id'), refusal('creation identity is unavailable'));
   const live = await source.store.read(undefined, new Set([a.id]));
   assert.equal(selectOrigin(origin, live, catalog, false)!.id, a.id);
   const missingNamespace = { creators: [{ ...catalog.creators[0], origin: { ...origin, tracker: origin.creation } }] };
-  assert.throws(() => selectOrigin(origin, [], missingNamespace, false), refusal);
-  assert.throws(() => selectOrigin(origin, [...live, { ...live[0], id: 'copy' }], { ...catalog, creators: [...catalog.creators, { ...catalog.creators[0], id: 'copy' }] }, false), refusal);
+  assert.throws(() => selectOrigin(origin, [], missingNamespace, false), refusal('no longer exists'));
+  assert.throws(() => selectOrigin(origin, [...live, { ...live[0], id: 'copy' }], { ...catalog, creators: [...catalog.creators, { ...catalog.creators[0], id: 'copy' }] }, false), refusal('multiple live native copies'));
 });
 
 test('origin continuations reject missing or repeated SDK cursors rather than guessing names', () => {
   assert.equal(originCursor({ has_more: false }), undefined);
   assert.equal(originCursor({ has_more: true, next_cursor: 'next' }), 'next');
-  assert.throws(() => originCursor({ has_more: true }), refusal);
-  assert.throws(() => originCursor({ has_more: true, next_cursor: 'same' }, 'same'), refusal);
+  assert.throws(() => originCursor({ has_more: true }), refusal('continuation is unavailable'));
+  assert.throws(() => originCursor({ has_more: true, next_cursor: 'same' }, 'same'), refusal('continuation is unavailable'));
 });
 
 test('failed origin publication returns a typed retry remedy and a rerun converges', async t => {
   const source = await tracker(t);
   await assert.rejects(ensureTrackerOrigin(source.store, async step => {
     if (step === 'origin-staged') for (const file of await readdir(join(source.workspace, 'runtime'))) if (file.startsWith('memory-origin-')) await rm(join(source.workspace, 'runtime', file));
-  }), refusal);
+  }), refusal('publication interrupted'));
   assert.ok(await ensureTrackerOrigin(source.store));
 });
 
@@ -168,4 +168,16 @@ test('legacy history identity survives namespace initialization on the first edi
     assert.equal((await target.client.get(before.id, { full: true })).item.body, 'Portable C');
 
   }
+});
+
+test('permanent origin link failures retain their filesystem cause', async t => {
+  if (process.getuid?.() === 0) return;
+  const target = await tracker(t);
+  try {
+    await assert.rejects(ensureTrackerOrigin(target.store, async step => {
+      if (step === 'origin-staged') await chmod(target.workspace, 0o555);
+    }), error => (error as NodeJS.ErrnoException).code === 'EACCES');
+  } finally { await chmod(target.workspace, 0o755); }
+  assert.equal(await readTrackerOrigin(target.store), undefined);
+  assert.ok(await ensureTrackerOrigin(target.store));
 });

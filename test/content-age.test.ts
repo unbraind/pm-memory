@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getHistoryPath, readHistoryEntries, WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
 import { importDir, remember, renew, POLICY_MANIFEST, MemoryError } from '../index.ts';
-import { policyBody } from '../src/portable.ts';
+import { policyBody, policyRecord } from '../src/portable.ts';
 import { contentRevision } from '../src/content.ts';
 import { clonedTracker, exportedPolicy, snapshot, tracker, withoutGit, verifiedSource } from './helpers.ts';
 
@@ -118,4 +118,14 @@ test('a peer-completed raw semantic edit still publishes source bytes without re
   assert.equal(actual.body, 'Alpha B');
   assert.deepEqual([actual.memory_changed_at, actual.memory_verdict, actual.memory_verified_at, actual.memory_reason], [old, 'verified', old, 'Peer-owned evidence']);
   assert.equal(JSON.parse(String(actual.memory_document)).original, Buffer.from('Alpha B').toString('base64'));
+});
+
+test('a validity history entry with unchecked keys refuses policy projection with a typed error', async t => {
+  const source = await tracker(t);
+  const memory = await remember('Bounded guidance', { ...source.options, slug: 'bounded', kind: 'reference', pin: true });
+  await renew('bounded', { ...source.options, from: '2026-01-01T00:00:00.000Z', until: '2027-01-01T00:00:00.000Z', evidence: 'First native review' });
+  const current = (await source.client.get(memory.id, { full: true })).item;
+  await source.store.fields(memory.id, { validity: JSON.stringify({ ...JSON.parse(String(current.memory_validity)), extra: 'unchecked key' }) });
+  const rows = await source.store.read();
+  await assert.rejects(policyRecord(source.store, rows.find(row => row.slug === 'bounded')!), error => error instanceof MemoryError && error.code === 'validity', 'The same strict window validation used for renewals must reject expanded validity history');
 });

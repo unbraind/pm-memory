@@ -12,3 +12,8 @@ export async function statusRegistry(workspace: string): Promise<RuntimeStatusRe
 }
 /** Honor registry-derived cancellation while retaining legacy in-memory caller compatibility. */
 export function isCanceled(item: Pick<Memory, 'status' | 'canceled'>): boolean { return item.canceled ?? item.status === 'canceled'; }
+
+/** Retain literal legacy cancellation even when a custom registry names different terminal states. */
+export function canceledStatus(status: string, registry: Pick<RuntimeStatusRegistry, 'terminal_canceled_statuses' | 'canceled_status'>): boolean {
+  return status === 'canceled' || registry.terminal_canceled_statuses.has(status) || registry.canceled_status === status;
+}

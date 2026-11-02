@@ -85,7 +85,7 @@ test('foreign serialized records without package history are retained at reserve
 });
 
 
-test('copied creation bookkeeping never grants ownership over a foreign birth at any CAS boundary', async t => {
+test('copied creation bookkeeping never grants ownership over a foreign birth at the intent and item-read CAS boundaries', async t => {
   const source = await tracker(t); await remember('Owned instructions', { ...source.options, slug: 'alpha', kind: 'reference' });
   const path = join(source.root, 'policy'); await exportDir(path, { ...source.options, to: 'agents-md' });
   const raw = join(source.root, 'alpha.md'); await writeFile(raw, 'Owned instructions');

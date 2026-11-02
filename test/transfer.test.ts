@@ -77,10 +77,11 @@ test('native memories export portable Claude Code and AGENTS.md files with links
   assert.equal((await importDir(cursor, { ...next.options, from: 'cursor' })).imported, 1);
   await store.client.update(second.id, { status: 'canceled', closeReason: 'Synthetic archive' });
   const archived = join(root, 'archived'); await exportDir(archived, { ...options, to: 'claude-code' });
-  await assert.rejects(readFile(join(archived, 'review.md')), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(archived, 'memories/review.md')), { code: 'ENOENT' });
   await store.fields(first.id, { artifact: true });
   const artifact = join(root, 'artifact'); await exportDir(artifact, { ...options, to: 'agents-md' });
   assert.doesNotMatch(await readFile(join(artifact, 'AGENTS.md'), 'utf8'), /Standing safety guidance/);
+  await assert.rejects(readFile(join(artifact, 'memories/standing.md')), { code: 'ENOENT' });
 });
 
 test('import preflight refuses secrets, malformed data, collisions, unsupported formats and non-regular inputs without writes', async t => {
@@ -136,7 +137,7 @@ test('native semantic changes refuse re-import and empty source files round-trip
   const source = await fixture(root, { 'empty.md': '', 'note.md': 'Original semantic reference' });
   await importDir(source, { ...options, from: 'claude-code' });
   const output = join(root, 'original'); await exportDir(output, { ...options, to: 'claude-code' });
-  assert.equal((await readFile(join(output, 'memories/empty.md'), 'utf8')).split('\n').slice(1).join('\n'), '');
+  assert.match(await readFile(join(output, 'memories/empty.md'), 'utf8'), /^<!-- pm-memory-policy:v1 empty; policy [a-f0-9]{64}; keep pm-memory-policy\.json -->\n$/);
   const item = (await store.read()).find(row => row.slug === 'note')!;
   await store.client.update(item.id, { body: 'Changed through another pm surface' });
   await assertNativeConflict(source, { ...options, from: 'claude-code' });

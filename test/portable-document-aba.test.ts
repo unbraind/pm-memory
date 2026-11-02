@@ -43,3 +43,20 @@ for (const adapter of ['raw', 'companion', 'policy'] as const) for (const bounda
   if (outcome !== undefined) { assert.equal(outcome.updated, 0); assert.ok('skipped' in outcome && outcome.skipped.some(row => row.conflict?.fields.includes('document'))); }
   assert.deepEqual(await snapshot(target.workspace), retained);
 });
+
+test('an unreceipted native document ABA cannot reuse an older export generation', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-06-01T00:00:00.000Z') });
+  const target = await tracker(t);
+  const memory = await remember('Alpha body', { ...target.options, slug: 'alpha', kind: 'reference' });
+  const doc = { version: 1 as const, format: 'legacy' as const, harness: 'agents-md' as const, path: 'alpha.md', original: Buffer.from('---\ncustom: A\n---\nAlpha body').toString('base64') };
+  await target.client.run('update', { id: memory.id, options: { memoryDocument: encodeDocument(doc) } });
+  const exported = await exportedPolicy(target, 'before-native-aba'); const row = exported.manifest.guidance[0];
+  const file = join(exported.path, row.path); const bytes = await readFile(file, 'utf8');
+  await writeFile(file, bytes.replace('custom: A', 'custom: B'));
+  await target.client.run('update', { id: memory.id, options: { memoryDocument: encodeDocument({ ...doc, original: Buffer.from('Native C').toString('base64') }) } });
+  await target.client.run('update', { id: memory.id, options: { memoryDocument: encodeDocument(doc) } });
+  const before = await snapshot(target.workspace);
+  const result = await importDir(exported.path, { ...target.options, from: 'agents-md' });
+  assert.equal(result.updated, 0); assert.ok('skipped' in result && result.skipped.some(skip => skip.conflict?.fields.includes('document')));
+  assert.deepEqual(await snapshot(target.workspace), before);
+});

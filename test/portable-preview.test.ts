@@ -83,7 +83,7 @@ test('native edits at every projection boundary win over frozen preview inputs',
       if (step.startsWith('preview-') && index++ === boundary) {
         await target.client.update(alpha.id, { body: 'Peer C', author: 'peer-agent' }); injected = true;
       }
-    } }).then(receipt => ({ receipt }), error => { assert.ok(error instanceof MemoryError); return { receipt: undefined }; });
+    } }).then(receipt => ({ receipt }), error => { assert.ok(error instanceof MemoryError && error.code === 'conflict', `Expected a typed native-edit conflict, got ${String(error)}`); return { receipt: undefined }; });
     if (outcome.receipt !== undefined) {
       assert.equal(outcome.receipt.updated, 0);
       assert.ok('skipped' in outcome.receipt && outcome.receipt.skipped.some(row => row.conflict?.code === 'import_conflict' && row.conflict.item === alpha.id && row.conflict.fields.includes('body')));
@@ -121,8 +121,11 @@ test('projection copies exact owned bytes while refusing nonregular native sourc
   await assert.rejects(copyPreviewFile(link, destination), error => error instanceof MemoryError && error.code === 'history');
   const packages = join(target.workspace, 'extensions'); await rm(packages, { recursive: true, force: true });
   assert.equal(await hasPreviewPackages(target.workspace), false);
-  await mkdir(packages); await chmod(packages, 0);
-  try { assert.equal(await hasPreviewPackages(target.workspace), true); }
-  finally { await chmod(packages, 0o700); }
+  // An unreadable directory is only observable to unprivileged users; root bypasses mode bits.
+  if (process.getuid?.() !== 0) {
+    await mkdir(packages); await chmod(packages, 0);
+    try { assert.equal(await hasPreviewPackages(target.workspace), true); }
+    finally { await chmod(packages, 0o700); }
+  }
   assert.equal(await hasPreviewPackages(target.workspace), false);
 });

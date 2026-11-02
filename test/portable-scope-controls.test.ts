@@ -98,7 +98,7 @@ for (const original of [undefined, Buffer.from([255]).toString('base64')]) test(
   const path = join(target.root, 'alpha.md'); await writeFile(path, 'Alpha B');
   await assertSkippedUnchanged(async () => {
     const result = await importDir(path, { ...target.options, from: 'agents-md' });
-    assert.ok('skipped' in result && result.skipped.some(row => /provenance|Foreign/.test(row.reason))); return result;
+    assert.ok('skipped' in result && result.skipped.some(row => row.reason === 'Foreign record has no package-owned source'), 'Undecodable immutable bytes must keep the record foreign to package ownership'); return result;
   }, target.workspace);
 });
 

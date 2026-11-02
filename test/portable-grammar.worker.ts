@@ -15,7 +15,7 @@ assert.ok(Number.isInteger(START) && START >= 0 && START < 500);
 assert.ok(Number.isInteger(COUNT) && COUNT > 0 && COUNT <= 25 && START + COUNT <= 500);
 
 /** Reproducible input generation is independent of the importer's parser and projections. */
-function grammarRandom(seed: number): () => number { return () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed; }; }
+function grammarRandom(seed: number): () => number { return () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed >>> 16; }; }
 /** Locate the actual owned guidance file in either supported emitted inventory. */
 async function emittedFile(directory: string, slug: string, fallback: string) {
   let manifest: PortablePolicyManifest;

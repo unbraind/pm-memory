@@ -25,6 +25,8 @@ export const PORTABLE_FIELDS = ['title', 'description', 'body', 'kind', 'why', '
 export type PortableFields = Record<typeof PORTABLE_FIELDS[number], string>;
 /** Immutable export baseline distinguishes absence from an explicit portable edit. */
 export interface PortableBaseline {
+  /** Immutable source-artifact generation authorizes only a fresh export after native edits. */
+  documentGeneration?: string;
   /** Digest of the exact exported payload, excluding only the derived policy marker. */
   bodyHash?: string;
   /** Native complete-document ownership at export time, when represented. */

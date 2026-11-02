@@ -7,7 +7,7 @@ import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure,
 import type { SemanticOptions } from './embeddings.ts';
 import { metadata, Store } from './store.ts';
 import type { Memory, MemoryOptions, Proposal } from './types.ts';
-import { observeTargets } from './native-revision.ts';
+import { observeTargets, nativeState } from './native-revision.ts';
 import { pendingMerge, performMerge } from './merge-receipt.ts';
 
 /** Precomputed lexical evidence reused across every consolidation pair. */
@@ -112,7 +112,9 @@ export async function consolidate(options: MemoryOptions & SemanticOptions & { a
   const { memories, planned } = await store.write(async () => {
     if (options.apply) await assertNativeHost(store);
     const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
-    const observed = await observeTargets(store, corpus);
+    // Preview validates pending receipts through fresh native state; the full target observation
+    // is only consulted when a write will follow, so a dry run cannot fail on unrelated items.
+    const observed: ReadonlyMap<string, Awaited<ReturnType<typeof nativeState>>> = options.apply ? await observeTargets(store, corpus) : new Map();
     const memories = await store.read(corpus);
     const pending = memories.filter(item => item.merge !== '').map(item => ({ action: 'merge' as const, slug: item.slug, target: pendingMerge(item).target, reason: 'Resume recorded memory merge' }));
     const reserved = new Set<string | undefined>(pending.flatMap(proposal => [proposal.slug, proposal.target]));

@@ -5,9 +5,17 @@ import { join } from 'node:path';
 import { exportDir, importDir, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
 import { tracker, withoutGit, importText, importHarness, assertExportIdentity, snapshot } from './helpers.ts';
+import { sourceDocument, frontmatter } from '../src/portable-source.ts';
 
-/** Read one complete native item through the same public SDK endpoint on both sides. */
+/** Read one complete native item through the public SDK endpoint. */
 async function record(target: Awaited<ReturnType<typeof tracker>>, id: string) { return (await target.client.get(id, { full: true })).item; }
+
+test('empty frontmatter frames an empty metadata block without delimiter leakage', () => {
+  const source = sourceDocument('alpha.md', Buffer.from('---\n---\nAlpha body'), 'agents-md');
+  assert.equal(source.body, 'Alpha body'); assert.equal(source.title, 'Alpha body'); assert.deepEqual(source.represented, ['title']);
+  assert.equal(frontmatter('---\r\n---\r\nAlpha body')?.[0], '---\r\n---\r\n');
+  assert.equal(frontmatter('---\r\n---\r\nAlpha body')?.[1], '');
+});
 
 for (const from of ['agents-md', 'claude-code', 'cursor'] as const) test(`current legacy grammar recognizes newly introduced frontmatter from ${from}`, async t => {
   for (const to of ['agents-md', 'claude-code'] as const) {
@@ -58,10 +66,17 @@ test('legacy export frames literal native YAML before current-grammar import', a
 
 test('raw and companion adapters also parse grammar transitions before native writes', async t => {
   for (const from of ['agents-md', 'claude-code'] as const) for (const companion of [false, true]) {
-    const target = await tracker(t); withoutGit(t, target.root); const { directory: source, name } = await importHarness(target, from, 'Alpha body');
-    const input = companion ? join(target.root, 'companion') : source;
-    if (companion) await exportDir(input, { ...target.options, to: from });
-    await writeFile(join(input, name), '---\ntype: feedback\ndescription: introduced\n---\nAlpha body');
+    const target = await tracker(t); withoutGit(t, target.root);
+    const raw = await importText(target, 'alpha.md', 'Alpha body', from);
+    const next = '---\ntype: feedback\ndescription: introduced\n---\nAlpha body';
+    const input = companion ? join(target.root, 'companion') : raw;
+    if (companion) {
+      // The companion case must exercise the actual policy guidance file, keeping its first-line policy marker.
+      await exportDir(input, { ...target.options, to: from });
+      const manifest = JSON.parse(await readFile(join(input, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
+      const file = join(input, manifest.guidance[0].path); const emitted = await readFile(file, 'utf8');
+      await writeFile(file, emitted.slice(0, emitted.indexOf('\n') + 1) + next);
+    } else await writeFile(raw, next);
     assert.equal((await importDir(input, { ...target.options, from })).updated, 1);
     const row = (await target.client.listAllComplete({ includeBody: true })).items.find(item => item.memory_artifact !== true)!;
     assert.equal(row.memory_kind, 'feedback'); assert.equal(row.description, 'introduced'); assert.equal(row.body, 'Alpha body');

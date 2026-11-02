@@ -10,7 +10,7 @@ import { digest, kind, MemoryError, privacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
 import type { GuidanceWindow, Harness, HarnessDocument, Memory, MemoryKind, MemoryOptions } from './types.ts';
-import { readDocument, documentPatch, encodeDocument, sourceDocument, frontmatter } from './portable-source.ts';
+import { readDocument, documentPatch, documentGeneration, encodeDocument, sourceDocument, frontmatter } from './portable-source.ts';
 import { portableFields, validFields, ownershipPatch, previousOwnership, resolvedRelationships, creationMetadata, legacyBirth, recordedCreation, projectSourceFields, projectSourceLinks, unsetSourceFields, exportedSource } from './portable-ownership.ts';
 import type { PortableBaseline, OwnedTarget, PortableFields } from './portable-ownership.ts';
 import { itemOrigin, validOrigin, originCatalog, selectOrigin, sameOrigin, creatorMatchesOrigin } from './portable-origin.ts';
@@ -210,7 +210,7 @@ export function parsePolicy(value: unknown): PortablePolicyManifest {
       const hasId = row.baseline !== null && typeof row.baseline === 'object' && 'id' in row.baseline;
       const hasSlug = row.baseline !== null && typeof row.baseline === 'object' && 'slug' in row.baseline;
       const hasOrigin = row.baseline !== null && typeof row.baseline === 'object' && 'origin' in row.baseline;
-      const snapshots = row.baseline !== null && typeof row.baseline === 'object' ? ['bodyHash', 'documentHash', 'policyBodyHash', 'sourceFields', 'sourcePresence', 'sourceLinks'].filter(key => Object.hasOwn(row.baseline!, key)) : [];
+      const snapshots = row.baseline !== null && typeof row.baseline === 'object' ? ['bodyHash', 'documentHash', 'policyBodyHash', 'documentGeneration', 'sourceFields', 'sourcePresence', 'sourceLinks'].filter(key => Object.hasOwn(row.baseline!, key)) : [];
       const fields = shape(row.baseline, ['fields', 'relationships', ...(hasId ? ['id'] : []), ...(hasSlug ? ['slug'] : []), ...(hasOrigin ? ['origin'] : []), ...snapshots]);
       for (const key of snapshots) {
         const value = fields[key];
@@ -246,10 +246,11 @@ export async function policyRecord(store: Store, item: Memory, memories?: readon
     if (prior !== undefined && !equal(prior, renewal)) invalid();
     revisions.set(renewal.revision, renewal);
   };
-  for (const entry of await readHistoryEntries(getHistoryPath(store.workspace, item.id), item.id)) for (const patch of entry.patch) {
+  const entries = await readHistoryEntries(getHistoryPath(store.workspace, item.id), item.id);
+  for (const entry of entries) for (const patch of entry.patch) {
     if (patch.op !== 'add' && patch.op !== 'replace') continue;
     if (patch.path === '/metadata/memory_renewals') for (const value of JSON.parse(String(patch.value)) as unknown[]) { const renewal = window(value); record(renewal); }
-    if (patch.path === '/metadata/memory_validity') { const renewal = readWindow(patch.value)!; record(renewal); }
+    if (patch.path === '/metadata/memory_validity') { const renewal = window(JSON.parse(String(patch.value))); record(renewal); }
   }
   const corpus = memories ?? await store.read();
   const relationships = portableRelationships(item, corpus);
@@ -257,7 +258,7 @@ export async function policyRecord(store: Store, item: Memory, memories?: readon
   row.origin = await itemOrigin(store, item.id, origins);
   const payload = policyPayload(item);
   const source = item.document?.format === 'legacy' ? sourceDocument(item.document.path, Buffer.from(payload), item.document.harness) : undefined;
-  row.baseline = { ...(source === undefined ? {} : { sourceFields: portableFields({ ...source, pinned: false, tags: [] }, source.body), sourcePresence: source.represented, sourceLinks: [...new Set(source.links)] }), bodyHash: digest(payload), ...(item.document === undefined ? {} : { documentHash: digest(encodeDocument(item.document)) }), ...(item.policyBody === undefined ? {} : { policyBodyHash: digest(encodeDocument(item.policyBody)) }), id: item.id, slug: item.slug, origin: row.origin, fields: portableFields(row, item.body), relationships };
+  row.baseline = { documentGeneration: documentGeneration(entries), ...(source === undefined ? {} : { sourceFields: portableFields({ ...source, pinned: false, tags: [] }, source.body), sourcePresence: source.represented, sourceLinks: [...new Set(source.links)] }), bodyHash: digest(payload), ...(item.document === undefined ? {} : { documentHash: digest(encodeDocument(item.document)) }), ...(item.policyBody === undefined ? {} : { policyBodyHash: digest(encodeDocument(item.policyBody)) }), id: item.id, slug: item.slug, origin: row.origin, fields: portableFields(row, item.body), relationships };
   return parsePolicy({ version: 1, format: 'pm-memory-policy', harness: 'agents-md', guidance: [row] }).guidance[0];
 }
 /** Retain local typed edges; excluded targets are reported in the export receipt. */
@@ -357,7 +358,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     const occupied = new Set(corpus.map(item => item.id));
     const identity = await importIdentity(store, inputHash); const { transactionId } = identity;
     const selected = new Map<string, Memory>(); const originSkips = new Map<string, string>();
-    const catalog = await originCatalog(store, new Set(corpus.map(item => item.id)));
+    const catalog = await originCatalog(store);
     for (const row of manifest.guidance) {
       const origin = guidanceOrigin(row);
       if (origin === undefined) {
@@ -398,10 +399,11 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
       let documentHash = previous === undefined && document !== undefined ? digest(encodeDocument(document)) : undefined;
       let update: ReturnType<typeof ownershipPatch> | undefined;
       if (previous !== undefined) {
-        if (previous.slug !== row.slug) result.skipped.push({ slug: row.slug, reason: `Native identity retained as ${previous.slug}` });
         const prior = await policyRecord(store, previous, current, catalog);
         if (!equal(prior.validity, row.validity) || JSON.stringify(prior.renewals) !== JSON.stringify(row.renewals)) invalid();
         const owned = await previousOwnership(store, previous, baselineIds);
+        const freshDocument = row.baseline?.documentGeneration !== undefined && row.baseline.documentGeneration === prior.baseline?.documentGeneration;
+        const unownedDocumentEdit = owned === undefined && row.baseline?.documentGeneration !== undefined && !freshDocument;
         if (previous.document !== undefined && owned?.documentHash === digest(encodeDocument(previous.document))) documentHash = owned.documentHash;
         if (previous.policyBody !== undefined && owned?.policyBodyHash === digest(encodeDocument(previous.policyBody))) policyBodyHash = owned.policyBodyHash;
         update = ownershipPatch(previous, row, body, ids, baselineIds, owned);
@@ -412,13 +414,13 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
         }
         if (document !== undefined) {
           const expectedDocument = documentHash ?? (row.document === undefined ? undefined : row.baseline?.documentHash);
-          const patch = documentPatch(previous, document, wire === undefined ? document.original : row.document?.original ?? owned?.source?.original ?? previous.original, owned?.sourceEdited, expectedDocument);
+          const patch = documentPatch(previous, document, wire === undefined ? document.original : row.document?.original ?? owned?.source?.original ?? previous.original, unownedDocumentEdit || owned?.sourceEdited && !freshDocument, expectedDocument);
           Object.assign(update.options, patch.options); if (patch.conflict) { update.conflicts.push('document'); update.base.document = expectedDocument; update.current.document = previous.document === undefined ? undefined : digest(encodeDocument(previous.document)); }
           if (patch.options.memoryDocument !== undefined) documentHash = digest(encodeDocument(document));
         }
         if (policyBody !== undefined && !update.conflicts.includes('body')) {
           const expectedBody = policyBodyHash ?? row.baseline?.policyBodyHash;
-          const patch = documentPatch({ document: previous.policyBody }, policyBody, undefined, owned?.bodyEdited || (previous.policyBody !== undefined && expectedBody === undefined), expectedBody);
+          const patch = documentPatch({ document: previous.policyBody }, policyBody, undefined, unownedDocumentEdit || owned?.bodyEdited && !freshDocument || (previous.policyBody !== undefined && expectedBody === undefined), expectedBody);
           if (patch.conflict) { delete update.options.body; update.conflicts.push('policy_body'); update.base.policy_body = expectedBody; update.current.policy_body = previous.policyBody === undefined ? undefined : digest(encodeDocument(previous.policyBody)); }
           if (patch.options.memoryDocument !== undefined) { update.options.memoryPolicyBody = patch.options.memoryDocument; policyBodyHash = digest(encodeDocument(policyBody)); }
         }

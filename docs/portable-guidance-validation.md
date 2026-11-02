@@ -6,7 +6,14 @@ This round integrates the native revision foundation merged in PR #30. Complete
 SDK document hashes and immutable history heads protect verification and portable
 publication, including injected host policy hooks. Merge recovery now recognizes
 only its saved history prefixes and uniquely named forward steps. Legacy merge
-receipts remain readable and exportable; automatic replay refuses safely.
+receipts remain readable and exportable; automatic replay refuses. The earlier
+finalization defect certified only the source and could clear a receipt after a
+target edit, including a restored body. Every intent, publication, cancellation
+and finish now certifies both endpoints inside its SDK admission hook.
+`test/merge-receipt.test.ts` injects ordinary edits and identical-hash ABA at each
+hook, checks the exact conflict and retained receipt, and prevents late refusals
+from hiding an already-published body or cancellation. Current gate receipts are
+recorded in the review disposition document; historical results do not certify it.
 
 The earlier split decision is retained in [the historical split plan](portable-guidance-split-plan.md).
 Current npm, Bun and pushed-head CI evidence is pending below; earlier counts do

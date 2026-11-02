@@ -22,7 +22,7 @@ export async function capturedPublication(t: Parameters<typeof tracker>[0], aged
   await writeFile(file, next);
   await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onStep: step => { if (step === 'intent') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
   const plan = await readImportPlan(target.workspace); const mutation = plan.mutations[0];
-  await pendingImport(target.store);
+  assert.equal(await pendingImport(target.store), undefined, 'The interrupted owned intent must retire cleanly');
   const before = await nativeState(target.store, mutation.id);
   return { target, plan, mutation, before };
 }

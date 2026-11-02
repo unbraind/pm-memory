@@ -17,7 +17,7 @@ export function consumerFixture(t: TestContext) {
   const repository = resolve(import.meta.dirname, '..'); const scratch = mkdtempSync(join(tmpdir(), 'memory-consumer-'));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const manifest = JSON.parse(readFileSync(join(repository, 'package.json'), 'utf8')) as { version: string; devDependencies: Record<string, string> };
-  const publicEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/(?:TOKEN|PASSWORD|SECRET|API_KEY|AUTHORIZATION|CREDENTIAL)(?:_|$)/i.test(key) && key !== 'NPM_MEDIA_SERVER'));
+  const publicEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/(?:TOKEN|PASSWORD|SECRET|KEY|AUTH|CREDENTIAL|PAT)(?:_|$)/i.test(key) && key !== 'NPM_MEDIA_SERVER'));
   const env = { ...npmEnvironment(gitEnvironment(publicEnv)), HOME: scratch, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_CEILING_DIRECTORIES: scratch, PM_AUTHOR: 'memory-consumer' };
   const packed = JSON.parse(execute(repository, ['pack', '--json', '--pack-destination', scratch, '--ignore-scripts'], 'npm', env)) as { filename: string; integrity: string; files: { path: string }[] }[];
   const allowed = /^(dist\/|manifest\.json$|package\.json$|README\.md$|ARCHITECTURE\.md$|LICENSE$|CHANGELOG\.md$)/;

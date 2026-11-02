@@ -1,6 +1,8 @@
 import { exportDir, importDir, get, renew, guidanceState } from '../index.ts';
 
-/** Export a reviewed policy and import its harness-edited body with bounds and ancestry intact. */
+/** Export a reviewed policy and import its harness-edited body with bounds and ancestry intact.
+ * The source workspace must already hold the pinned `release-policy` item: renewal requires
+ * existing standing guidance, it never creates it. */
 export async function portableGuidance(source: string, destination: string, directory: string) {
   await renew('release-policy', {
     workspace: source, author: 'policy-agent',
@@ -17,7 +19,9 @@ export async function portableGuidance(source: string, destination: string, dire
   return { exportReceipt, receipt, document: imported.document, validity: imported.validity, state: guidanceState(imported, Date.now()) };
 }
 
-/** Explicitly recreate a known missing origin; never adopt a same-name native replacement. */
+/** Explicitly create every origin absent from this directory; never adopt a same-name native replacement.
+ * The flag applies to every missing origin in the export, so only pass exports whose complete
+ * origin set is intended to be recreated. */
 export async function recreatePortableOrigin(workspace: string, directory: string) {
   return importDir(directory, { workspace, from: 'agents-md', createMissingOrigins: true });
 }

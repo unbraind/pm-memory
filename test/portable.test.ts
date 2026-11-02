@@ -11,8 +11,8 @@ import { tracker, snapshot, installExtension, gitlessCli } from './helpers.ts';
 const from = '2026-10-01T00:00:00.000Z';
 const until = '2026-11-01T00:00:00.000Z';
 
-/** Select portable refusal codes without exposing source data. */
-const refused = (error: unknown) => error instanceof MemoryError && error.remedy.length > 0;
+/** Select portable refusal codes without exposing source data, excluding unrelated error categories. */
+const refused = (error: unknown, codes: readonly string[] = ['format', 'validity', 'path', 'conflict', 'schema', 'privacy']) => error instanceof MemoryError && codes.includes(error.code) && error.remedy.length > 0;
 /** Read the editable versioned manifest. */
 async function manifest(path: string): Promise<PortablePolicyManifest> { return JSON.parse(await readFile(join(path, POLICY_MANIFEST), 'utf8')); }
 /** Persist a harness-side manifest edit. */
@@ -362,7 +362,7 @@ test('publication permission failures retain the source and rerun after permissi
   const source = await fixture(t); const parent = join(source.root, 'permission-case'); await mkdir(parent);
   const destination = join(parent, 'output');
   try {
-    await assert.rejects(exportDir(destination, { ...source.options, to: 'agents-md', onStep: async step => { if (step === 'permissions') await chmod(parent, 0o555); } }));
+    await assert.rejects(exportDir(destination, { ...source.options, to: 'agents-md', onStep: async step => { if (step === 'permissions') await chmod(parent, 0o555); } }), error => (error as NodeJS.ErrnoException).code === 'EACCES', 'The publication rename must fail on the revoked directory permission');
   } finally { await chmod(parent, 0o755); }
   await exportDir(destination, { ...source.options, to: 'agents-md' });
   assert.deepEqual(await manifest(destination), await manifest(source.path));

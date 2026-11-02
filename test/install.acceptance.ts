@@ -198,7 +198,7 @@ else {
   assert.ok(Date.parse(actual.updated_at) >= Date.parse(before.updated_at));
   const { memory_document: _actualDocument, memory_changed_at: _actualChanged, updated_at: _actualUpdated, memory_verified_at: _actualVerification, memory_reason: _actualReason, ...rest } = actual;
   assert.deepEqual(rest, { ...preserved, memory_verdict: 'unknown' });
-  assert.equal(JSON.parse(actual.memory_document).original, Buffer.from(bytes(value)).toString('base64'));
+  assert.deepEqual(JSON.parse(actual.memory_document), { version: 1, harness: from, format: 'legacy', path: name, original: Buffer.from(bytes(value)).toString('base64') });
   assert.equal(await readFile(join(location, name), 'utf8'), bytes(value));
   assert.equal((await importDir(location, { workspace: process.env.PM_PATH, author: 'memory-consumer', from })).updated, 0);
 }

@@ -16,7 +16,7 @@ export interface HarnessDocument {
   format: 'legacy' | 'policy';
   /** Confined source file name. */
   path: string;
-  /** Every source byte, encoded without changing order, keys or whitespace. */
+  /** Every source byte, base64 encoded without changing order, keys or whitespace. */
   original: string;
 }
 /** A memory claim's current evidence state. */

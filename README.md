@@ -261,9 +261,12 @@ implicitly. Changing bounds, removing evidence, skipping/reordering renewals, ch
 the policy marker, missing bodies, unknown keys/versions and noncanonical timestamps
 refuse with `MemoryError.code === 'validity'` and a restore/renew remedy (CLI exit 2).
 Restore the original export before using `memory renew` with fresh evidence to author a
-new window. Native edits win field conflicts, with a reason in the receipt; unrelated portable edits
-can still apply. A newer
-native renewal refuses an older import. Adjacent files outside the inventory are skipped
+new window. Native edits win field conflicts, with a reason in the receipt; a conflicted item is
+skipped as a whole, so only portable edits to other items can still apply. A newer
+native renewal refuses an older import. A fresh export binds source-artifact edits to their
+immutable history generation; restoring old document bytes does not restore old write
+authority. Export again to review a later native document revision before editing it.
+Adjacent files outside the inventory are skipped
 with reasons. These integrity checks are not signatures: import only trusted exports; a
 party that rewrites both the manifest and its markers can author a different policy.
 

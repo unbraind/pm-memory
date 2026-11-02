@@ -1,19 +1,53 @@
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { test } from 'node:test';
+import { test as nativeTest, after } from 'node:test';
 import type { TestContext } from 'node:test';
-import { readFile, writeFile, access } from 'node:fs/promises';
+import { readFile, writeFile, access, cp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WorkspaceTransactionInterruptedError, getWorkspaceHistoryPath, readHistoryEntries, getHistoryPath, readSettings, locateItem, resolveItemTypeRegistry, getItemAt, serializeItemDocument } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortableImportOptions, PortablePolicyManifest } from '../index.ts';
 import { policyBody } from '../src/portable.ts';
-import { tracker, clonedTracker, withoutGit, assertClosedGraph, editIntent } from './helpers.ts';
+import { tracker, clonedTracker, withoutGit, assertClosedGraph, editIntent, concurrentCases, runModelWorkerPool } from './helpers.ts';
 import { peerWriter } from './portable-native-peer.ts';
+
+type ForwardCase = (t: TestContext) => Promise<void>;
+const workerCase = process.env.PM_MEMORY_FORWARD_CASE;
+const caseNames = new WeakMap<TestContext, string>();
+/** A child registers exactly its assigned real test; the ordinary suite still registers every case. */
+function test(name: string, options: { timeout: number } | ForwardCase, callback?: ForwardCase): void {
+  if (workerCase !== undefined && workerCase !== name) return;
+  const run = typeof options === 'function' ? options : callback!;
+  void nativeTest(name, typeof options === 'function' ? {} : options, async t => { caseNames.set(t, name); await run(t); });
+}
+/** Keep the exact dynamic schedule budget while bounding each child's SDK/coverage cache lifetime. */
+async function forwardCases<T>(t: TestContext, values: readonly T[], run: (value: T, index: number) => Promise<void>): Promise<number> {
+  assert.ok(values.length > 0, 'A boundary batch must never pass without schedules');
+  const name = caseNames.get(t)!;
+  if (workerCase === undefined) {
+    const width = 5; const starts = Array.from({ length: Math.ceil(values.length / width) }, (_, index) => index * width);
+    const templates = JSON.stringify(await Promise.all([...preparedFixtures].map(async ([key, pending]) => { const base = await pending; return { key, workspace: base.target.workspace, path: base.path, manifest: base.manifest }; })));
+    const configurations = starts.map(start => ({ PM_MEMORY_FORWARD_FIXTURES: templates, PM_MEMORY_FORWARD_CASE: name, PM_MEMORY_FORWARD_START: String(start), PM_MEMORY_FORWARD_COUNT: String(Math.min(width, values.length - start)), PM_MEMORY_FORWARD_TOTAL: String(values.length), PM_MEMORY_WORKER_POOL: '1' }));
+    const receipts = starts.map(start => `FORWARD_BATCH start=${start} count=${Math.min(width, values.length - start)} total=${values.length}`);
+    await runModelWorkerPool(t, new URL('./portable-forward.worker.ts', import.meta.url), configurations, receipts);
+    assert.equal(configurations.reduce((count, row) => count + Number(row.PM_MEMORY_FORWARD_COUNT), 0), values.length);
+    return values.length;
+  }
+  const start = Number(process.env.PM_MEMORY_FORWARD_START); const count = Number(process.env.PM_MEMORY_FORWARD_COUNT);
+  assert.equal(values.length, Number(process.env.PM_MEMORY_FORWARD_TOTAL), 'A fresh worker must discover the same complete boundary budget');
+  assert.ok(Number.isInteger(start) && start >= 0 && Number.isInteger(count) && count > 0 && count <= 5 && start + count <= values.length);
+  let completed = 0;
+  await concurrentCases(values.slice(start, start + count), async (value, index) => { await run(value, start + index); completed++; });
+  assert.equal(completed, count);
+  t.diagnostic(`FORWARD_BATCH start=${start} count=${completed} total=${values.length}`);
+  return completed;
+}
+/** A batch asserts its own exact slice; the parent requires the complete unsliced budget. */
+function expectedSchedules(total: number): number { return workerCase === undefined ? total : Number(process.env.PM_MEMORY_FORWARD_COUNT); }
 
 const SEED = 0x1363f013;
 /** Build a real SDK source and seeded destination for all forward-only scenarios. */
-async function fixture(t: TestContext, create = false, ready = true, linked = false) {
+async function prepareFixture(t: TestContext, create = false, ready = true, linked = false) {
   const source = await tracker(t); const alpha = await remember('Alpha A', { ...source.options, slug: 'alpha', kind: 'project' });
   await remember('Beta A', { ...source.options, slug: 'beta', kind: 'reference', ...(linked ? { links: [alpha.id] } : {}) });
   const path = join(source.root, 'portable'); await exportDir(path, { ...source.options, to: 'agents-md' });
@@ -21,6 +55,24 @@ async function fixture(t: TestContext, create = false, ready = true, linked = fa
   const manifest = JSON.parse(await readFile(join(path, POLICY_MANIFEST), 'utf8')) as PortablePolicyManifest;
   for (const row of manifest.guidance) await writeFile(join(path, row.path), policyBody(row, `${row.slug} B`));
   return { source, target, path, manifest };
+}
+const preparedFixtures = new Map<string, ReturnType<typeof prepareFixture>>();
+const cleanup: (() => unknown)[] = [];
+const fixtureOwner = { after: (run: () => unknown) => { cleanup.push(run); } } as TestContext;
+after(async () => { for (const run of cleanup) await run(); });
+/** Clone a prepared source/destination pair; cases share no writable documents or harness bytes. */
+async function fixture(t: TestContext, create = false, ready = true, linked = false) {
+  const key = `${create}:${ready}:${linked}`;
+  const shared = (JSON.parse(process.env.PM_MEMORY_FORWARD_FIXTURES ?? '[]') as { key: string; workspace: string; path: string; manifest: PortablePolicyManifest }[]).find(row => row.key === key);
+  if (shared !== undefined) {
+    const target = await clonedTracker(t, { workspace: shared.workspace, options: { workspace: shared.workspace, author: 'memory-test' } });
+    const path = join(target.root, 'portable'); await cp(shared.path, path, { recursive: true });
+    return { target, path, manifest: structuredClone(shared.manifest) };
+  }
+  if (!preparedFixtures.has(key)) preparedFixtures.set(key, prepareFixture(fixtureOwner, create, ready, linked));
+  const base = await preparedFixtures.get(key)!; const target = await clonedTracker(t, base.target);
+  const path = join(target.root, 'portable'); await cp(base.path, path, { recursive: true });
+  return { target, path, manifest: structuredClone(base.manifest) };
 }
 /** Bind one immutable native target for the fixed conflict and peer-success cases. */
 async function alphaFixture(t: TestContext) { const base = await fixture(t); return { ...base, alpha: (await rows(base.target)).find(row => row.memory_slug === 'alpha')! }; }
@@ -94,17 +146,33 @@ async function importBoundaries(t: TestContext, base: Awaited<ReturnType<typeof 
   return labels;
 }
 
+/** Each sweep retains every observed boundary and refuses a vacuous probe. */
+async function sweepBoundaries(t: TestContext, base: Awaited<ReturnType<typeof fixture>>, linked: boolean) {
+  const labels = await importBoundaries(t, base);
+  const start = linked ? labels.indexOf('intent') : 0;
+  assert.ok(start >= 0 && labels.length > start, 'Each sweep must observe at least one import boundary');
+  return { labels, start };
+}
+/** Freeze the original PRNG schedule before independent asynchronous cases begin. */
+function seededBoundaries(labels: readonly string[]) {
+  let seed = SEED;
+  return labels.map((label, boundary) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return { boundary, label, seed }; });
+}
+
 for (const [create, linked] of [[false, false], [true, false], [true, true]] as const) test(`forward-only ${linked ? 'linked ' : ''}${create ? 'create' : 'update'}: seeded peer operations at every ${linked ? 'linked write' : 'import'} boundary`, { timeout: 7200000 }, async t => {
   const base = await fixture(t, create, true, linked); const seeded = await rows(base.target);
   const task = await base.target.client.create({ title: 'Native dependency keeper' });
   const peer = await peerWriter(t, base.target.root); withoutGit(t, base.target.root);
-  const labels = await importBoundaries(t, base);
-  const start = linked ? labels.indexOf('intent') : 0; assert.ok(start >= 0);
+  const { labels, start } = await sweepBoundaries(t, base, linked);
   const supported = labels.map((label, index) => ({ label, index })).filter(row => row.index >= start);
-  let schedules = 0; let random = SEED;
+  let random = SEED;
+  const cases: { label: string; boundary: number; operation: number; seed: number }[] = [];
   for (const { label, index: boundary } of supported) for (const operation of linked ? [label === 'prepared:' || label === 'write-guard' ? 4 : random % 5] : [0, 1, 2, 3]) {
+    random = (Math.imul(random, 1664525) + 1013904223) >>> 0;
+    cases.push({ label, boundary, operation, seed: random });
+  }
+  const schedules = await forwardCases(t, cases, async ({ label, boundary, operation, seed }) => {
     if (process.env.PM_MEMORY_FORWARD_PROGRESS === '1') process.stderr.write(`FORWARD_PROGRESS create=${create} boundary=${boundary}:${label} operation=${operation}\n`);
-    random = (Math.imul(random, 1664525) + 1013904223) >>> 0; const seed = random;
     const target = await clonedTracker(t, base.target); let count = 0; const state: { injected: boolean; foreignBeforeEdge?: string; pending?: ReturnType<typeof peer>; captured?: { id: string; before: Record<string, unknown>; after?: Record<string, unknown> } } = { injected: false };
     /** The independent native writer may finish after the guarded item's SDK lock releases. */
     const step = async () => {
@@ -138,17 +206,19 @@ for (const [create, linked] of [[false, false], [true, false], [true, true]] as 
       if (linked && (!('skipped' in retry) || !retry.skipped.some(row => row.slug === 'beta'))) assert.ok(actual.find(row => row.memory_slug === 'beta')!.dependencies?.some(edge => edge.id === actual.find(row => row.memory_slug === 'alpha')!.id && edge.kind === 'related'));
       if (captured.after.memory_source === 'foreign:peer' && captured.id !== task.item.id) { assert.ok('skipped' in retry); assert.ok(retry.skipped.some(row => row.slug === 'alpha')); }
       const stable = await rows(target); const final = await importDir(base.path, { ...target.options, from: 'agents-md' }); assert.equal(final.updated, 0); assert.deepEqual(await rows(target), stable);
-      schedules++;
     } catch (error) { throw new Error(`MASTER_SEED=${SEED} SEQUENCE_SEED=${seed} create=${create} linked=${linked} boundary=${boundary}:${label} operation=${operation}`, { cause: error }); }
-  }
+  });
+  assert.equal(schedules, expectedSchedules(cases.length), 'Every assigned peer schedule must complete');
   assert.equal(seeded.filter(row => row.memory_slug !== undefined).length, create ? 0 : 2);
+  assert.ok(schedules > 0, 'the peer loop must exercise at least one injected schedule');
   t.diagnostic(`FORWARD_PEERS master_seed=0x${SEED.toString(16)} create=${create} linked=${linked} boundaries=${supported.length} schedules=${schedules} process=independent`);
 });
 
 for (const [create, linked] of [[false, false], [true, false], [true, true]] as const) test(`forward-only ${linked ? 'linked ' : ''}${create ? 'create' : 'update'}: crash at every ${linked ? 'linked write ' : ''}boundary then rerun converges`, { timeout: 7200000 }, async t => {
-  const base = await fixture(t, create, true, linked); withoutGit(t, base.target.root); const labels = await importBoundaries(t, base);
-  const start = linked ? labels.indexOf('intent') : 0; assert.ok(start >= 0);
-  for (let boundary = start; boundary < labels.length; boundary++) {
+  const base = await fixture(t, create, true, linked); withoutGit(t, base.target.root);
+  const { labels, start } = await sweepBoundaries(t, base, linked);
+  await forwardCases(t, labels.slice(start), async (_label, offset) => {
+    const boundary = start + offset;
     const target = await clonedTracker(t, base.target); let count = 0;
     const crash = () => { if (count++ === boundary) throw new WorkspaceTransactionInterruptedError(); };
     await assert.rejects(importDir(base.path, { ...target.options, from: 'agents-md', onStep: crash, onTransition: crash }), WorkspaceTransactionInterruptedError);
@@ -159,7 +229,7 @@ for (const [create, linked] of [[false, false], [true, false], [true, true]] as 
     if (linked) assert.ok(final.find(row => row.memory_slug === 'beta')!.dependencies?.some(edge => edge.id === final.find(row => row.memory_slug === 'alpha')!.id && edge.kind === 'related'));
     const counts = await importDir(base.path, { ...target.options, from: 'agents-md' }); assert.equal(counts.updated, 0); assert.deepEqual(await rows(target), final);
     for (const row of partial) assert.ok(final.some(after => after.id === row.id), `never delete ${labels[boundary]}`);
-  }
+  });
   t.diagnostic(`FORWARD_CRASHES create=${create} linked=${linked} boundaries=${labels.length - start}`);
 });
 
@@ -189,10 +259,9 @@ test('first-time schema and origin setup retains seeded native peer writes at ev
   const other = (await base.target.client.create({ title: 'Native reference task' })).item;
   const peer = await peerWriter(t, base.target.root); withoutGit(t, base.target.root); const labels: string[] = [];
   await importDir(base.path, { ...(await clonedTracker(t, base.target)).options, from: 'agents-md', onStep: step => { if (['validated', 'read'].includes(step) || step.startsWith('schema-') || step.startsWith('origin-')) labels.push(step); } });
-  let seed = SEED;
-  for (const boundary of labels) {
+  await forwardCases(t, seededBoundaries(labels), async ({ label: boundary, seed }) => {
     if (process.env.PM_MEMORY_FORWARD_PROGRESS === '1') process.stderr.write(`FORWARD_BOOTSTRAP boundary=${boundary} seed=${seed}\n`);
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; const target = await clonedTracker(t, base.target); let injected = false;
+    const target = await clonedTracker(t, base.target); let injected = false;
     let witness: ReturnType<typeof peer> | undefined;
     await importDir(base.path, { ...target.options, from: 'agents-md', onStep: async step => {
       if (!injected && step === boundary) { injected = true; witness = peer(target.workspace, task.id, target.options.author, 'memory-policy-copied-prefix', seed % 2 === 0 ? 'exact' : 'comment', seed % 2 === 0 ? { body: `Native ${seed}`, dep: [`id=${other.id},kind=related`] } : { comment: `Native ${seed}` }); await witness.done; }
@@ -200,7 +269,7 @@ test('first-time schema and origin setup retains seeded native peer writes at ev
     assert.ok(witness, `seed=${seed} bootstrap=${boundary}`); const after = await witness.done as Record<string, unknown>;
     peerPreserved((await target.client.get(task.id, { full: true })).item, witness.witness.before!, after, `seed=${seed} bootstrap=${boundary}`);
     assertClosedGraph(await rows(target)); assert.equal((await importDir(base.path, { ...target.options, from: 'agents-md' })).updated, 0);
-  }
+  });
   t.diagnostic(`FORWARD_BOOTSTRAP master_seed=0x${SEED.toString(16)} boundaries=${labels.length}`);
 });
 
@@ -216,11 +285,9 @@ test('recovery: crash and random native edits at every resumed boundary retain p
   };
   const probe = await interrupted(); const labels: string[] = [];
   await importDir(base.path, { ...probe.options, from: 'agents-md', onStep: step => { labels.push(step); }, onTransition: event => { labels.push(`${event.transition}:${event.stepId ?? ''}`); } });
-  let seed = SEED;
-  for (let boundary = 0; boundary < labels.length; boundary++) {
+  await forwardCases(t, seededBoundaries(labels), async ({ boundary, seed }) => {
     if (process.env.PM_MEMORY_FORWARD_PROGRESS === '1') process.stderr.write(`FORWARD_RECOVERY boundary=${boundary}:${labels[boundary]} seed=${seed}\n`);
     const target = await interrupted(); let index = 0; let witness: ReturnType<typeof peer> | undefined; let edited = '';
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
     /** A guard callback can dispatch a native writer whose commit follows item-lock release. */
     const inject = async () => {
       if (index++ !== boundary) return;
@@ -236,17 +303,21 @@ test('recovery: crash and random native edits at every resumed boundary retain p
     peerPreserved((await target.client.get(edited, { full: true })).item, witness.witness.before!, observed, `seed=${seed} recovery=${labels[boundary]}`);
     const final = await rows(target); assertClosedGraph(final); assert.equal(final.filter(row => row.memory_slug === 'alpha').length, 1); assert.equal(final.filter(row => row.memory_slug === 'beta').length, 1);
     assert.equal((await importDir(base.path, { ...target.options, from: 'agents-md' })).updated, 0); assert.deepEqual(await rows(target), final);
-  }
+  });
   t.diagnostic(`FORWARD_RECOVERY master_seed=0x${SEED.toString(16)} boundaries=${labels.length} peer_and_crash_each=true`);
 });
 
 for (const [recovery, raw] of [[false, false], [true, false], [false, true], [true, true]] as const) test(`linked dependency final guard retains foreign ${raw ? 'document' : 'ownership'} in ${recovery ? 'recovery' : 'fresh'} import`, async t => {
   const base = await fixture(t, true, true, true); const peer = await peerWriter(t, base.target.root); withoutGit(t, base.target.root);
   if (recovery) await assert.rejects(importDir(base.path, { ...base.target.options, from: 'agents-md', onStep: step => { if (step === 'nodes') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
-  let guards = 0; let edited = '';
+  let injected = false; let edited = '';
   const result = await importDir(base.path, { ...base.target.options, from: 'agents-md', onStep: async step => {
-    if (step !== 'write-guard' || ++guards !== (recovery ? 1 : 3)) return;
-    edited = (await rows(base.target)).find(row => row.memory_slug === 'alpha')!.id;
+    if (step !== 'write-guard' || injected) return;
+    // The final dependency guard is the only guarded write whose endpoints both already exist.
+    const present = await rows(base.target);
+    if (!present.some(row => row.memory_slug === 'alpha') || !present.some(row => row.memory_slug === 'beta')) return;
+    if (injected) return;
+    injected = true; edited = present.find(row => row.memory_slug === 'alpha')!.id;
     if (raw) {
       const settings = await readSettings(base.target.workspace); const located = await locateItem(base.target.workspace, edited, settings.id_prefix, settings.item_format, resolveItemTypeRegistry(settings).type_to_folder); assert.ok(located);
       const entries = await readHistoryEntries(getHistoryPath(base.target.workspace, edited), edited); const { document } = await getItemAt(edited, String(entries.length), { pmRoot: base.target.workspace });

@@ -23,6 +23,12 @@ for (const harness of ['agents-md', 'claude-code'] as const) for (const edit of 
   assert.equal(first.updated, edit === 'unchanged' ? 0 : 1);
   await target.client.update(target.id, { description: 'Independent native description C' });
   assert.equal((await nativeState(target.store, target.id)).proof.version, target.saved.proof.version, 'all different native generations share the same timestamp');
+  /** Import intent and SDK transaction evidence live outside the default snapshot; capture them separately. */
+  const durableRuntime = async () => {
+    const collect = async (directory: string) => { try { return await snapshot(join(target.workspace, directory)); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}; throw error; } };
+    return { runtime: await collect('runtime'), transactions: await collect('transactions') };
+  };
+  const durable = await durableRuntime();
   const before = await snapshot(target.workspace);
   const rows = (await target.client.listAllComplete({ includeBody: true })).items;
   const retry = await importDir(path, { ...target.options, from: harness });
@@ -33,4 +39,5 @@ for (const harness of ['agents-md', 'claude-code'] as const) for (const edit of 
   assert.ok(retry.skipped.every(row => row.conflict?.fields.includes('description')));
   assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, rows);
   assert.deepEqual(await snapshot(target.workspace), before, 'a refusal preserves native fields, history and evidence');
+  assert.deepEqual(await durableRuntime(), durable, 'a refusal preserves import intent and SDK transaction evidence');
 });

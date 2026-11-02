@@ -1,5 +1,6 @@
 import { basename, isAbsolute } from 'node:path';
 import { parse } from 'yaml';
+import { hashHistoryStream } from '@unbrained/pm-cli/sdk';
 import { digest, kind, MemoryError, slug } from './core.ts';
 import type { Harness, HarnessDocument, Memory, MemoryKind } from './types.ts';
 
@@ -26,6 +27,12 @@ export function readDocument(value: unknown): HarnessDocument | undefined {
 /** Encode every envelope field with stable wrapper ordering; source byte order stays untouched. */
 export function encodeDocument(document: object): string {
   return JSON.stringify(Object.fromEntries(Object.entries(document).sort(([a], [b]) => a.localeCompare(b))));
+}
+/** Fingerprint the immutable prefix through the most recent source-artifact edit, retaining ABA history. */
+export function documentGeneration(entries: Parameters<typeof hashHistoryStream>[0]): string {
+  let end = Math.min(entries.length, 1);
+  for (const [index, entry] of entries.entries()) if (entry.patch.some(patch => /^\/metadata\/memory_(?:document|policy_body)(?:\/|$)/.test(patch.path))) end = index + 1;
+  return hashHistoryStream(entries.slice(0, end));
 }
 /** Compare complete input documents, never a whitelist of recognized YAML or Markdown fields.
  * A stored document is only ever replaced against a derivable expected hash, so a caller that supplies neither a

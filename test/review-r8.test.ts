@@ -30,12 +30,15 @@ test('pending merge refusals identify the source, target and audited recovery fi
   }
 });
 
-test('remember refuses index artifact slugs for both creation and explicit updates without writes', async t => {
-  const { root, options, store, client } = await tracker(t);
-  const input = join(root, 'input'); await mkdir(input);
+/** Seed the same real imported index for separate selector and export contracts. */
+async function indexFixture(t: Parameters<typeof tracker>[0]) {
+  const target = await tracker(t); const input = join(target.root, 'input'); await mkdir(input);
   await writeFile(join(input, 'MEMORY.md'), '# Synthetic index\n');
-  await importDir(input, { ...options, from: 'claude-code' });
-  const artifact = (await store.read())[0];
+  await importDir(input, { ...target.options, from: 'claude-code' });
+  return { ...target, input, artifact: (await target.store.read())[0] };
+}
+test('remember refuses index artifact slugs for both creation and explicit updates without writes', async t => {
+  const { root, options, store, client, input, artifact } = await indexFixture(t);
   assert.equal(artifact.slug, 'memory'); assert.equal(artifact.artifact, true);
   for (const status of ['open', 'canceled']) {
     await client.update(artifact.id, { status, closeReason: 'Synthetic artifact lifecycle' });
@@ -51,6 +54,12 @@ test('remember refuses index artifact slugs for both creation and explicit updat
       assert.deepEqual(await snapshot(options.workspace), before);
     }
   }
+
+});
+
+test('canceled and reopened index artifacts export with byte-identical companions and legacy origins', async t => {
+  const { root, options, store, client, input, artifact } = await indexFixture(t);
+  await client.update(artifact.id, { status: 'canceled', closeReason: 'Synthetic artifact lifecycle' });
   await client.update(artifact.id, { status: 'open' });
   const output = join(root, 'output');
   await exportDir(output, { ...options, to: 'claude-code' });

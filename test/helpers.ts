@@ -73,7 +73,7 @@ async function trackerFixture(t: TestContext) {
   return { root, workspace, client, options, store };
 }
 /** Reuse initialized schema through a native copy while preserving independent tracker state. */
-export async function clonedTracker(t: TestContext, source: Awaited<ReturnType<typeof tracker>>) {
+export async function clonedTracker(t: TestContext, source: Pick<Awaited<ReturnType<typeof tracker>>, 'workspace' | 'options'>) {
   const result = await trackerFixture(t); await cloneTracker(source, result.workspace); return result;
 }
 /** Keep native SDK tests outside ancestor Git discovery and restore only the variables we changed. */

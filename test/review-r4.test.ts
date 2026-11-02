@@ -54,11 +54,14 @@ test('unchanged remember preserves stale verification, import bytes and reimport
   assert.equal((await client.get(imported.id, { full: true })).item.memory_verified_at, undefined);
 });
 
-test('export rejects reserved and nested case-folded names before publication', async t => {
+test('a reserved index slug exports under the namespaced guidance directory', async t => {
   const native = await tracker(t);
   await remember('Portable index collision', { ...native.options, kind: 'reference', slug: 'memory' });
   const output = join(native.root, 'out'); await exportDir(output, { ...native.options, to: 'claude-code' });
   assert.match(await readFile(join(output, 'memories/memory.md'), 'utf8'), /Portable index collision/);
+});
+
+test('export rejects nested case-folded name collisions before publication', async t => {
   for (const to of ['claude-code', 'agents-md'] as const) {
     const { root, options } = await tracker(t);
     const source = join(root, 'source'); await mkdir(source);

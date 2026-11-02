@@ -178,7 +178,9 @@ test('native policy payload ownership wins until a fresh export authorizes anoth
   assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, before);
   const fresh = await exportedPolicy(target, 'fresh'); const next = join(fresh.path, fresh.manifest.guidance[0].path); const bytes = await readFile(next, 'utf8');
   await writeFile(next, bytes.slice(0, bytes.indexOf('\n') + 1) + '\nApproved C  \n');
+  await target.client.update(row.id, { priority: 1 });
   assert.equal((await importDir(fresh.path, { ...target.options, from: 'agents-md' })).updated, 1);
+  assert.equal((await target.client.get(row.id)).item.priority, 1, 'Unrelated native metadata does not revoke the fresh source-artifact generation');
 });
 
 test('native document edits win and malformed foreign document records are skipped', async t => {

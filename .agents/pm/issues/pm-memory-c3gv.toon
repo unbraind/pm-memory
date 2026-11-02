@@ -7,7 +7,7 @@ status: in_progress
 priority: 2
 tags[3]: "gh:unbraind/pm-memory#15",identity,review-blocker
 created_at: "2026-10-19T19:35:29.756Z"
-updated_at: "2026-11-02T07:03:09.522Z"
+updated_at: "2026-11-02T07:23:40.868Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-agent
@@ -29,7 +29,7 @@ comments[14]{created_at,author,text}:
   "2026-11-02T04:42:54.592Z",pi-memory,"Superseding correction for thread PRRT_kwDOVPw2oc6yXN2w (P2): the 2026-10-30 reopening comments describe the replay mechanism using the pre-split src/consolidate.ts digest vocabulary (semantic-plus-time digest, source_revision). Receipt replay no longer lives in consolidate.ts; the implemented protocol is src/merge-receipt.ts, where version-2 receipts bind immutable NativeProof history (hash, history hash, length) for both endpoints, a canonical UTC changed_at and the target_after payload hash, and every step rechecks every certified endpoint inside the same SDK admission hook (commitNativeFields certification maps). The earlier comments are retained as historical records; this correction states the current mechanism. The failing regression from that round, test/merge-revision-blocker.test.ts, now passes 1/1 on the fixed tree."
   "2026-11-02T06:55:01.721Z",codex-sol,"Continuation audit closes the finalization class at intent, publish, cancel and finish: each writes one endpoint while rechecking both immutable SDK proofs in the same admission hook. Removing only the additional-item hook check fails all 8 ordinary-edit/ABA controls, 2 per hook. Removing the no-op read-back certification fails 4/4 default/host edit/ABA controls. New intents are durable before target mutation; body and provenance link publish together. Unique source rationale remains in the source and pending receipt on refusal. Canonical UTC validation rejects rollover dates; earlier prepared version-2 receipts remain supported, and native author precedence is preserved. The current focused gate is continuing after a transient interruption; no full release certification is claimed."
   "2026-11-02T07:03:09.439Z",codex-sol,"Verified critical step: pm test pm-memory-c3gv --run --only-last --progress --timeout 600 passed 28/28 tests, zero failures/cancellations/skips. Coverage-source bytes are frozen for the continuing focused run. Independent disposable mutations fail at each admission hook (8/8), on no-op certification (4/4), proofless document replacement (1/1) and document ABA (6/6). The two earlier linked-run attempts were an outdated fixture expectation and the runner default timeout, respectively; neither is treated as a pass. Corrected the expected preserved rationale and stored a 600-second harness timeout. No test budget, assertion or property timeout was reduced."
-files[8]:
+files[10]:
   - path: src/consolidate.ts
     scope: project
     note: Delivery evidence reverified on main
@@ -37,11 +37,15 @@ files[8]:
     scope: project
   - path: src/native-revision.ts
     scope: project
+  - path: src/portable-source.ts
+    scope: project
   - path: test/merge-history-helpers.ts
     scope: project
   - path: test/merge-receipt.test.ts
     scope: project
   - path: test/merge-revision-blocker.test.ts
+    scope: project
+  - path: test/portable-document-aba.test.ts
     scope: project
   - path: test/review-r1.test.ts
     scope: project

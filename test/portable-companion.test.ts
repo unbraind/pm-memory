@@ -69,13 +69,16 @@ test('bound legacy edits use snapshot identities preserve native edits and skip 
   assert.ok(result.skipped.some(row => row.conflict?.fields.includes('description')));
   // Reconcile the conflicting input before applying its other fields as one forward item write.
   await writeFile(join(output, 'alpha.md'), '---\nname: Alpha revised\n---\n# Alpha\nSee [[beta]], [[not-in-inventory]]');
-  assert.equal((await importDir(output, { ...source.options, from: 'claude-code' })).updated, 1);
-  assert.ok(result.skipped.some(row => row.slug === 'foreign.md')); assert.equal(result.unresolved_links, 1);
+  const second = await importDir(output, { ...source.options, from: 'claude-code' });
+  assert.equal(second.updated, 1);
+  assert.ok('skipped' in second && second.skipped.some(row => row.slug === 'foreign.md')); assert.equal(second.unresolved_links, 1);
   const actual = (await source.client.get(alpha.id, { full: true })).item;
   assert.equal(actual.memory_slug, 'renamed-alpha'); assert.equal(actual.description, 'Native description'); assert.equal(actual.title, 'Alpha revised');
   assert.equal(actual.dependencies![0].id, beta.id);
   assert.match(String(actual.body), /not-in-inventory/);
   assert.ok(result.skipped.some(row => row.reason.includes('description')));
+  // A renamed native origin is applied, not skipped: its native identity is retained without a skip receipt entry.
+  assert.ok('skipped' in second && second.skipped.every(row => row.slug === 'foreign.md'), 'A renamed native item must not appear in the skip list while its fields are applied');
 });
 
 test('companion does not bypass raw-byte privacy or UTF-8 validation', async t => {
