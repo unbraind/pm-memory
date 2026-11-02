@@ -5,11 +5,11 @@ import { join, relative } from 'node:path';
 import { WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, MemoryError, POLICY_MANIFEST, parsePolicy, remember } from '../index.ts';
 import type { HarnessDocument, PortablePolicyManifest } from '../index.ts';
-import { documentPatch, readDocument } from '../src/portable-source.ts';
+import { documentPatch, readDocument, encodeDocument } from '../src/portable-source.ts';
 import { validOwnedTarget } from '../src/portable-ownership.ts';
 import { policyPayload, policyBody } from '../src/portable.ts';
 import { digest } from '../src/core.ts';
-import { tracker, crashAtStep, exportedPolicy, snapshot, importHarness } from './helpers.ts';
+import { concurrentCases, clonedTracker, tracker, crashAtStep, exportedPolicy, snapshot, importHarness } from './helpers.ts';
 
 /** The oracle reads complete source bytes through the SDK, independently of importer projections. */
 async function nativeDocument(target: Awaited<ReturnType<typeof tracker>>, slug: string): Promise<HarnessDocument> {
@@ -241,17 +241,19 @@ test('complete document updates converge at every observed import step without d
   const probe = await tracker(t); const file = join(probe.root, 'alpha.md');
   const first = '---\ncustom: old-value\n---\nBody'; const second = first.replace('old-value', 'new-value');
   await writeFile(file, first); await importDir(file, { ...probe.options, from: 'agents-md' });
+  const baseline = await clonedTracker(t, probe);
   await writeFile(file, second); const steps = new Set<string>();
   await importDir(file, { ...probe.options, from: 'agents-md', onStep: step => { steps.add(step); } });
-  for (const boundary of steps) {
-    const target = await tracker(t); const input = join(target.root, 'alpha.md');
-    await writeFile(input, first); await importDir(input, { ...target.options, from: 'agents-md' }); await writeFile(input, second);
+  assert.ok(steps.size > 0);
+  await concurrentCases([...steps], async boundary => {
+    const target = await clonedTracker(t, baseline); const input = join(target.root, 'alpha.md');
+    await writeFile(input, second);
     await assert.rejects(importDir(input, { ...target.options, from: 'agents-md', onStep: crashAtStep(boundary) }), WorkspaceTransactionInterruptedError);
     await importDir(input, { ...target.options, from: 'agents-md' });
     const rows = (await target.client.listAllComplete({ includeBody: true })).items;
     assert.equal(rows.length, 1); assert.equal((await nativeDocument(target, 'alpha')).original, Buffer.from(second).toString('base64'), boundary);
     assert.equal((await importDir(input, { ...target.options, from: 'agents-md' })).unchanged, 1);
-  }
+  });
   t.diagnostic(`Complete document update crash boundaries=${steps.size}`);
 });
 
@@ -269,6 +271,7 @@ test('document envelopes validate complete bytes and preserve earlier absent sna
   assert.deepEqual(documentPatch({ document }, edited, undefined, true), { options: {}, conflict: true });
   assert.deepEqual(documentPatch({}, edited, undefined, true), { options: {}, conflict: true });
   assert.ok(documentPatch({ document }, edited, document.original).options.memoryDocument);
+  assert.deepEqual(documentPatch({ document }, edited, document.original, true, digest(encodeDocument(document))), { options: {}, conflict: true }, 'A recurring document hash cannot erase native edit generations');
 });
 
 test('document receipt fingerprints reject foreign invalid values independently of known fields', async t => {

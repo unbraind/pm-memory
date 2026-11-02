@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { canonicalDocument, itemDocumentToMutationOptions, getHistoryPath, getItemAt, hashHistoryStream, readHistoryEntries } from '@unbrained/pm-cli/sdk';
+import { canonicalDocument, itemDocumentToMutationOptions, getHistoryPath, getItemAt, hashHistoryStream, readHistoryEntries, readSettings, resolveAuthorIdentity } from '@unbrained/pm-cli/sdk';
 import type { ItemDocument } from '@unbrained/pm-cli/sdk';
+import { instant } from './guidance.ts';
 import { contentRevision } from './content.ts';
 import { MemoryError } from './core.ts';
 import { isCanceled, statusRegistry } from './lifecycle.ts';
@@ -10,7 +11,7 @@ import type { Store } from './store.ts';
 import type { Memory } from './types.ts';
 
 /** A forward merge is authorized by immutable source and target history prefixes. */
-interface MergeReceipt { version: 2; id: string; target: string; target_id: string; body: string; changed_at: string; source_before: NativeProof; target_before: NativeProof; target_after: string }
+interface MergeReceipt { version: 2; id: string; target: string; target_id: string; body: string; changed_at: string; source_before: NativeProof; target_before: NativeProof; target_after: string; author?: string }
 /** Recovery always identifies the audited field requiring operator reconciliation. */
 function refusal(source: Memory): MemoryError {
   let target = 'unavailable target';
@@ -32,9 +33,16 @@ async function generation(store: Store, id: string, before: NativeProof, message
   if (messages.length === 0 && !sameNativeProof(state.proof, before)) throw new MemoryError('conflict', 'Pending memory merge document moved', 'Preserve the native generation and reconcile memory_merge through an audited pm update');
   return state;
 }
+/** Retain the target graph and add a single provenance link in the journaled publication. */
+function mergeGraph(document: ItemDocument, sourceId: string, receipt: Pick<MergeReceipt, 'changed_at' | 'author'>) {
+  const graph = [...(document.metadata.dependencies ?? [])];
+  if (!graph.some(edge => edge.id === sourceId && edge.kind === 'related')) graph.push({ id: sourceId, kind: 'related', created_at: receipt.changed_at, author: receipt.author, source_kind: 'cli:update:dep', author_source: 'asserted' });
+  return graph;
+}
 /** Reuse one deterministic patch for SDK publication and its canonical expected payload. */
-function revisionFields(receipt: Pick<MergeReceipt, 'body' | 'changed_at'>): Record<string, unknown> {
-  const fields = { body: receipt.body, memoryEdited: true }; contentRevision(fields, receipt.changed_at); return fields;
+function revisionFields(receipt: Pick<MergeReceipt, 'body' | 'changed_at' | 'author'>, document: ItemDocument, sourceId: string): Record<string, unknown> {
+  const fields = { ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: mergeGraph(document, sourceId, receipt) }), 'update'), body: receipt.body, memoryEdited: true };
+  contentRevision(fields, receipt.changed_at); return fields;
 }
 /** Validate a pending receipt against exact immutable history, allowing only this run's forward steps. */
 async function recover(store: Store, source: Memory, target: Memory, receipt: MergeReceipt) {
@@ -67,33 +75,32 @@ export async function performMerge(store: Store, source: Memory, memories: reado
     const pending = pendingMerge(source);
     target = memories.find(item => item.slug === pending.target && !isCanceled(item));
     receipt = pending.receipt as MergeReceipt;
-    if (target === undefined || receipt.version !== 2 || typeof receipt.id !== 'string' || !/^[a-f0-9-]{36}$/.test(receipt.id) || receipt.target_id !== target.id || typeof receipt.body !== 'string' || typeof receipt.changed_at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(receipt.changed_at) || !validNativeProof(receipt.source_before) || receipt.source_before.length < 1 || !validNativeProof(receipt.target_before) || typeof receipt.target_after !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.target_after)) throw refusal(source);
+    if (target === undefined || receipt.version !== 2 || typeof receipt.id !== 'string' || !/^[a-f0-9-]{36}$/.test(receipt.id) || receipt.target_id !== target.id || typeof receipt.body !== 'string' || (receipt.author !== undefined && (typeof receipt.author !== 'string' || receipt.author.trim() === '')) || !validNativeProof(receipt.source_before) || receipt.source_before.length < 1 || !validNativeProof(receipt.target_before) || typeof receipt.target_after !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.target_after)) throw refusal(source);
+    try { instant(receipt.changed_at); } catch { throw refusal(source); }
   } else {
     if (!apply) return;
     target = memories.find(item => item.slug === selectedTarget && !isCanceled(item));
     if (target === undefined) throw refusal(source);
     const id = randomUUID(); const targetBase = observed.get(target.id); const sourceBase = observed.get(source.id);
     if (!targetBase?.document || sourceBase === undefined) throw refusal(source);
-    const graph = [...target.relationships];
-    if (!graph.some(edge => edge.id === source.id && edge.kind === 'related')) graph.push({ id: source.id, kind: 'related' });
-    const preparation = { ...itemDocumentToMutationOptions(JSON.stringify({ dependencies: graph }), 'update'), comment: [`Memory merge: ${source.slug}. Original content retained in its Knowledge item and append-only history. Receipt ${id}.`] };
-    await writeStep(store, source, target.id, targetBase.proof, preparation, `Memory merge ${id} prepare`);
-    const prepared = await generation(store, target.id, targetBase.proof, [`Memory merge ${id} prepare`]);
-    const body = `${prepared.document!.body}\n\n### Consolidated context (${source.slug})\n${source.body}\n\n**Why:** ${source.why}\n**How to apply:** ${source.how}`;
+    // Persist the complete intent before touching the target. The relationship and body publish together,
+    // so a denied intent has no unjournaled target preparation to duplicate on retry.
+    const body = `${targetBase.document.body}\n\n### Consolidated context (${source.slug})\n${source.body}\n\n**Why:** ${source.why}\n**How to apply:** ${source.how}`;
     const changed_at = new Date().toISOString();
-    const fields = revisionFields({ body, changed_at });
-    const after = canonicalDocument({ ...prepared.document!, body, metadata: { ...prepared.document!.metadata, memory_edited: fields.memoryEdited, memory_changed_at: fields.memoryChangedAt, memory_verdict: fields.memoryVerdict } }, { schema: await trackerSchema(store.workspace) });
+    const author = resolveAuthorIdentity(store.invocationAuthor, (await readSettings(store.workspace)).author_default).author;
+    const fields = revisionFields({ body, changed_at, author }, targetBase.document, source.id);
+    const after = canonicalDocument({ ...targetBase.document, body, metadata: { ...targetBase.document.metadata, dependencies: mergeGraph(targetBase.document, source.id, { changed_at, author }), memory_edited: fields.memoryEdited, memory_changed_at: fields.memoryChangedAt, memory_verdict: fields.memoryVerdict } }, { schema: await trackerSchema(store.workspace) });
     for (const field of fields.unset as string[]) delete after.metadata[field];
-    receipt = { version: 2, id, target: target.slug, target_id: target.id, body, changed_at, source_before: sourceBase.proof, target_before: prepared.proof, target_after: await payloadHash(store, after) };
+    receipt = { version: 2, id, target: target.slug, target_id: target.id, body, changed_at, source_before: sourceBase.proof, target_before: targetBase.proof, target_after: await payloadHash(store, after), author };
     const encoded = JSON.stringify(receipt);
-    await writeStep(store, source, source.id, sourceBase.proof, { memoryMerge: encoded }, `Memory merge ${id} intent`, new Map([[target.id, prepared.proof]]));
+    await writeStep(store, source, source.id, sourceBase.proof, { memoryMerge: encoded }, `Memory merge ${id} intent`, new Map([[target.id, targetBase.proof]]));
     source = { ...source, merge: encoded };
   }
   let progress;
   try { progress = await recover(store, source, target, receipt); } catch { throw refusal(source); }
   if (!apply) return;
   if (!progress.published) {
-    await writeStep(store, source, target.id, progress.target.proof, revisionFields(receipt), `Memory merge ${receipt.id} publish`, new Map([[source.id, progress.source.proof]]));
+    await writeStep(store, source, target.id, progress.target.proof, revisionFields(receipt, progress.target.document!, source.id), `Memory merge ${receipt.id} publish`, new Map([[source.id, progress.source.proof]]));
     progress = await recover(store, source, target, receipt);
   }
   if (!progress.canceled) {

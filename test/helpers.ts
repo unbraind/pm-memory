@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdtemp, rm, readdir, readlink, readFile, mkdir, writeFile, cp } from 'node:fs/promises';
-import { availableParallelism, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TestContext } from 'node:test';
@@ -21,8 +21,23 @@ export async function runModelWorker(t: TestContext, worker: URL, variables: Rec
   assert.equal(code, 0, output); assert.ok(output.includes(receipt), `Missing complete SDK-verified worker receipt: ${output}`);
 }
 
-/** Default worker fan-out width: SDK batches are I/O bound, so twice the cores stays affordable on small runners. */
-export function modelWorkerPool(): number { return Number(process.env.PM_MEMORY_WORKER_POOL ?? Math.min(16, Math.max(4, availableParallelism() * 2))); }
+/** Bound model fan-out within the outer two-file runner; serial mode permits comparable benchmarks. */
+export function modelWorkerPool(): number {
+  const width = Number(process.env.PM_MEMORY_WORKER_POOL ?? 2);
+  if (width !== 1 && width !== 2) throw new Error('PM_MEMORY_WORKER_POOL must be 1 or 2');
+  return width;
+}
+/** Exercise independent fixture copies concurrently, awaiting every active case before cleanup or failure. */
+export async function concurrentCases<T>(values: readonly T[], run: (value: T, index: number) => Promise<void>): Promise<void> {
+  let next = 0; const errors: unknown[] = [];
+  const lane = async () => {
+    for (let index = next++; index < values.length && errors.length === 0; index = next++) {
+      try { await run(values[index], index); } catch (error) { errors.push(error); }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(modelWorkerPool(), values.length) }, lane));
+  if (errors.length > 0) throw new AggregateError(errors, 'Independent fixture case failed');
+}
 
 /** Run independent model-worker batches concurrently through one bounded pool; every batch still reports its own receipt. */
 export async function runModelWorkerPool(t: TestContext, worker: URL, configurations: readonly Record<string, string>[], receipts: readonly string[]): Promise<void> {
@@ -33,6 +48,13 @@ export async function runModelWorkerPool(t: TestContext, worker: URL, configurat
   await Promise.all(Array.from({ length: Math.max(1, Math.min(modelWorkerPool(), configurations.length)) }, lane));
   const observed = failures.filter(error => error !== undefined);
   if (observed[0] !== undefined) throw new Error(`${observed.length} pooled worker batch(es) failed; first failure follows`, { cause: observed[0] });
+}
+
+/** Execute the complete fixed-size property budget without duplicating worker scheduling in each law. */
+export async function modelBatches(t: TestContext, worker: URL, stem: string, batch: number, receipt: (start: number, count: number) => string): Promise<void> {
+  const starts = Array.from({ length: 500 / batch }, (_, index) => index * batch);
+  await runModelWorkerPool(t, worker, starts.map(start => ({ [`PM_MEMORY_${stem}_START`]: String(start), [`PM_MEMORY_${stem}_COUNT`]: String(batch) })), starts.map(start => receipt(start, batch)));
+  assert.equal(starts.length * batch, 500);
 }
 
 /** Initialize a real tracker and register cleanup before any mutations. */

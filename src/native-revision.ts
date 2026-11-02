@@ -46,7 +46,7 @@ export async function commitNativeFields(store: Store, id: string, expected: Nat
     try {
       const fields = { author: store.invocationAuthor, ...options, message };
       const result = store.hostClient !== undefined ? await guardedHostUpdate(store, store.hostClient, id, guard, fields) : await update(id, fields, { pmRoot: store.workspace });
-      return result.changed_fields.length > 0 || await matches();
+      return result.changed_fields.length > 0 || await matches() && await certified();
     } catch (error) { if (moved) return false; throw error; }
   };
   return store.hostClient !== undefined ? publish() : store.fence(() => runWithActiveExtensions({ path: store.workspace, noExtensions: true }, publish));

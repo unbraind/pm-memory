@@ -35,7 +35,7 @@ export function documentPatch(item: Pick<Memory, 'document'>, next: HarnessDocum
   const current = item.document ?? { ...next, original: baseline };
   if (encodeDocument(current) === encodeDocument(next)) return { options: {}, conflict: false };
   const expected = expectedHash ?? (baseline === undefined ? undefined : digest(encodeDocument({ ...next, original: baseline })));
-  if ((item.document !== undefined && expected !== undefined && digest(encodeDocument(item.document)) !== expected) || (nativeEdit && expected === undefined) || (item.document !== undefined && expected === undefined)) return { options: {}, conflict: true };
+  if ((item.document !== undefined && expected !== undefined && digest(encodeDocument(item.document)) !== expected) || nativeEdit || (item.document !== undefined && expected === undefined)) return { options: {}, conflict: true };
   return { options: { memoryDocument: encodeDocument(next) }, conflict: false };
 }
 
@@ -74,8 +74,12 @@ export function stemOf(path: string): string {
   while (end > start && stem[end - 1] === '-') end--;
   return stem.slice(start, end);
 }
-/** Detect document framing independently of YAML validity, including literal native body text. */
-export function frontmatter(content: string): RegExpExecArray | null { return /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content); }
+/** Detect document framing independently of YAML validity, including literal native body text and empty frontmatter. */
+export function frontmatter(content: string): RegExpExecArray | null {
+  const framed = /^\uFEFF?---\r?\n(?:([\s\S]*?)\r?\n)?---(?:\r?\n|$)/.exec(content);
+  if (framed !== null) framed[1] ??= '';
+  return framed;
+}
 /** Parse frontmatter with the YAML parser while preserving its original byte representation. */
 export function sourceDocument(path: string, bytes: Buffer, from: Harness): Source {
   const original = bytes.toString('base64');
@@ -83,7 +87,7 @@ export function sourceDocument(path: string, bytes: Buffer, from: Harness): Sour
   if (!Buffer.from(content).equals(bytes)) throw new MemoryError('format', 'Non-UTF-8 memory refused', 'Convert the source to UTF-8 before importing');
   const front = frontmatter(content);
   let metadata: Record<string, unknown> = {};
-  if (front !== null) {
+  if (front !== null && front[1] !== '') {
     let parsed: unknown;
     try {
       const yaml = front[1].replace(/^(name|description): ([^"'|>\n][^\r\n\u2028\u2029]*)$/gm, (line, key: string, value: string) => {
