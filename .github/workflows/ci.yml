@@ -12,6 +12,8 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_USERCONFIG: /dev/null
     strategy:
       fail-fast: false
       matrix:

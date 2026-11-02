@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getHistoryPath } from '@unbrained/pm-cli/sdk';
-import { readFile } from 'node:fs/promises';
+import { chmod, readFile } from 'node:fs/promises';
 import { consolidate, remember } from '../index.ts';
 import { contradicts, proposals } from '../src/consolidate.ts';
 import { tracker, snapshot } from './helpers.ts';
@@ -29,4 +29,17 @@ test('consolidation dry-run is byte-for-byte read only; explicit apply archives 
   const memories = await store.read();
   assert.equal(contradicts({ ...memories[0], title: 'unrelated', slug: 'unrelated', body: 'enable' }, { ...memories[0], title: 'different', slug: 'different', body: 'disable' }), false);
   assert.deepEqual(proposals([]), []);
+});
+
+test('merge preview ignores unreadable history on unrelated native tasks', async t => {
+  if (process.getuid?.() === 0) return;
+  const target = await tracker(t);
+  await remember('One durable reference', { ...target.options, kind: 'reference', slug: 'alpha' });
+  const foreign = (await target.client.create({ title: 'Unrelated native task' })).item;
+  const history = getHistoryPath(target.workspace, foreign.id);
+  await chmod(history, 0);
+  try {
+    assert.equal((await consolidate(target.options)).applied, false);
+    await assert.rejects(consolidate({ ...target.options, apply: true }), error => (error as NodeJS.ErrnoException).code === 'EACCES');
+  } finally { await chmod(history, 0o600); }
 });

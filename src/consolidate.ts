@@ -1,10 +1,14 @@
-import { jaccardSimilarity } from '@unbrained/pm-cli/sdk';
+import { assertNativeHost } from './native-host.ts';
+import { isCanceled, statusRegistry } from './lifecycle.ts';
+import { certifyCompleteListResult, jaccardSimilarity } from '@unbrained/pm-cli/sdk';
 import { active, DUPLICATE_THRESHOLD } from './memory.ts';
-import { digest, words, MemoryError } from './core.ts';
+import { words, MemoryError } from './core.ts';
 import { unitVector, unitCosine, memoryVectors, OllamaProvider, semanticFailure, semanticMode, INCOMPLETE_EMBEDDINGS } from './embeddings.ts';
 import type { SemanticOptions } from './embeddings.ts';
 import { metadata, Store } from './store.ts';
 import type { Memory, MemoryOptions, Proposal } from './types.ts';
+import { observeTargets, nativeState } from './native-revision.ts';
+import { pendingMerge, performMerge } from './merge-receipt.ts';
 
 /** Precomputed lexical evidence reused across every consolidation pair. */
 interface Signals {
@@ -100,44 +104,22 @@ export async function semanticProposals(memories: readonly Memory[], options: Me
     return { proposals: result, ...(vectors.some(vector => vector === undefined) ? { note: INCOMPLETE_EMBEDDINGS } : {}) };
   } catch (error) { return { proposals: [], note: semanticFailure(mode, error) }; }
 }
-/** Durable merge evidence binds replay to the original source and both target states. */
-interface MergeReceipt {
-  /** Stable destination slug. */
-  target: string;
-  /** Exact intended merged body. */
-  body: string;
-  /** Content revision assigned by publication. */
-  changed_at: string;
-  /** Semantic source revision before cancellation. */
-  source_revision: string;
-  /** Destination revision before publication. */
-  target_before: string;
-  /** Destination revision after publication. */
-  target_after: string;
-}
-/** Ignore operational metadata while detecting every acknowledged semantic edit. */
-function revision(item: Memory): string {
-  return digest(JSON.stringify([item.slug, item.title, item.description, item.body, item.kind, item.why, item.how, item.pinned, item.tags, item.updated]));
-}
-/** Refuse unsafe or legacy replay before any planned action can mutate tracker state. */
-function mergeReceipt(source: Memory, memories: readonly Memory[]): MergeReceipt {
-  let receipt: MergeReceipt;
-  try { receipt = JSON.parse(source.merge) as MergeReceipt; }
-  catch { throw new MemoryError('conflict', `Invalid pending memory merge on ${source.slug}`, `Inspect memory_merge on ${source.slug}; reconcile or clear it through an audited pm update before retrying`); }
-  const target = memories.find(item => item.slug === receipt?.target && item.status !== 'canceled');
-  if (target === undefined || typeof receipt.body !== 'string' || typeof receipt.changed_at !== 'string' || receipt.source_revision !== revision(source) || ![receipt.target_before, receipt.target_after].includes(revision(target))) throw new MemoryError('conflict', `Pending memory merge ${source.slug} -> ${target?.slug ?? 'unavailable target'} revisions changed`, `Preserve intervening edits, then reconcile or clear memory_merge on ${source.slug} through an audited pm update before retrying`);
-  return receipt;
-}
 /** Preview consolidation without writes; explicitly applied actions preserve all content and audited history. */
 export async function consolidate(options: MemoryOptions & SemanticOptions & { apply?: boolean; minAgeDays?: number }): Promise<{ applied: boolean; proposals: Proposal[]; note?: string }> {
   const mode = semanticMode(options.semantic);
   if (options.apply && mode !== 'off') throw new MemoryError('invalid', 'Semantic consolidation is dry-run only', 'Review with --semantic on; use --semantic off for existing lexical actions');
   const store = new Store(options);
   const { memories, planned } = await store.write(async () => {
-    const memories = await store.read();
-    const pending = memories.filter(item => item.merge !== '').map(item => ({ action: 'merge' as const, slug: item.slug, target: mergeReceipt(item, memories).target, reason: 'Resume recorded memory merge' }));
+    if (options.apply) await assertNativeHost(store);
+    const corpus = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
+    // Preview validates pending receipts through fresh native state; the full target observation
+    // is only consulted when a write will follow, so a dry run cannot fail on unrelated items.
+    const observed: ReadonlyMap<string, Awaited<ReturnType<typeof nativeState>>> = options.apply ? await observeTargets(store, corpus) : new Map();
+    const memories = await store.read(corpus);
+    const pending = memories.filter(item => item.merge !== '').map(item => ({ action: 'merge' as const, slug: item.slug, target: pendingMerge(item).target, reason: 'Resume recorded memory merge' }));
     const reserved = new Set<string | undefined>(pending.flatMap(proposal => [proposal.slug, proposal.target]));
     if (reserved.size !== pending.length * 2) throw new MemoryError('conflict', 'Pending memory merges reuse an action endpoint', 'Reconcile or clear overlapping memory_merge receipts through audited pm updates before retrying');
+    for (const item of memories.filter(item => item.merge !== '')) await performMerge(store, item, memories, observed, false);
     const planned = [...pending, ...proposals(memories, options.minAgeDays).filter(proposal => !reserved.has(proposal.slug) && !reserved.has(proposal.target))];
     const bounded = new Set(memories.filter(item => item.validity !== undefined).map(item => item.slug));
     if (options.apply && planned.some(proposal => proposal.action === 'merge' && (bounded.has(proposal.slug) || bounded.has(proposal.target!)))) throw new MemoryError('validity', 'Consolidation cannot merge bounded guidance', 'Review the proposal without --apply; revise and renew the intended policy explicitly');
@@ -149,25 +131,14 @@ export async function consolidate(options: MemoryOptions & SemanticOptions & { a
       await store.history(older.id);
       if (proposal.action === 'archive') {
         await store.client.comments(older.id, { add: `Memory archive: ${proposal.reason}`, ifAbsent: true });
-        await store.client.update(older.id, { status: 'canceled', closeReason: proposal.reason, message: 'Archive unused stale memory' });
+        await store.client.update(older.id, { status: (await statusRegistry(store.workspace)).canceled_status, closeReason: proposal.reason, message: 'Archive unused stale memory' });
       } else {
         const target = memories.find(item => item.slug === proposal.target)!;
         await store.history(target.id);
-        await store.link(target.id, older.id, proposal.action === 'supersedes' ? 'supersedes' : 'related');
-        await store.client.comments(target.id, { add: `Memory ${proposal.action}: ${older.slug}; ${proposal.reason}. Original content retained in its Knowledge item and append-only history.`, ifAbsent: true });
-        if (proposal.action === 'merge') {
-          let receipt: MergeReceipt;
-          if (older.merge !== '') receipt = mergeReceipt(older, await store.read());
-          else {
-            const current = (await store.read()).find(item => item.id === target.id)!;
-            const body = `${current.body}\n\n### Consolidated context (${older.slug})\n${older.body}\n\n**Why:** ${older.why}\n**How to apply:** ${older.how}`;
-            const changed_at = new Date().toISOString();
-            receipt = { target: target.slug, body, changed_at, source_revision: revision(older), target_before: revision(current), target_after: revision({ ...current, body: body.trim(), updated: changed_at }) };
-            await store.fields(older.id, { merge: JSON.stringify(receipt) });
-          }
-          await store.client.run('update', { id: target.id, options: { body: receipt.body, ...metadata({ edited: true, verdict: 'unknown', verified_at: '', changed_at: receipt.changed_at }), message: 'Retain merged memory content' } });
-          await store.client.update(older.id, { status: 'canceled', closeReason: `Merged context linked to ${target.slug}; content retained`, message: 'Consolidate duplicate memory' });
-          await store.fields(older.id, { merge: '' });
+        if (proposal.action === 'merge') await performMerge(store, older, memories, observed, true, target.slug);
+        else {
+          await store.link(target.id, older.id, 'supersedes');
+          await store.client.comments(target.id, { add: `Memory supersedes: ${older.slug}; ${proposal.reason}. Original content retained in its Knowledge item and append-only history.`, ifAbsent: true });
         }
       }
     }

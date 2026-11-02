@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import promises, { lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { syncBuiltinESMExports } from 'node:module';
-import { consolidate, exportDir, importDir, remember, verify } from '../index.ts';
+import { consolidate, exportDir, importDir, remember, verify, LEGACY_ORIGINS, parseLegacyOrigins } from '../index.ts';
 import { privacy } from '../src/core.ts';
 import { exportAncestor } from '../src/transfer.ts';
 import { tracker, snapshot } from './helpers.ts';
@@ -47,23 +47,26 @@ test('agents aggregates remove archived components and replace revised sections 
   await writeFile(join(original, 'AGENTS.md'), heading + await readFile(join(original, 'AGENTS.md'), 'utf8') + repeatedComponents.join(''));
   const second = await tracker(t); await importDir(original, { ...second.options, from: 'agents-md' });
   const rows = await second.store.read();
-  await second.client.update(rows.find(row => row.slug === 'memories-archived')!.id, { status: 'canceled', closeReason: 'Synthetic archive' });
-  await remember('Replacement revised standing guidance', { ...second.options, kind: 'project', update: 'memories-revised' });
+  await second.client.update(rows.find(row => row.slug === 'archived')!.id, { status: 'canceled', closeReason: 'Synthetic archive' });
+  await remember('Replacement revised standing guidance', { ...second.options, kind: 'project', update: 'revised' });
   const output = join(second.root, 'output');
-  assert.deepEqual(await exportDir(output, { ...second.options, to: 'agents-md' }), { exported: 3, byte_preserved: 1 });
+  assert.deepEqual(await exportDir(output, { ...second.options, to: 'agents-md' }), { exported: 4, byte_preserved: 0 });
   const aggregate = await readFile(join(output, 'AGENTS.md'), 'utf8');
-  assert.ok(aggregate.startsWith(heading));
-  for (const obsolete of ['Original archived standing guidance', 'Original revised standing guidance']) assert.ok(!aggregate.includes(obsolete));
-  for (const current of ['## Replacement revised standing guidance', '## Original unchanged standing guidance']) assert.equal(aggregate.split(current).length - 1, 1);
+  assert.doesNotMatch(aggregate, /Original archived|Original revised|Replacement revised/);
+  assert.match(await readFile(join(output, 'memories/revised.md'), 'utf8'), /Replacement revised standing guidance/);
+  assert.match(await readFile(join(output, 'memories/unchanged.md'), 'utf8'), /Original unchanged standing guidance/);
+  const before = (await second.client.listAllComplete({ includeBody: true })).items;
+  await importDir(output, { ...second.options, from: 'agents-md' });
+  assert.deepEqual((await second.client.listAllComplete({ includeBody: true })).items, before);
   const third = await tracker(t); await importDir(output, { ...third.options, from: 'agents-md' });
   const repeated = join(third.root, 'repeated');
-  assert.deepEqual(await exportDir(repeated, { ...third.options, to: 'agents-md' }), { exported: 3, byte_preserved: 3 });
-  assert.deepEqual(await snapshot(repeated), await snapshot(output));
+  assert.deepEqual(await exportDir(repeated, { ...third.options, to: 'agents-md' }), { exported: 4, byte_preserved: 0 });
+  assert.equal(await readFile(join(repeated, 'AGENTS.md'), 'utf8'), aggregate);
 });
 
 test('export accepts POSIX system link ancestors but refuses user links and destination links', async t => {
   const { root, options } = await tracker(t);
-  await remember('Portable system directory export', { ...options, kind: 'reference' });
+  const fact = await remember('Portable system directory export', { ...options, kind: 'reference' });
   const target = join(root, 'target'); await mkdir(target);
   const alias = join(root, 'alias'); await symlink(target, alias);
   const linkStat = await lstat(alias); const directoryStat = await lstat(target);
@@ -80,7 +83,7 @@ test('export accepts POSIX system link ancestors but refuses user links and dest
   const output = join(alias, 'nested', 'output');
   try {
     await exportDir(output, { ...options, to: 'claude-code' });
-    assert.ok((await readFile(join(target, 'nested', 'output', 'MEMORY.md'), 'utf8')).includes('Portable system directory export'));
+    assert.ok((await readFile(join(target, 'nested', 'output', 'memories', `${fact.slug}.md`), 'utf8')).includes('Portable system directory export'));
     await assert.rejects(exportDir(alias, { ...options, to: 'claude-code' }), /regular directory/);
   } finally { hook.mock.restore(); syncBuiltinESMExports(); }
 });
@@ -102,7 +105,8 @@ test('agents aggregate preservation tolerates empty and nonembedded imported com
   const separate = (await store.read()).find(row => row.path === 'separate.md')!;
   await client.update(separate.id, { status: 'canceled', closeReason: 'Synthetic archive' });
   const output = join(root, 'output');
-  assert.deepEqual(await exportDir(output, { ...options, to: 'agents-md' }), { exported: 2, byte_preserved: 2 });
+  assert.deepEqual(await exportDir(output, { ...options, to: 'agents-md' }), { exported: 3, byte_preserved: 2 });
+  assert.equal(parseLegacyOrigins(JSON.parse(await readFile(join(output, LEGACY_ORIGINS), 'utf8')), 'agents-md').length, 2);
   assert.equal(await readFile(join(output, 'AGENTS.md'), 'utf8'), 'Standalone instructions\n');
   assert.equal((await readFile(join(output, 'empty.md'))).length, 0);
 });

@@ -1,3 +1,4 @@
+import { isCanceled } from './lifecycle.ts';
 import type { GuidanceOptions, GuidanceState, GuidanceWindow, Memory, RenewOptions } from './types.ts';
 import { digest, MemoryError, privacy, slug, text } from './core.ts';
 import { Store } from './store.ts';
@@ -48,7 +49,7 @@ export async function renew(key: string, options: RenewOptions): Promise<{ id: s
   const evidence = text(options.evidence).trim(); privacy(evidence);
   const store = new Store(options);
   return store.write(async () => {
-    const item = (await store.read()).find(item => item.slug === key && item.status !== 'canceled' && !item.artifact);
+    const item = (await store.read()).find(item => item.slug === key && !isCanceled(item) && !item.artifact);
     if (item === undefined) throw new MemoryError('missing', 'Memory slug does not exist', 'Use memory index to select an active slug');
     if (!item.pinned) throw new MemoryError('validity', 'Validity windows require pinned standing guidance', 'Use memory remember --update with --pin before renewing');
     const revision = (item.validity?.revision ?? 0) + 1;

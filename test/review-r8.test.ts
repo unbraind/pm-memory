@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { consolidate, exportDir, importDir, remember } from '../index.ts';
+import { consolidate, exportDir, importDir, remember, LEGACY_ORIGINS, parseLegacyOrigins } from '../index.ts';
 import { MemoryError } from '../src/core.ts';
 import { testEnvironment } from '../scripts/environment.ts';
 import { assertTestsPassed, snapshot, tracker } from './helpers.ts';
@@ -30,12 +30,15 @@ test('pending merge refusals identify the source, target and audited recovery fi
   }
 });
 
-test('remember refuses index artifact slugs for both creation and explicit updates without writes', async t => {
-  const { root, options, store, client } = await tracker(t);
-  const input = join(root, 'input'); await mkdir(input);
+/** Seed the same real imported index for separate selector and export contracts. */
+async function indexFixture(t: Parameters<typeof tracker>[0]) {
+  const target = await tracker(t); const input = join(target.root, 'input'); await mkdir(input);
   await writeFile(join(input, 'MEMORY.md'), '# Synthetic index\n');
-  await importDir(input, { ...options, from: 'claude-code' });
-  const artifact = (await store.read())[0];
+  await importDir(input, { ...target.options, from: 'claude-code' });
+  return { ...target, input, artifact: (await target.store.read())[0] };
+}
+test('remember refuses index artifact slugs for both creation and explicit updates without writes', async t => {
+  const { root, options, store, client, input, artifact } = await indexFixture(t);
   assert.equal(artifact.slug, 'memory'); assert.equal(artifact.artifact, true);
   for (const status of ['open', 'canceled']) {
     await client.update(artifact.id, { status, closeReason: 'Synthetic artifact lifecycle' });
@@ -51,10 +54,20 @@ test('remember refuses index artifact slugs for both creation and explicit updat
       assert.deepEqual(await snapshot(options.workspace), before);
     }
   }
+
+});
+
+test('canceled and reopened index artifacts export with byte-identical companions and legacy origins', async t => {
+  const { root, options, store, client, input, artifact } = await indexFixture(t);
+  await client.update(artifact.id, { status: 'canceled', closeReason: 'Synthetic artifact lifecycle' });
   await client.update(artifact.id, { status: 'open' });
   const output = join(root, 'output');
   await exportDir(output, { ...options, to: 'claude-code' });
-  assert.deepEqual(await snapshot(output), await snapshot(input));
+  const { [LEGACY_ORIGINS]: companion, ...originals } = await snapshot(output);
+  assert.deepEqual(originals, await snapshot(input));
+  assert.ok(companion);
+  const records = parseLegacyOrigins(JSON.parse(await readFile(join(output, LEGACY_ORIGINS), 'utf8')), 'claude-code');
+  assert.equal(records.length, 1); assert.equal(records[0].artifact, true); assert.equal(records[0].guidance.origin!.id, artifact.id);
 });
 
 test('child test assertions reject successful processes with zero matching tests', () => {

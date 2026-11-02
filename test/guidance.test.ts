@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { getHistoryPath, readHistoryEntries, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
 import { decodeToon } from '@unbrained/pm-cli/sdk/testing';
 import type { CommandHandlerContext } from '@unbrained/pm-cli/sdk/authoring';
-import { remember, recall, index, get, renew, guidanceState, packetTokens, exportDir, consolidate, MemoryError } from '../index.ts';
+import { remember, recall, index, get, renew, guidanceState, packetTokens, exportDir, importDir, consolidate, MemoryError } from '../index.ts';
 import type { GuidanceWindow, Packet } from '../index.ts';
 import { instant, readWindow, guidancePolicy, eligibleGuidance } from '../src/guidance.ts';
 import { runCommand } from '../src/commands.ts';
@@ -74,7 +75,15 @@ test('content edits invalidate renewal evidence while verification and recall do
   assert.equal((await recall('release', options)).memories![0].validity, 'current');
   await store.fields(second.id, { pinned: false });
   assert.equal(guidanceState(await get('policy', options), Date.now()), 'needs-renewal');
-  await assert.rejects(exportDir(join(options.workspace, 'unused'), { ...options, to: 'agents-md' }), refusal('validity'));
+  // Exporting needs-renewal guidance retains the window and renewals, and a re-import reports needs-renewal again.
+  const outputPath = join(options.workspace, 'unused');
+  assert.equal((await exportDir(outputPath, { ...options, to: 'agents-md' })).exported, 3);
+  const exported = JSON.parse(await readFile(join(outputPath, 'pm-memory-policy.json'), 'utf8'));
+  const row = exported.guidance.find((entry: { slug: string }) => entry.slug === 'policy');
+  assert.ok(row.validity !== null); assert.ok(row.renewals.length >= 3);
+  const fresh = await tracker(t);
+  await importDir(outputPath, { ...fresh.options, from: 'agents-md' });
+  assert.equal(guidanceState(await get('policy', fresh.options), Date.now()), 'needs-renewal');
 });
 
 test('renewals across independent processes preserve both evidence revisions in native history', async t => {

@@ -19,7 +19,7 @@ export function auditIdentities(root: string): string[] {
   const env = gitEnvironment(process.env);
   env.GIT_CONFIG_GLOBAL = '/dev/null';
   env.GIT_CONFIG_NOSYSTEM = '1';
-  const git = (args: readonly string[]): string => execFileSync('git', [...args], { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const git = (args: readonly string[]): string => execFileSync('git', [...args], { cwd: root, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   git(['merge-base', '--is-ancestor', baseline[0], 'HEAD']);
   const commits = git(['rev-list', `${baseline[0]}..HEAD`]).split('\n').filter(Boolean);
   const violations: string[] = [];

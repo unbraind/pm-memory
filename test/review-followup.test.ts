@@ -77,7 +77,7 @@ test('export creates nested parents before staging', async t => {
   await remember('Portable exported guidance', { ...options, kind: 'reference', slug: 'guide' });
   const out = join(root, 'missing', 'nested', 'out');
   await exportDir(out, { ...options, to: 'claude-code' });
-  assert.match(await readFile(join(out, 'guide.md'), 'utf8'), /Portable exported guidance/);
+  assert.match(await readFile(join(out, 'memories/guide.md'), 'utf8'), /Portable exported guidance/);
   await exportDir(out, { ...options, to: 'claude-code' });
 });
 
@@ -94,19 +94,27 @@ test('export index escapes titles and destinations and preserves current angle l
   const name = 'my notes (one)<two>#%.md';
   await writeFile(join(source, name), '---\nname: "Title] with [brackets\\nand newline"\n---\nPortable guidance\n');
   await importDir(source, { ...options, from: 'claude-code' });
-  const out = join(root, 'out'); await exportDir(out, { ...options, to: 'claude-code' });
-  const index = await readFile(join(out, 'MEMORY.md'), 'utf8');
-  assert.equal(index, '- [Title  with  brackets and newline](<my%20notes%20%28one%29%3Ctwo%3E%23%25.md>)\n');
-  await writeFile(join(out, 'MEMORY.md'), `# Custom heading\n${index}`);
-  const second = await tracker(t); await importDir(out, { ...second.options, from: 'claude-code' });
+  const generated = join(root, 'projected-export');
+  const generatedResult = await exportDir(generated, { ...options, to: 'claude-code' });
+  assert.equal(generatedResult.byte_preserved, 0);
+  const index = await readFile(join(generated, 'MEMORY.md'), 'utf8');
+  assert.match(index, /pm-memory-policy:v1/);
+  assert.doesNotMatch(index, /Title|newline|\] with/);
+  // A genuinely lossless legacy index keeps its original angle destinations.
+  const custom = '# Custom heading\n- [Title](<my%20notes%20%28one%29%3Ctwo%3E%23%25.md>)\n';
+  await writeFile(join(source, 'MEMORY.md'), custom);
+  const second = await tracker(t); await importDir(source, { ...second.options, from: 'claude-code' });
   const next = join(root, 'next');
   assert.equal((await exportDir(next, { ...second.options, to: 'claude-code' })).byte_preserved, 2);
-  assert.equal(await readFile(join(next, 'MEMORY.md'), 'utf8'), `# Custom heading\n${index}`);
-  await writeFile(join(out, 'MEMORY.md'), '- [Broken](bad%.md)\n');
-  const third = await tracker(t); await importDir(out, { ...third.options, from: 'claude-code' });
+  assert.equal(await readFile(join(next, 'MEMORY.md'), 'utf8'), custom);
+  await writeFile(join(source, 'MEMORY.md'), '- [Broken](bad%.md)\n');
+  const third = await tracker(t); await importDir(source, { ...third.options, from: 'claude-code' });
+  const before = (await third.client.listAllComplete({ includeBody: true })).items;
   const repaired = join(root, 'repaired');
-  assert.equal((await exportDir(repaired, { ...third.options, to: 'claude-code' })).byte_preserved, 1);
+  assert.equal((await exportDir(repaired, { ...third.options, to: 'claude-code' })).byte_preserved, 0);
   assert.equal(await readFile(join(repaired, 'MEMORY.md'), 'utf8'), index);
+  await importDir(repaired, { ...third.options, from: 'claude-code' });
+  assert.deepEqual((await third.client.listAllComplete({ includeBody: true })).items, before);
 });
 
 test('last-line file claims after closed fences retain confident absence', async t => {

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { activateExtensionForTest, decodeToon } from '@unbrained/pm-cli/sdk/testing';
 import { estimatePmOutputTokens, getHistoryPath, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { CommandHandlerContext } from '@unbrained/pm-cli/sdk/authoring';
-import extension, { remember } from '../index.ts';
+import extension, { remember, exportDir } from '../index.ts';
 import { runCommand } from '../src/commands.ts';
 import { tracker, installExtension } from './helpers.ts';
 
@@ -51,12 +51,36 @@ test('all commands activate and actual host recall/index stay bounded in TOON an
 test('typed refusal exit codes include remedies and sanitize unexpected filesystem failures', async t => {
   const { workspace } = await tracker(t);
   const ctx = { command: 'memory remember', pm_root: workspace, args: [], options: {}, global: {} } as CommandHandlerContext;
-  await assert.rejects(runCommand('unknown', ctx), { exitCode: 2 });
+  await assert.rejects(runCommand('unknown', ctx), { exitCode: 2, context: { code: 'invalid', required: 'Run pm memory --help' } });
   await assert.rejects(runCommand('remember', ctx), { exitCode: 2 });
   await assert.rejects(runCommand('remember', { ...ctx, args: ['token=fake0000000000'], options: { kind: 'project' } }), { exitCode: 4 });
   await runCommand('remember', { ...ctx, args: ['Synthetic remembered fact'], options: { kind: 'user', slug: 'first' } });
   await assert.rejects(runCommand('remember', { ...ctx, args: ['Synthetic remembered fact'], options: { kind: 'user', slug: 'second' } }), { exitCode: 3 });
   await assert.rejects(runCommand('import', { ...ctx, args: ['missing-source'], options: { from: 'claude-code' } }), error => { assert.match(String(error), /Remedy: Check source permissions/); assert.ok(!String(error).includes(workspace)); return true; });
+});
+
+test('actual CLI origin refusals retain structured codes and create remedies without retargeting aliases', async t => {
+  const { options, root, workspace, client } = await tracker(t); await installExtension(workspace);
+  const original = await remember('Origin guidance', { ...options, slug: 'alpha', kind: 'reference' });
+  const directory = join(root, 'wire'); await exportDir(directory, { ...options, to: 'agents-md' });
+  await client.run('delete', { id: original.id, options: { force: true } });
+  const replacement = await remember('Origin guidance', { ...options, slug: 'alpha', kind: 'reference', forceNew: true });
+  const before = (await client.get(replacement.id, { full: true })).item;
+  for (const format of [[], ['--json']]) {
+    const refusal = cli(root, workspace, ['import', directory, '--from', 'agents-md', ...format]);
+    assert.equal(refusal.status, 2, refusal.stderr + refusal.stdout);
+    const output = refusal.stderr + refusal.stdout;
+    if (format.length) { const parsed = JSON.parse(output); assert.equal(parsed.code, 'origin_missing'); assert.match(parsed.required, /--create/); }
+    else { assert.match(output, /origin_missing/); assert.match(output, /--create/); }
+    assert.deepEqual((await client.get(replacement.id, { full: true })).item, before);
+  }
+  await client.run('delete', { id: replacement.id, options: { force: true } });
+  const created = cli(root, workspace, ['import', directory, '--from', 'agents-md', '--create', '--json']);
+  assert.equal(created.status, 0, created.stderr); assert.equal(JSON.parse(created.stdout).imported, 1);
+  const restored = (await client.listAllComplete({ includeBody: true })).items[0];
+  assert.notEqual(restored.id, original.id); assert.equal(JSON.parse(String(restored.memory_origin)).id, original.id); assert.equal(restored.body, 'Origin guidance');
+  const retry = cli(root, workspace, ['import', directory, '--from', 'agents-md', '--json']);
+  assert.equal(retry.status, 0, retry.stderr); assert.equal(JSON.parse(retry.stdout).unchanged, 1);
 });
 
 /** The real host client must preserve environment identity unless an explicit author overrides it. */

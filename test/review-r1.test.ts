@@ -12,6 +12,7 @@ import { Store } from '../src/store.ts';
 import { rank } from '../src/memory.ts';
 import { checkClaim, directoryEvidence, searchClaims } from '../src/verify.ts';
 import { tracker, snapshot } from './helpers.ts';
+import { nativeHost } from './native-host-helpers.ts';
 
 // Each scanner must finish under an independent operating-system deadline.
 for (const [label, input] of [['URL', 'http://!:' + '!:'.repeat(50000)], ['base64 email', 'aB+/'.repeat(50000)], ['JWT header', 'eyJ-'.repeat(50000)]]) test(`privacy scans adversarial ${label} characters within a fixed time bound`, { timeout: 20000 }, async t => {
@@ -94,23 +95,23 @@ test('semantic age survives recall and verify and advances only on changed conte
   assert.ok((await store.read()).find(item => item.id === first.id)!.updated > '2021');
 });
 
-/** Replay a receipt captured from a real merge, then exercise a failed cancellation using filesystem permissions. */
-test('merge receipts resume after body publication without duplicate appends', { skip: process.getuid?.() === 0 ? 'root ignores permission bits' : false }, async t => {
+/** Resume a real interrupted host write without manufacturing a historical recovery generation. */
+test('merge receipts resume after body publication without duplicate appends', async t => {
   const { options, store, workspace } = await tracker(t);
   const older = await remember('Repeated build guidance', { ...options, kind: 'project', slug: 'old' });
   const target = await remember('Repeated build guidance', { ...options, kind: 'project', slug: 'new', forceNew: true });
-  await consolidate({ ...options, apply: true });
-  const history = await readFile(getHistoryPath(workspace, older.id), 'utf8');
-  assert.ok(history.includes('memory_merge'), history);
-  const events = await readHistoryEntries(getHistoryPath(workspace, older.id), older.id);
-  const receipt = events.flatMap(entry => entry.patch).find(op => op.path.endsWith('/memory_merge') && 'value' in op && typeof op.value === 'string' && op.value !== '');
-  assert.ok(receipt && 'value' in receipt && typeof receipt.value === 'string', JSON.stringify(events));
-  await store.fields(older.id, { merge: receipt.value });
-  await store.client.update(older.id, { status: 'open' });
+  let denied = 0;
+  await nativeHost(workspace, async client => {
+    await assert.rejects(consolidate({ ...options, client, apply: true }), /policy|guard/iu);
+  }, context => {
+    if (context.before?.metadata.id === older.id && context.after?.metadata.status === 'canceled') {
+      denied++; return { allow: false, code: 'test_merge_crash', remediation: 'Resume the durable forward intent' };
+    }
+  });
+  assert.equal(denied, 1);
   const body = String((await store.client.get(target.id, { full: true })).item.body);
+  assert.equal(body.split('### Consolidated context').length, 2);
   const pending = await consolidate(options); assert.ok(pending.proposals.some(proposal => proposal.slug === 'old' && proposal.target === 'new'));
-  const directory = join(workspace, 'knowledge'); await chmod(directory, 0o500);
-  try { await assert.rejects(consolidate({ ...options, apply: true })); } finally { await chmod(directory, 0o700); }
   await consolidate({ ...options, apply: true });
   assert.equal(String((await store.client.get(target.id, { full: true })).item.body), body);
   assert.equal((await store.read()).find(item => item.id === older.id)!.status, 'canceled');
@@ -126,7 +127,7 @@ test('exports refresh stale indexes, nested paths and canceled imported facts', 
   const native = await remember('New memory context', { ...options, kind: 'project', slug: 'native' });
   const out = join(root, 'out'); await exportDir(out, { ...options, to: 'claude-code' });
   const index = await readFile(join(out, 'MEMORY.md'), 'utf8');
-  assert.match(index, /\(nested\/standing.md\)/); assert.match(index, /\(native.md\)/); assert.doesNotMatch(index, /obsolete/);
+  assert.match(index, /\(memories\/nested-standing.md\)/); assert.match(index, /\(memories\/native.md\)/); assert.doesNotMatch(index, /obsolete/);
   const imported = (await store.read()).find(item => item.slug === 'nested-standing')!;
   await store.client.update(imported.id, { status: 'canceled', closeReason: 'Synthetic archive' });
   await store.client.update(native.id, { status: 'canceled', closeReason: 'Synthetic native archive' });
@@ -137,8 +138,8 @@ test('exports refresh stale indexes, nested paths and canceled imported facts', 
   const next = await tracker(t); await importDir(agentsSource, { ...next.options, from: 'agents-md' });
   await remember('New native instructions', { ...next.options, kind: 'feedback', slug: 'added' });
   const agentsOut = join(root, 'agents-out'); await exportDir(agentsOut, { ...next.options, to: 'agents-md' });
-  assert.match(await readFile(join(agentsOut, 'AGENTS.md'), 'utf8'), /Existing guidance/);
-  assert.match(await readFile(join(agentsOut, 'AGENTS.md'), 'utf8'), /New native instructions/);
+  assert.match(await readFile(join(agentsOut, 'memories/agents.md'), 'utf8'), /Existing guidance/);
+  assert.match(await readFile(join(agentsOut, 'memories/added.md'), 'utf8'), /New native instructions/);
 });
 
 /** Planning refuses all conflicts before directory creation; publication failures leave no destination. */
@@ -155,12 +156,12 @@ test('refused and failed exports leave filesystem snapshots intact', async t => 
   const occupiedBefore = await snapshot(occupied);
   await assert.rejects(exportDir(occupied, { ...options, to: 'claude-code' }), /nonempty directory/);
   assert.deepEqual(await snapshot(occupied), occupiedBefore);
-  // A parent/file name collision fails partway through staging, exercising cleanup of already written bytes.
+  // Canonical policy paths avoid old source collisions; an interrupted staged file still cleans up.
   const first = (await store.read()).find(item => item.slug === 'first')!;
   await store.fields(first.id, { source: 'claude-code:relative-file', path: 'one.md', original: Buffer.from(first.body).toString('base64'), edited: false });
   await store.fields(second.id, { source: 'claude-code:relative-file', path: 'one.md/nested.md', original: Buffer.from('Second export fixture').toString('base64'), edited: false });
   const beforeFailure = await readdir(root);
-  await assert.rejects(exportDir(join(root, 'failed'), { ...options, to: 'claude-code' }));
+  await assert.rejects(exportDir(join(root, 'failed'), { ...options, to: 'claude-code', onStep: step => { if (step.startsWith('file:')) throw new Error('Synthetic staged write failure'); } }), /staged write failure/);
   assert.deepEqual(await readdir(root), beforeFailure);
 });
 
@@ -231,5 +232,7 @@ test('in-process injected client keeps author precedence and content-only timest
   await store.fields(imported.id, { changed_at: '2020-01-01T00:00:00.000Z' });
   await writeFile(source, '---\nname: "Formatting fixture"\n---\nUnchanged semantic guidance.\n');
   assert.equal((await importDir(source, { ...options, from: 'claude-code' })).updated, 1);
+  assert.equal((await store.read()).find(item => item.id === imported.id)!.document!.original, Buffer.from(await readFile(source)).toString('base64'));
+  assert.equal((await importDir(source, { ...options, from: 'claude-code' })).unchanged, 1);
   assert.equal((await store.read()).find(item => item.id === imported.id)!.updated, '2020-01-01T00:00:00.000Z');
 });
