@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { importDir, exportDir, remember, MemoryError, LEGACY_ORIGINS } from '../index.ts';
+import { importDir, exportDir, remember, MemoryError, LEGACY_ORIGINS, POLICY_MANIFEST } from '../index.ts';
+import { policyBody } from '../src/portable.ts';
 import { encodeDocument } from '../src/portable-source.ts';
 import { nativeState } from '../src/native-revision.ts';
 import { exportedPolicy, tracker, snapshot } from './helpers.ts';
@@ -44,15 +45,16 @@ for (const adapter of ['raw', 'companion', 'policy'] as const) for (const bounda
   assert.deepEqual(await snapshot(target.workspace), retained);
 });
 
-test('an unreceipted native document ABA cannot reuse an older export generation', async t => {
+for (const legacy of [false, true]) test(`an unreceipted native document ABA refuses a ${legacy ? 'pre-generation' : 'current'} export`, async t => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-06-01T00:00:00.000Z') });
   const target = await tracker(t);
   const memory = await remember('Alpha body', { ...target.options, slug: 'alpha', kind: 'reference' });
   const doc = { version: 1 as const, format: 'legacy' as const, harness: 'agents-md' as const, path: 'alpha.md', original: Buffer.from('---\ncustom: A\n---\nAlpha body').toString('base64') };
   await target.client.run('update', { id: memory.id, options: { memoryDocument: encodeDocument(doc) } });
   const exported = await exportedPolicy(target, 'before-native-aba'); const row = exported.manifest.guidance[0];
-  const file = join(exported.path, row.path); const bytes = await readFile(file, 'utf8');
-  await writeFile(file, bytes.replace('custom: A', 'custom: B'));
+  if (legacy) { delete row.baseline!.documentGeneration; await writeFile(join(exported.path, POLICY_MANIFEST), JSON.stringify(exported.manifest)); }
+  const file = join(exported.path, row.path);
+  await writeFile(file, policyBody(row, Buffer.from(doc.original, 'base64').toString('utf8').replace('custom: A', 'custom: B')));
   await target.client.run('update', { id: memory.id, options: { memoryDocument: encodeDocument({ ...doc, original: Buffer.from('Native C').toString('base64') }) } });
   await target.client.run('update', { id: memory.id, options: { memoryDocument: encodeDocument(doc) } });
   const before = await snapshot(target.workspace);

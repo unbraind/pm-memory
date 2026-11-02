@@ -80,8 +80,11 @@ export function creator(id: string, entry: HistoryEntry, tracker: string | undef
   if (metadata.type !== 'Knowledge' || typeof metadata.memory_slug !== 'string') return undefined;
   let origin: unknown;
   if (metadata.memory_origin !== undefined) {
-    try { origin = JSON.parse(String(metadata.memory_origin)); } catch { return undefined; }
-    if (!validOrigin(origin)) return undefined;
+    try { origin = JSON.parse(String(metadata.memory_origin)); if (!validOrigin(origin)) throw new Error('Invalid origin'); }
+    catch {
+      if (['native:item', 'portable:policy-v1', 'claude-code:relative-file', 'agents-md:relative-file', 'cursor:relative-file'].includes(String(metadata.memory_source))) throw new Error('Unreadable native origin');
+      return undefined;
+    }
   } else { const creation = hashHistoryStream([entry]); origin = { tracker: tracker ?? creation, id, creation }; }
   return { id, metadata, origin: origin as PortableOrigin };
   } catch { throw new MemoryError('origin_missing', 'Native creation history cannot be decoded', 'Restore verified creation history before importing; no missing origin was inferred'); }

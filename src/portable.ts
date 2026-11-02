@@ -403,7 +403,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
         if (!equal(prior.validity, row.validity) || JSON.stringify(prior.renewals) !== JSON.stringify(row.renewals)) invalid();
         const owned = await previousOwnership(store, previous, baselineIds);
         const freshDocument = row.baseline?.documentGeneration !== undefined && row.baseline.documentGeneration === prior.baseline?.documentGeneration;
-        const unownedDocumentEdit = owned === undefined && row.baseline?.documentGeneration !== undefined && !freshDocument;
+        const unownedDocumentEdit = owned === undefined && !freshDocument;
         if (previous.document !== undefined && owned?.documentHash === digest(encodeDocument(previous.document))) documentHash = owned.documentHash;
         if (previous.policyBody !== undefined && owned?.policyBodyHash === digest(encodeDocument(previous.policyBody))) policyBodyHash = owned.policyBodyHash;
         update = ownershipPatch(previous, row, body, ids, baselineIds, owned);
@@ -414,13 +414,13 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
         }
         if (document !== undefined) {
           const expectedDocument = documentHash ?? (row.document === undefined ? undefined : row.baseline?.documentHash);
-          const patch = documentPatch(previous, document, wire === undefined ? document.original : row.document?.original ?? owned?.source?.original ?? previous.original, unownedDocumentEdit || owned?.sourceEdited && !freshDocument, expectedDocument);
+          const patch = documentPatch(previous, document, wire === undefined ? document.original : row.document?.original ?? owned?.source?.original ?? previous.original, unownedDocumentEdit && previous.document !== undefined || owned?.sourceEdited && !freshDocument, expectedDocument);
           Object.assign(update.options, patch.options); if (patch.conflict) { update.conflicts.push('document'); update.base.document = expectedDocument; update.current.document = previous.document === undefined ? undefined : digest(encodeDocument(previous.document)); }
           if (patch.options.memoryDocument !== undefined) documentHash = digest(encodeDocument(document));
         }
         if (policyBody !== undefined && !update.conflicts.includes('body')) {
           const expectedBody = policyBodyHash ?? row.baseline?.policyBodyHash;
-          const patch = documentPatch({ document: previous.policyBody }, policyBody, undefined, unownedDocumentEdit || owned?.bodyEdited && !freshDocument || (previous.policyBody !== undefined && expectedBody === undefined), expectedBody);
+          const patch = documentPatch({ document: previous.policyBody }, policyBody, undefined, unownedDocumentEdit && previous.policyBody !== undefined || owned?.bodyEdited && !freshDocument || (previous.policyBody !== undefined && expectedBody === undefined), expectedBody);
           if (patch.conflict) { delete update.options.body; update.conflicts.push('policy_body'); update.base.policy_body = expectedBody; update.current.policy_body = previous.policyBody === undefined ? undefined : digest(encodeDocument(previous.policyBody)); }
           if (patch.options.memoryDocument !== undefined) { update.options.memoryPolicyBody = patch.options.memoryDocument; policyBodyHash = digest(encodeDocument(policyBody)); }
         }

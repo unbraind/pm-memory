@@ -67,9 +67,13 @@ test('property: import(export(x)) == x for random guidance sets and both harness
     assert.equal((await importDir(path, { ...target.options, from: to })).imported, 12);
     const actual = await Promise.all((await target.store.read()).map(item => policyRecord(target.store, item)));
     const nativeIds = new Map((await target.client.listAllComplete()).items.map(item => [String(item.memory_slug), item.id]));
-    for (const row of actual) assert.equal(row.baseline!.id, nativeIds.get(row.slug));
-    // Origin IDs are tracker-local ownership receipts; semantic guidance is portable.
-    const semantic = (rows: PortableGuidance[]) => rows.map(row => ({ ...row, baseline: { ...row.baseline, id: '<native identity>' } })).sort((a, b) => a.slug.localeCompare(b.slug));
+    for (const row of actual) {
+      assert.equal(row.baseline!.id, nativeIds.get(row.slug));
+      assert.match(row.baseline!.documentGeneration!, /^[a-f0-9]{64}$/);
+      assert.notEqual(row.baseline!.documentGeneration, before.guidance.find(prior => prior.slug === row.slug)!.baseline!.documentGeneration, 'A fresh tracker has its own immutable artifact history');
+    }
+    // Native ids and artifact history generations are tracker-local receipts; semantic guidance is portable.
+    const semantic = (rows: PortableGuidance[]) => rows.map(row => ({ ...row, baseline: { ...row.baseline, id: '<native identity>', documentGeneration: '<native artifact history>' } })).sort((a, b) => a.slug.localeCompare(b.slug));
     assert.deepEqual(semantic(actual), semantic(before.guidance));
     for (const item of await source.store.read()) assert.equal((await get(item.slug, target.options)).body, item.body);
     const saved = await snapshot(target.workspace);

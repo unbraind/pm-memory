@@ -213,7 +213,7 @@ test('complete document validation and decoded privacy refuse before any tracker
   for (const value of [null, {}, { ...document, version: 2 }, { ...document, original: 'invalid base64' }, { ...document, path: '../outside' }]) {
     assert.throws(() => parsePolicy({ ...manifest, guidance: [{ ...manifest.guidance[0], document: value }] }), MemoryError);
   }
-  for (const key of ['bodyHash', 'documentHash', 'policyBodyHash', 'sourceFields']) for (const value of [null, 1, '', 'invalid', {}]) {
+  for (const key of ['bodyHash', 'documentHash', 'policyBodyHash', 'documentGeneration', 'sourceFields']) for (const value of [null, 1, '', 'invalid', {}]) {
     assert.throws(() => parsePolicy({ ...manifest, guidance: [{ ...manifest.guidance[0], baseline: { ...manifest.guidance[0].baseline, [key]: value } }] }), MemoryError);
   }
   manifest.guidance[0].document = document;
@@ -418,6 +418,7 @@ test('released source ownership survives canonical handoffs and snapshot-free co
 test('snapshot-free legacy adapters bind native origins without inventing prior source receipts', async t => {
   const target = await tracker(t); const item = await remember('Alpha baseline', { ...target.options, slug: 'alpha', kind: 'reference' });
   const exported = await exportedPolicy(target); const guidance = exported.manifest.guidance[0];
+  delete guidance.baseline!.documentGeneration; // Released companions predate source-artifact generations.
   const payload = JSON.stringify([{ file: 'alpha.md', guidance, decoded: guidance.baseline!.fields, links: [], artifact: false }]);
   const directory = join(target.root, 'legacy-adapter'); await mkdir(directory);
   await writeFile(join(directory, 'pm-memory-origins.json'), JSON.stringify({ version: 1, format: 'pm-memory-origins', harness: 'agents-md', payload, checksum: digest(payload) }));

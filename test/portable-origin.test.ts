@@ -90,6 +90,8 @@ test('origin catalog uses immutable SDK creation fields and ignores foreign hist
   assert.equal(selectOrigin(origin, live, catalog, false)!.id, a.id);
   const missingNamespace = { creators: [{ ...catalog.creators[0], origin: { ...origin, tracker: origin.creation } }] };
   assert.throws(() => selectOrigin(origin, [], missingNamespace, false), refusal('no longer exists'));
+  assert.equal(selectOrigin(origin, [], missingNamespace, true), undefined, 'Explicit recreation selects no deleted native row');
+  assert.equal(selectOrigin(origin, [], { creators: [] }, false), undefined, 'An unknown foreign origin may be created without adopting a native alias');
   assert.throws(() => selectOrigin(origin, [...live, { ...live[0], id: 'copy' }], { ...catalog, creators: [...catalog.creators, { ...catalog.creators[0], id: 'copy' }] }, false), refusal('multiple live native copies'));
 });
 
@@ -180,4 +182,13 @@ test('permanent origin link failures retain their filesystem cause', async t => 
   } finally { await chmod(target.workspace, 0o755); }
   assert.equal(await readTrackerOrigin(target.store), undefined);
   assert.ok(await ensureTrackerOrigin(target.store));
+});
+
+test('unreadable recognized native creation origins refuse while foreign records remain excluded', async t => {
+  for (const source of ['native:item', 'foreign:tool']) for (const origin of ['{', '{}']) {
+    const target = await tracker(t); await target.store.register();
+    await target.client.run('create', { options: { title: 'Unreadable creation origin', type: 'Knowledge', memorySlug: 'broken-origin', memorySource: source, memoryOrigin: origin } });
+    if (source === 'native:item') await assert.rejects(originCatalog(target.store), refusal('creation history cannot be decoded'));
+    else assert.deepEqual((await originCatalog(target.store)).creators, []);
+  }
 });

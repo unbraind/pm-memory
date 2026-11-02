@@ -23,12 +23,12 @@ CI; focused coverage does not certify all 4000 property sequences.
 
 | Thread id | Priority | Classification | Change or reason | Revert proof or validation |
 | --- | --- | --- | --- | --- |
-| `PRRT_kwDOVPw2oc6yXN2W` | P1 | fixed | Refuse proofless overwrite and stale source-artifact generations, including ABA. Fresh exports bind the current artifact history and can authorize another edit while retaining unrelated native metadata. (`src/portable-source.ts`) | document-proofless: 1 failure; document-aba: 6 failures; fixed ABA controls 6/6. |
+| `PRRT_kwDOVPw2oc6yXN2W` | P1 | fixed | Refuse proofless overwrite and stale source-artifact generations, including ABA. Fresh exports bind the current artifact history and can authorize another edit while retaining unrelated native metadata. (`src/portable-source.ts`) | Proofless overwrite: 1 failure; raw/companion/policy ABA: 6 failures; recurring generation: 5 failures; unreceipted pre-generation export: 1 failure. Eight final ABA controls cover current and older formats. |
 | `PRRT_kwDOVPw2oc6yXN2X` | P2 | fixed | Catch only ENOENT while reading an optional intent in portable-critical; propagate malformed JSON and other causes. (`test/portable-critical.test.ts`) | Test harness correction; existing full-boundary peer corpus retained. |
 | `PRRT_kwDOVPw2oc6yXN2Y` | P2 | fixed | Companion grammar test edits manifest.guidance[0].path and preserves its policy marker. (`test/portable-grammar.test.ts`) | Oracle correction; checks updated=1, kind, description and complete native body. |
 | `PRRT_kwDOVPw2oc6yXN2Z` | P2 | fixed | Observe complete native history only for apply; preview still validates pending merge receipts. (`src/consolidate.ts`) | preview-history mutation; unrelated unreadable native Task history control. |
 | `PRRT_kwDOVPw2oc6yXN2b` | P2 | fixed | Rename the export test to state collision namespacing, matching its assertions. (`test/review-r10.test.ts`) | Title-only correction; existing namespaced-file assertions retained. |
-| `PRRT_kwDOVPw2oc6yXN2d` | P2 | refuted | package.json:36-38 explicitly configures --status closed,in_progress. CHANGELOG.md:3 labels the section Unreleased; an in-progress entry is not a release assertion. Retain generated output and mandatory open PM state. (`CHANGELOG.md`) | npm run changelog and npm run changelog:check; no product mutation applies. |
+| `PRRT_kwDOVPw2oc6yXN2d` | P2 | refuted | package.json:37-39 explicitly configures --status closed,in_progress. CHANGELOG.md:3 labels the section Unreleased; an in-progress entry is not a release assertion. Retain generated output and mandatory open PM state. (`CHANGELOG.md`) | npm run changelog and npm run changelog:check; no product mutation applies. |
 | `PRRT_kwDOVPw2oc6yXN2f` | P2 | fixed | Attach a rejection handler to started as well as done in the independent native peer helper. (`test/portable-native-peer.ts`) | Harness lifecycle correction; every peer-boundary schedule still requires a real completion. |
 | `PRRT_kwDOVPw2oc6yXN2h` | P2 | fixed | Canceled renewal must return missing, matching the selector; validity is insufficient. (`test/portable-lifecycle.test.ts`) | Oracle strengthening in portable-lifecycle.test.ts; exact code assertion. |
 | `PRRT_kwDOVPw2oc6yXN2k` | P2 | fixed | Origin refusal predicates require origin_missing plus the specific message fragment for metadata, missing birth, ambiguity and continuation. (`test/portable-origin.test.ts`) | Oracle strengthening; specific cursor and catalog causes are asserted. |
@@ -49,7 +49,7 @@ CI; focused coverage does not certify all 4000 property sequences.
 | `PRRT_kwDOVPw2oc6yXN24` | P2 | fixed | Keep the boolean predicate total across foreign reads and SDK conversion failures, preserving valid provider provenance. (`src/portable-relationships.ts`) | Foreign getter/read failure regression returns false; SDK-supported arbitrary named source kinds remain accepted. No fabricated invalid-source-kind claim remains. |
 | `PRRT_kwDOVPw2oc6yXN25` | P2 | fixed | Example explicitly warns createMissingOrigins recreates every missing origin in the supplied export. (`examples/portable-guidance.ts`) | Documentation correction; existing explicit-recreation corpus retained. |
 | `PRRT_kwDOVPw2oc6yXN26` | P2 | fixed | Preserve unexpected hard-link errors; only the interrupted ENOENT case gets a retry remedy, while EEXIST accepts the peer publication. (`src/portable-origin.ts`) | origin-link-error mutation; permanent EACCES and interrupted-staging recovery controls. |
-| `PRRT_kwDOVPw2oc6yXN28` | P2 | fixed | Unreadable SDK creation entries throw origin_missing; decodable foreign or non-memory subjects remain excluded. (`src/portable-origin.ts`) | origin-decode mutation; malformed creation patch must throw the named typed error. |
+| `PRRT_kwDOVPw2oc6yXN28` | P2 | fixed | Unreadable SDK creation entries and malformed recognized-native origins throw origin_missing; decodable foreign or non-memory subjects remain excluded. (`src/portable-origin.ts`) | origin-decode mutation; malformed creation patch and malformed native origin JSON/shape must throw the named typed error; genuinely foreign origins stay excluded. |
 | `PRRT_kwDOVPw2oc6yXN29` | P2 | fixed | Assert positive boundary lists and positive completed peer schedules, including the complete expected schedule count. (`test/portable-forward.test.ts`) | Harness correction; every generated crash and peer schedule remains required. |
 | `PRRT_kwDOVPw2oc6yXN2_` | P2 | fixed | Find the final dependency guard by the actual presence of both endpoints instead of callback index. (`test/portable-forward.test.ts`) | All four fresh/recovery and native-document/foreign-ownership controls still assert a peer edit and retention. |
 | `PRRT_kwDOVPw2oc6yXN3A` | P2 | fixed | Run stale receipt generations through both preview and apply with unchanged durable snapshots. (`test/merge-receipt.test.ts`) | Oracle strengthening; shared refusedUnchanged helper checks both modes. |
@@ -99,6 +99,9 @@ conflict, retention of the receipt, and refusal before the next certified write.
 | Replace permanent link errors with an interrupted-publication retry hint | 1/1 |
 | Silently ignore unreadable SDK creation entries | 1/1 |
 | Observe unrelated native histories during merge preview | 1/1 |
+| Replace immutable artifact generations with a recurring value | 5 failures (plus 2 unchanged controls) |
+| Permit unreceipted pre-generation exports to replace existing documents | 1/1 |
+| Let foreign relationship getter/conversion exceptions escape the boolean predicate | 1/1 |
 
 The eager-to-lazy registry change preserves semantics, so it has no behavioral
 revert-failure claim. Test-only assertions and documentation corrections use the
@@ -125,3 +128,55 @@ representation and checks each document-envelope field independently.
 Full 500-sequence after timings and complete release certification belong to CI
 on the pushed head. The local property timings below are explicitly small batch
 measurements, not whole-suite speedup claims.
+
+
+Measured forward-suite durations (seconds): the before column is the historical
+Node 22 CI job with coverage; local after is Node 26 on a shared host, without
+coverage. These establish completed budgets and observed cost, not a controlled
+runtime speedup ratio. In particular, the final update-peer measurement preceded
+the last shared-template handoff optimization; that optimization retains its
+unchanged inner oracle and complete 200-schedule budget.
+
+| Forward suite | Before CI | Local prepared/batched after | Completed schedules |
+| --- | ---: | ---: | ---: |
+| Update peers | 1147.303 | 661.801 | 200 |
+| Creation peers | 5034.240 | 508.063 | 240 |
+| Linked creation peers | 1610.827 | 73.624 | 31 |
+| Update crashes | 2188.622 | 80.292 | every discovered boundary |
+| Creation crashes | 3079.424 | 101.631 | every discovered boundary |
+| Linked creation crashes | 2283.526 | 78.737 | every discovered boundary |
+| Schema/origin bootstrap | not separately extracted | 114.917 | every discovered boundary |
+| Resumed recovery | not separately extracted | 131.643 | every discovered boundary |
+
+A same-host three-control comparison before/after prepared fixtures completed
+3/3 each: total 64.060 / 46.006 s. Individual exact-peer, native-ABA and foreign-alias
+costs were respectively 19.530 / 25.030, 25.273 / 4.092 and 16.454 / 14.812 s.
+Warm-cache and shared-host load vary, so the slower exact-peer result is retained.
+The independently completed final forward runs cover all original 21 test names.
+
+The eight full 500-sequence property suites remain in CI. The before timings are
+historical Node 26 CI with coverage; local after samples measure only the stated
+batch size, not an extrapolated full-suite duration.
+
+| Property suite | Before full 500 (s) | Local after sample (s) | Sample sequences |
+| --- | ---: | ---: | ---: |
+| Owned scopes | 1192.674 | 131.614 | 5 |
+| Complete documents | 462.530 | 67.811 | 5 |
+| Provenance fidelity | 619.711 | 120.359 | 5 |
+| Harness grammar | 860.325 | 114.279 | 25 |
+| Identity law | 160.012 | 21.890 | 5 |
+| Locality law | 326.383 | 48.918 | 5 |
+| Foreign isolation law | 323.305 | 39.981 | 5 |
+| Stateful model | 2702.279 | 176.607 | 5 |
+
+All 60 sampled sequences (18 reported test nodes) passed. Full-suite after timing
+and the npm/Bun release result remain explicit pushed-head CI evidence; local
+samples cannot establish that the complete matrix is below six hours.
+
+The new document-generation token is tracker-local admission evidence, like the
+native baseline id. Fresh-tracker semantic comparisons normalize both tokens,
+while explicitly asserting a valid new generation and a distinct native history.
+The source-document, metadata, body, relationship, renewal and origin assertions
+are retained in full. Old unreceipted companions cannot replace already-stored
+artifact bytes without history proof; creating a first artifact and replaying
+proven owned scopes remain supported.
