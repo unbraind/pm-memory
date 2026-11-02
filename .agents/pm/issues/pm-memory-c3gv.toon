@@ -7,14 +7,12 @@ status: in_progress
 priority: 2
 tags[3]: "gh:unbraind/pm-memory#15",identity,review-blocker
 created_at: "2026-10-19T19:35:29.756Z"
-updated_at: "2026-11-02T08:29:59.397Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-02T08:53:50.129Z"
 author: codex-agent
 estimated_minutes: 60
 acceptance_criteria: Capture and validate target and source revisions before receipt replay; preserve or refuse intervening edits without clearing the pending operation; retain exactly-once retries without intervening edits; prove with synthetic real-tracker interruption tests and both unchanged release gates.
 parent: pm-memory-0kwy
-comments[14]{created_at,author,text}:
+comments[16]{created_at,author,text}:
   "2026-10-19T22:54:13.683Z",codex-agent,"Self-review reproduced unsafe pending merge replay. Added durable semantic revision bindings for source and destination, validate every pending receipt before planned writes, accept before/after publication states for exactly-once retry, and refuse stale, missing, archived or legacy receipt states while retaining evidence. Synthetic real-tracker regressions cover intervening native source and target edits."
   "2026-10-19T23:00:31.569Z",codex-agent,"Revert proof: restore only consolidate to the starting implementation, retain revision helpers and regression tests, then node --test --test-name-pattern=\"pending merge receipts\" test/review-r5.test.ts fails with the intended missing-refusal assertion. Fixed implementation preserves current source/target bodies and pending receipt bytes on refusal; unchanged before-publication and after-publication receipts remain retryable."
   "2026-10-19T23:17:06.001Z",codex-agent,"Verified at source head 8876955: both full immutable release gates passed 132/132 tests plus 2/2 packed consumers at 100% coverage. Source and target native edits, malformed and legacy receipts, missing or archived targets refuse without durable changes; before- and after-publication retries remain exactly-once. Implementation complete; left in progress for orchestrator verification, with claim released."
@@ -29,6 +27,8 @@ comments[14]{created_at,author,text}:
   "2026-11-02T04:42:54.592Z",pi-memory,"Superseding correction for thread PRRT_kwDOVPw2oc6yXN2w (P2): the 2026-10-30 reopening comments describe the replay mechanism using the pre-split src/consolidate.ts digest vocabulary (semantic-plus-time digest, source_revision). Receipt replay no longer lives in consolidate.ts; the implemented protocol is src/merge-receipt.ts, where version-2 receipts bind immutable NativeProof history (hash, history hash, length) for both endpoints, a canonical UTC changed_at and the target_after payload hash, and every step rechecks every certified endpoint inside the same SDK admission hook (commitNativeFields certification maps). The earlier comments are retained as historical records; this correction states the current mechanism. The failing regression from that round, test/merge-revision-blocker.test.ts, now passes 1/1 on the fixed tree."
   "2026-11-02T06:55:01.721Z",codex-sol,"Continuation audit closes the finalization class at intent, publish, cancel and finish: each writes one endpoint while rechecking both immutable SDK proofs in the same admission hook. Removing only the additional-item hook check fails all 8 ordinary-edit/ABA controls, 2 per hook. Removing the no-op read-back certification fails 4/4 default/host edit/ABA controls. New intents are durable before target mutation; body and provenance link publish together. Unique source rationale remains in the source and pending receipt on refusal. Canonical UTC validation rejects rollover dates; earlier prepared version-2 receipts remain supported, and native author precedence is preserved. The current focused gate is continuing after a transient interruption; no full release certification is claimed."
   "2026-11-02T07:03:09.439Z",codex-sol,"Verified critical step: pm test pm-memory-c3gv --run --only-last --progress --timeout 600 passed 28/28 tests, zero failures/cancellations/skips. Coverage-source bytes are frozen for the continuing focused run. Independent disposable mutations fail at each admission hook (8/8), on no-op certification (4/4), proofless document replacement (1/1) and document ABA (6/6). The two earlier linked-run attempts were an outdated fixture expectation and the runner default timeout, respectively; neither is treated as a pass. Corrected the expected preserved rationale and stored a 600-second harness timeout. No test budget, assertion or property timeout was reduced."
+  "2026-11-02T08:34:41.438Z",codex-sol,"Final-source linked blocker command passed 30/30 (22 merge controls plus eight document-ABA controls), zero failures/skips, 547.947 s on the shared host. All four named admissions retain their exact typed conflict and pending receipt under both edits and ABA; disposable hook-only mutation fails 8/8 and no-op read-back mutation fails 4/4. The source preserves unique rationale after target restoration and intent refusal leaves every target byte unchanged. The later timeout metadata only increases the allowance for shared-host variation; this completed run passed within its original 600 s allowance."
+  "2026-11-02T08:52:55.295Z",codex-sol,"Completion handoff: immutable source/target generation checks remain inside each intent, publication, cancellation and finish admission, including SDK no-op read-back. Final focused touched-source coverage is 100/100/100/100 on all 12 files, including merge-receipt and native-revision. The 30-control linked blocker suite and per-hook 8-failure / no-op 4-failure disposable revert proofs are documented in docs/portable-guidance-review-dispositions.md. No thread replies, resolutions, merge or release were performed. Keep this item in progress for orchestrator verification; the claim will be released before the single push."
 files[10]:
   - path: src/consolidate.ts
     scope: project
@@ -87,8 +87,10 @@ tests[4]:
       source_ref: feat/portable-guidance-windows
     updated_by: codex-sol
     updated_at: "2026-11-02T08:29:59.363Z"
-docs[3]:
+docs[4]:
   - path: ARCHITECTURE.md
+    scope: project
+  - path: docs/portable-guidance-review-dispositions.md
     scope: project
   - path: docs/portable-guidance-split-plan.md
     scope: project

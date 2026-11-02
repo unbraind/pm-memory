@@ -50,7 +50,7 @@ test('CAS lineage validation refuses malformed immutable SDK birth origins witho
   await target.store.write(async () => {
     const expected = await expectedTargets(target.store, [{ id: row.id, slug: 'bad', origin: manifest.guidance[0].origin }]);
     const plan: ImportPlan = { ...(await importIdentity(target.store, 'lineage-validation')), input: 'lineage-validation', author: 'memory-test', members: [row.id], expected, mutations: [{ op: 'update', id: row.id, match: { key: 'updated_at', value: expected[0].version! }, options: { body: 'Must not write' } }], result: { imported: 0, updated: 1, unchanged: 0, unresolved_links: 0, skipped: [] } };
-    await assert.rejects(validateImportPlan(target.store, plan), error => error instanceof MemoryError && error.code === 'conflict');
+    await assert.rejects(validateImportPlan(target.store, plan), error => error instanceof MemoryError && error.code === 'origin_missing' && /creation history cannot be decoded/.test(error.message));
     const missing = 'memory-test-missing-origin';
     await assert.rejects(validateImportPlan(target.store, { ...plan, members: [missing], expected: [{ ...expected[0], id: missing }], mutations: [{ ...plan.mutations[0], id: missing }] }), error => error instanceof MemoryError && error.code === 'conflict');
     const unbound = await expectedTargets(target.store, [{ id: compatible.id, slug: 'compatible' }]);

@@ -152,7 +152,7 @@ A same-host three-control comparison before/after prepared fixtures completed
 3/3 each: total 64.060 / 46.006 s. Individual exact-peer, native-ABA and foreign-alias
 costs were respectively 19.530 / 25.030, 25.273 / 4.092 and 16.454 / 14.812 s.
 Warm-cache and shared-host load vary, so the slower exact-peer result is retained.
-The independently completed final forward runs cover all original 21 test names.
+The completed optimization runs cover all original 21 test names. Later artifact-generation and origin refinements have their own focused controls; the pushed-head CI corpus remains the exact-head integration check.
 
 The eight full 500-sequence property suites remain in CI. The before timings are
 historical Node 26 CI with coverage; local after samples measure only the stated
@@ -180,3 +180,118 @@ The source-document, metadata, body, relationship, renewal and origin assertions
 are retained in full. Old unreceipted companions cannot replace already-stored
 artifact bytes without history proof; creating a first artifact and replaying
 proven owned scopes remain supported.
+
+
+## Gate commands and evidence scope
+
+The final-source blocker command is linked to pm-memory-c3gv and executed through
+`pm test pm-memory-c3gv --run --only-index 4 --progress`:
+
+```sh
+node --test --test-concurrency=1 test/merge-receipt.test.ts test/portable-document-aba.test.ts
+```
+
+It passed **30/30**, zero skips/failures, in 547.947 s. The 22 merge controls
+include source and target admission, retained unique rationale, exact receipt
+recovery, earlier version-2 compatibility, native environment authorship and
+four SDK no-op cases. Eight document cases include both current and pre-generation
+unreceipted exports. A separate pm-memory-1363 linked provenance command passed
+**1/1**, checking 48 malformed provenance refusals and positive named SDK sources:
+
+```sh
+node --test --test-reporter=tap --test-name-pattern="all relationship provenance" test/portable-critical.test.ts
+```
+
+`npm run check`, `npm run lint`, `npm run docstring`, `npm run duplication`,
+`npm run identity:check` and `npm run build` passed after the implementation
+changes. Documentation measured 44 authored files / 168 declarations; duplication
+measured 139 sources, 0 clones and 0% with the existing zero threshold and
+50-token floor. Pinned strict project health without ambient optional extensions
+passed 10/10, zero warnings. The default ambient-extension invocation separately
+reported an optional global pm-github SDK version mismatch; this is recorded on
+pm-memory-sdk-transaction-reader. No package pin or global installation changed.
+
+Coverage uses standard c8/Istanbul file maps from focused runs. Only exact-byte
+source versions are composed per file. Processes containing superseded failing
+or stopped test files are excluded from the retained raw input. Changed modules
+use new final-source maps. No coverage count, branch, threshold or ignore was
+altered. This is the touched-source gate; full-package coverage and all 4000
+property sequences remain the release CI gate.
+
+The earlier broad corpus is explicitly **not** a green release receipt: 33 tests
+passed before interruption; the resumed 568-test corpus reported 566 passes and
+two failures, both investigated and corrected. A later redundant 106-test
+module run reported 105 passes and one stopped file that had loaded superseded
+policy code; its successful independent file processes alone contribute to the
+focused maps. The document-generation identity oracle correction was subsequently
+verified separately and in the final policy corpus. Completed historical packed
+npm/Bun acceptance (2/2) and packed critical acceptance (1/1, two runtimes / four
+CLI refusals) remain receipts for their tested candidates, with a later packed
+run and exact pushed-head CI supplying current integration evidence.
+
+
+Final focused receipts: policy corpus **76/76** (1841.699 s); ownership/transfer
+**36/36** (844.334 s); explicit source-removal/tag/namespace controls **3/3**;
+option composition **1/1**; final lineage/baseline validation **9/9**;
+unbound-origin compatibility **1/1**. Origin catalog checks passed **11/11**
+plus the explicit recreation control **1/1**. Packed npm/Bun acceptance passed
+**2/2** (2388.060 s); after rebuilding final source, packed critical acceptance
+passed **1/1** (142.584 s), two runtimes and four CLI refusal checks.
+
+A negative test-name filter unexpectedly selected the parent import-state file
+and started its 500-sequence model. That unintended local model was stopped and
+replaced with explicit positive control names; its unfinished workers and the
+stopped file contribute no coverage. That combined attempted run reported 38
+passes / 2 failures: one stopped file and one stale assertion expecting a generic
+conflict for an unreadable native birth. The latter now requires the specific
+origin_missing decoding error; missing and mismatched lineage still require
+conflict, and the final nine-control validation run passes. Only the independent
+completed tag-test process is retained from that attempted run. No full-model
+completion or extra property-sequence claim is made from it.
+
+The standard composed focused report measures every executable count, not just
+rounded percentages: covered equals total in each dimension for all 12 touched
+source files. Source hashes bind those maps to the final implementation. Coverage
+artifacts remain ignored local outputs; the unchanged full-package CI gate must
+still produce its own whole-head report.
+
+| Source file | Statements / branches / functions / lines (%) | SHA-256 |
+| --- | --- | --- |
+| src/consolidate.ts | 100 / 100 / 100 / 100 | 0313f6ed742ba54f686ef0e42a856f8692b867c8850e96d79744e7a797e56ea2 |
+| src/lifecycle.ts | 100 / 100 / 100 / 100 | 9bfea7ac784209fe99fff940894050684c8cf32b73b59f77a151e5153e1b5148 |
+| src/merge-receipt.ts | 100 / 100 / 100 / 100 | 16ed89444730260567a98b1cb8696ed83192489294c452f7044d251c6a9a9c6a |
+| src/native-revision.ts | 100 / 100 / 100 / 100 | 69a3f284a3a4d4b1b9c62e4b4201fcf82e84dfc744750825722b51defd9e5e56 |
+| src/portable-origin.ts | 100 / 100 / 100 / 100 | fe8a1ab13d095cc5b21edbba02a6f5e74400fd787745c9a77871d2c4b1c93009 |
+| src/portable-ownership.ts | 100 / 100 / 100 / 100 | de8db58343491f74d7f6bfa42846fa38cdbf310c04ddfc7deee1e7fa0c0256d3 |
+| src/portable-relationships.ts | 100 / 100 / 100 / 100 | 948227a7e40b8443c6bb765157ea27c5c4380249d00e7cc0f0a85dca5a87b7ee |
+| src/portable-source.ts | 100 / 100 / 100 / 100 | f52a5e58149dd93e86bbf508aa7067f8431c4d297f7b0fbd065c4ae54f03dba2 |
+| src/portable.ts | 100 / 100 / 100 / 100 | c9275f7eda82205b7facd2396bfb9020c625fa15c7789447234a9740d96cfe6f |
+| src/store.ts | 100 / 100 / 100 / 100 | 3e45ab0b2dc9bc07e500cffce38454d14182d45820747da70b1d9f257bd91f59 |
+| src/transfer.ts | 100 / 100 / 100 / 100 | 1ac1a020ea409d12e1dc7ec5f3a132c135b8113ccba33dec3ec0e4d73b5bc57d |
+| src/types.ts | 100 / 100 / 100 / 100 | ec398c3e7346d870c93d2ace39ab95680a997a2f26173ec798fef2c5884d166c |
+
+
+Measured child commands for the final supplemental coverage runs (each executed
+under c8 with the touched source-file includes and ordinary JSON reporters):
+
+```sh
+node --test --test-concurrency=2 --test-reporter=tap test/portable.test.ts test/portable-document.test.ts test/portable-document-aba.test.ts test/portable-companion.test.ts test/portable-scope-controls.test.ts test/portable-recovery-controls.test.ts test/portable-lifecycle.test.ts
+node --test --test-concurrency=2 --test-reporter=tap test/portable-ownership.test.ts test/transfer.test.ts
+node --test --test-reporter=tap test/portable-validation.test.ts
+node --test --test-concurrency=2 --test-reporter=tap --test-name-pattern='canonical fields and relationships|source text cannot remove|source absences unset explicit defaults and empty how: raw' test/import-state.test.ts
+node --test --test-reporter=tap --test-name-pattern='revision option composition' test/review-r13.test.ts
+node --test --test-reporter=tap --test-name-pattern='unbound older manifests' test/portable-identity.test.ts
+```
+
+The post-coverage static gates also passed: check, lint, docstring, duplication
+and identity. Whole release certification, complete property after timings and
+fresh npm/Bun matrix results are explicitly pending the one pushed head.
+
+
+The final changelog regeneration and changelog:check both passed. Project health
+with the pinned CLI and no ambient optional extensions passed 10/10 with zero
+warnings, and the final identity/diff checks passed. Both active claims were
+released; pm-memory-c3gv and pm-memory-1363 remain in_progress for orchestrator
+verification. pm-memory-sdk-transaction-reader remains open. No review-thread
+reply, resolution, package release or merge was performed. Main's version,
+engine, peer and development dependency fields remain unchanged.
