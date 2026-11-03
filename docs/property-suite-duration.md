@@ -120,4 +120,6 @@ seeded sequences. The serial local Bun gate did not finish: its run hit the
 agent's six-hour limit while still passing tests, so its result and every
 per-test duration are pending this PR's CI. Each complete gate requires
 4,000 actual seeded sequences (500 in each of eight suites), with their full seed
-lists in diagnostics. Local gates check free disk space first and stop below 20 GB.
+lists in diagnostics. The recorded local runs were started by an external precheck
+that stopped below 20 GB of free disk space on the shared host; `release:check`
+itself does not check disk space.

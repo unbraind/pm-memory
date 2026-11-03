@@ -41,22 +41,35 @@ test('required checks also verify each runtime leg, including legs carried over 
   const legs = required.steps[1];
   assert.equal(legs.env.GH_TOKEN, '${{ github.token }}');
   assert.match(legs.run, /actions\/runs\/\$GITHUB_RUN_ID\/jobs\?filter=latest/u);
-  // A stand-in gh prints the conclusions the real --jq filter would select, or fails like an API error.
+  // A stand-in gh applies the workflow's own --jq filter to job objects, or fails like an API error.
   const bin = mkdtempSync(join(tmpdir(), 'memory-ci-gh-'));
   try {
-    writeFileSync(join(bin, 'gh'), '#!/usr/bin/env bash\n[ -n "$LEGS" ] || exit 1\nprintf "%s\\n" "$LEGS"\n', { mode: 0o755 });
-    const cases: [string, number][] = [
-      ['["success","success","success"]', 0],
-      ['["success","success"]', 1],
-      ['["success","success","success","success"]', 1],
-      ['["success","cancelled","success"]', 1],
-      ['["success","skipped","success"]', 1],
-      ['["success",null,"success"]', 1],
-      ['', 1],
+    writeFileSync(join(bin, 'gh'), '#!/usr/bin/env bash\n[ -n "$JOBS" ] || exit 1\nwhile [ $# -gt 0 ]; do [ "$1" = --jq ] && { jq -c "$2" <<<"$JOBS"; exit; }; shift; done\nexit 2\n', { mode: 0o755 });
+    // Job names come from the workflow's own name template and matrix, as GitHub renders them.
+    const legNames = (ci.jobs.runtime.strategy.matrix.include as { 'node-version': number; runtime: string }[]).map(leg =>
+      String(ci.jobs.runtime.name).replace('${{ matrix.node-version }}', String(leg['node-version'])).replace('${{ matrix.runtime }}', leg.runtime));
+    assert.deepEqual(legNames, ['release gate (22, npm)', 'release gate (26, npm)', 'release gate (26, bun)']);
+    const jobs = (conclusions: (string | null)[], others: [string, string | null][] = []) => JSON.stringify({ jobs: [
+      ...legNames.slice(0, conclusions.length).map((name, index) => ({ name, conclusion: conclusions[index] })),
+      ...conclusions.slice(legNames.length).map(conclusion => ({ name: 'release gate (26, npm)', conclusion })),
+      ...others.map(([name, conclusion]) => ({ name, conclusion })),
+    ] });
+    // While an aggregator runs, both aggregators are still in progress (conclusion null).
+    const running: [string, string | null][] = [['test (22)', null], ['test (26)', null]];
+    const cases: [string, number, string][] = [
+      [jobs(['success', 'success', 'success'], running), 0, 'three successful legs beside running aggregators'],
+      [jobs(['success', 'success', 'success'], [...running, ['unrelated', 'failure']]), 0, 'an unrelated failed job is not a runtime leg'],
+      [jobs(['success', 'failure', 'success'], [...running, ['unrelated', 'success']]), 1, 'a failed leg beside an unrelated success'],
+      [jobs(['success', 'success'], [...running, ['unrelated', 'success']]), 1, 'a missing leg'],
+      [jobs(['success', 'success', 'success', 'success'], running), 1, 'a duplicated leg'],
+      [jobs(['success', 'cancelled', 'success'], running), 1, 'a cancelled leg'],
+      [jobs(['success', 'skipped', 'success'], running), 1, 'a skipped leg'],
+      [jobs(['success', null, 'success'], running), 1, 'a leg without a conclusion'],
+      ['', 1, 'an API failure'],
     ];
-    for (const [conclusions, status] of cases) {
-      const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, LEGS: conclusions, GITHUB_REPOSITORY: 'unbraind/pm-memory', GITHUB_RUN_ID: '1' };
-      assert.equal(spawnSync('bash', ['-c', legs.run], { env }).status, status, conclusions || 'gh failure');
+    for (const [payload, status, label] of cases) {
+      const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, JOBS: payload, GITHUB_REPOSITORY: 'unbraind/pm-memory', GITHUB_RUN_ID: '1' };
+      assert.equal(spawnSync('bash', ['-c', legs.run], { env }).status, status, label);
     }
   } finally { rmSync(bin, { recursive: true, force: true }); }
 });
