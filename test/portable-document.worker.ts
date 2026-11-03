@@ -1,3 +1,4 @@
+import { seedLedger } from './property-seeds.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { join } from 'node:path';
 import { canonicalDocument } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, POLICY_MANIFEST } from '../index.ts';
 import type { Harness, PortablePolicyManifest } from '../index.ts';
-import { tracker, withoutGit } from './helpers.ts';
+import { propertyTracker as tracker, withoutGit } from './helpers.ts';
 import { assertRevisionClock } from './portable-reference.ts';
 
 const START = Number(process.env.PM_MEMORY_DOCUMENT_START);
@@ -21,6 +22,7 @@ function documentRandom(seed: number): () => number {
 }
 
 test(`complete document law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }, async t => {
+  const executed = seedLedger(t, 'DOCUMENT', START, COUNT);
   const source = await tracker(t);
   const contexts = new Map<string, { target: Awaited<ReturnType<typeof tracker>>; input: string; name: string }>();
   withoutGit(t, source.root);
@@ -107,6 +109,7 @@ test(`complete document law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }
       assert.equal((await importDir(output, { ...target.options, from })).updated, 0, label);
       assert.deepEqual((await target.client.listAllComplete({ includeBody: true })).items, after, label);
       await rm(exported, { recursive: true }); await rm(output, { recursive: true });
+      executed.push({ sequence, seed });
     } catch (cause) { t.diagnostic(label); throw new Error(label, { cause }); }
   }
   t.diagnostic(`DOCUMENT_LAW start=${START} count=${COUNT} MASTER_SEED=${MASTER}`);

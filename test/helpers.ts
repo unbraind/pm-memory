@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { mkdtemp, rm, readdir, readlink, readFile, mkdir, writeFile, cp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdtemp, rm, readdir, readlink, readFile, mkdir, writeFile, cp, open, rmdir } from 'node:fs/promises';
+import { tmpdir, availableParallelism } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TestContext } from 'node:test';
@@ -11,21 +11,67 @@ import { testEnvironment } from '../scripts/environment.ts';
 import { exportDir, POLICY_MANIFEST, type PortablePolicyManifest, importDir, MemoryError } from '../index.ts';
 import type { ImportPlan } from '../src/portable-plan.ts';
 import { digest } from '../src/core.ts';
+import { setTimeout as delay } from 'node:timers/promises';
+import { assertSeedCoverage, type SeedExecution } from './property-seeds.ts';
 
-/** Bound child model lifetimes, retain coverage and require their complete assertion receipt. */
-export async function runModelWorker(t: TestContext, worker: URL, variables: Record<string, string>, receipt: string): Promise<void> {
-  const child = spawn(process.execPath, ['--test', '--test-concurrency=1', '--test-reporter=tap', fileURLToPath(worker)], { env: { ...testEnvironment(process.env), ...variables }, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill(); });
-  let output = ''; child.stdout.on('data', chunk => { output += String(chunk); }); child.stderr.on('data', chunk => { output += String(chunk); });
-  const code = await new Promise<number | null>((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
-  assert.equal(code, 0, output); assert.ok(output.includes(receipt), `Missing complete SDK-verified worker receipt: ${output}`);
+/** Share the available cores across sibling test files without doubling their worker pools. */
+async function workerSlot(t: TestContext): Promise<() => Promise<void>> {
+  const directory = join(tmpdir(), `memory-worker-slots-${process.ppid}`);
+  for (;;) {
+    t.signal.throwIfAborted();
+    await mkdir(directory, { recursive: true });
+    for (let index = 0; index < Math.min(4, availableParallelism()); index++) {
+      const file = join(directory, String(index));
+      try {
+        const handle = await open(file, 'wx'); await handle.close(); let released = false;
+        const release = async () => {
+          if (released) return; released = true;
+          await rm(file, { force: true });
+          try { await rmdir(directory); } catch (error) { if (!['ENOTEMPTY', 'ENOENT'].includes((error as NodeJS.ErrnoException).code!)) throw error; }
+        };
+        return release;
+      } catch (error) { if (!['EEXIST', 'ENOENT'].includes((error as NodeJS.ErrnoException).code!)) throw error; }
+    }
+    await delay(25, undefined, { signal: t.signal });
+  }
 }
 
-/** Bound model fan-out within the outer two-file runner; serial mode permits comparable benchmarks. */
-export function modelWorkerPool(): number {
-  const width = Number(process.env.PM_MEMORY_WORKER_POOL ?? 2);
-  if (width !== 1 && width !== 2) throw new Error('PM_MEMORY_WORKER_POOL must be 1 or 2');
-  return width;
+/** Bound child model lifetimes, retain coverage and require their complete assertion receipt. */
+export async function runModelWorker(t: TestContext, worker: URL, variables: Record<string, string>, receipt: string, suite?: string): Promise<SeedExecution[]> {
+  const scratch = await mkdtemp(join(tmpdir(), 'memory-worker-'));
+  let release: (() => Promise<void>) | undefined;
+  let cleanup = async () => { await release?.(); await rm(scratch, { recursive: true, force: true }); };
+  try {
+    release = await workerSlot(t);
+    const child = spawn(process.execPath, ['--test', '--test-concurrency=1', '--test-reporter=tap', fileURLToPath(worker)], { env: { ...testEnvironment(process.env), ...variables, TMPDIR: scratch, TMP: scratch, TEMP: scratch }, stdio: ['ignore', 'pipe', 'pipe'], signal: t.signal });
+    let output = ''; child.stdout.on('data', chunk => { output += String(chunk); }); child.stderr.on('data', chunk => { output += String(chunk); });
+    const ended = new Promise<number | null>(resolve => { child.once('close', resolve); });
+    const closed = Promise.race([ended, new Promise<never>((_resolve, reject) => { child.once('error', reject); })]);
+    cleanup = async () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      await ended;
+      await release?.();
+      await rm(scratch, { recursive: true, force: true });
+    };
+    t.after(cleanup);
+    const code = await closed;
+    assert.equal(code, 0, output); assert.ok(output.includes(receipt), `Missing complete SDK-verified worker receipt: ${output}`);
+    if (suite === undefined) return [];
+    const matches = [...output.matchAll(/SEED_RECEIPT=(\{[^\n]+\})/g)];
+    assert.equal(matches.length, 1, `Missing unique completed-seed receipt: ${output}`);
+    const { suite: reported, executed } = JSON.parse(matches[0][1]) as { suite: string; executed: SeedExecution[] };
+    const stem = variables.PM_MEMORY_LAW === undefined ? Object.keys(variables).find(key => key.endsWith('_START'))!.replace('PM_MEMORY_', '').replace('_START', '') : 'LAW';
+    assert.equal(reported, suite);
+    assertSeedCoverage(suite, executed, Number(variables[`PM_MEMORY_${stem}_START`]), Number(variables[`PM_MEMORY_${stem}_COUNT`]));
+    return executed;
+  } finally { await cleanup(); }
+}
+
+/** Bound fan-out by real cores; the shared slot budget also bounds sibling test files. */
+export function modelWorkerPool(maximum = 2): number {
+  const width = Number(process.env.PM_MEMORY_WORKER_POOL ?? maximum);
+  if (![1, 2, 4].includes(width)) throw new Error('PM_MEMORY_WORKER_POOL must be 1, 2 or 4');
+  return Math.min(width, availableParallelism());
 }
 /** Exercise independent fixture copies concurrently, awaiting every active case before cleanup or failure. */
 export async function concurrentCases<T>(values: readonly T[], run: (value: T, index: number) => Promise<void>): Promise<void> {
@@ -40,20 +86,33 @@ export async function concurrentCases<T>(values: readonly T[], run: (value: T, i
 }
 
 /** Run independent model-worker batches concurrently through one bounded pool; every batch still reports its own receipt. */
-export async function runModelWorkerPool(t: TestContext, worker: URL, configurations: readonly Record<string, string>[], receipts: readonly string[]): Promise<void> {
+export async function runModelWorkerPool(t: TestContext, worker: URL, configurations: readonly Record<string, string>[], receipts: readonly string[], suite?: string): Promise<void> {
   if (configurations.length !== receipts.length) throw new Error('Every pooled worker batch requires exactly one receipt');
-  let next = 0; const failures: (Error | undefined)[] = [];
+  const shared: Record<string, string> = {};
+  if (suite !== undefined) {
+    const plain = await tracker(t); const registered = await clonedTracker(t, plain);
+    await registered.store.register();
+    // Schema is reusable configuration. A namespace belongs to one logical tracker,
+    // so each copy allocates its own instead of inheriting the template's identity.
+    await rm(join(registered.workspace, 'memory-origin.json'));
+    Object.assign(shared, { PM_MEMORY_TRACKER_TEMPLATE: registered.workspace, PM_MEMORY_EMPTY_TEMPLATE: registered.workspace });
+  }
+  let next = 0; const failures: (Error | undefined)[] = []; const executed: SeedExecution[] = [];
   /** One pool lane claims batches by index until the list is exhausted or a lane observes a failure. */
-  const lane = async () => { for (let index = next++; index < configurations.length; index = next++) { try { await runModelWorker(t, worker, configurations[index], receipts[index]); } catch (error) { failures[index] = error as Error; return; } } };
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(modelWorkerPool(), configurations.length)) }, lane));
+  const lane = async () => { for (let index = next++; index < configurations.length; index = next++) { try { executed.push(...await runModelWorker(t, worker, { ...shared, ...configurations[index] }, receipts[index], suite)); } catch (error) { failures[index] = error as Error; return; } } };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(modelWorkerPool(4), configurations.length)) }, lane));
   const observed = failures.filter(error => error !== undefined);
   if (observed[0] !== undefined) throw new Error(`${observed.length} pooled worker batch(es) failed; first failure follows`, { cause: observed[0] });
+  if (suite !== undefined) {
+    assertSeedCoverage(suite, executed);
+    t.diagnostic(`PROPERTY_SEEDS=${JSON.stringify({ suite, executed: executed.sort((a, b) => a.sequence - b.sequence) })}`);
+  }
 }
 
 /** Execute the complete fixed-size property budget without duplicating worker scheduling in each law. */
 export async function modelBatches(t: TestContext, worker: URL, stem: string, batch: number, receipt: (start: number, count: number) => string): Promise<void> {
   const starts = Array.from({ length: 500 / batch }, (_, index) => index * batch);
-  await runModelWorkerPool(t, worker, starts.map(start => ({ [`PM_MEMORY_${stem}_START`]: String(start), [`PM_MEMORY_${stem}_COUNT`]: String(batch) })), starts.map(start => receipt(start, batch)));
+  await runModelWorkerPool(t, worker, starts.map(start => ({ [`PM_MEMORY_${stem}_START`]: String(start), [`PM_MEMORY_${stem}_COUNT`]: String(batch) })), starts.map(start => receipt(start, batch)), stem);
   assert.equal(starts.length * batch, 500);
 }
 
@@ -61,6 +120,14 @@ export async function modelBatches(t: TestContext, worker: URL, stem: string, ba
 export async function tracker(t: TestContext) {
   const result = await trackerFixture(t);
   await result.client.init('memory-test', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+  return result;
+}
+/** Clone prepared schema for property workers without inheriting a logical tracker namespace. */
+export async function propertyTracker(t: TestContext) {
+  const source = process.env.PM_MEMORY_TRACKER_TEMPLATE;
+  assert.ok(source, 'Property worker requires its parent-owned tracker template');
+  const result = await trackerFixture(t);
+  await cp(source, result.workspace, { recursive: true });
   return result;
 }
 /** Allocate one independently owned temporary SDK fixture before initialization or cloning. */

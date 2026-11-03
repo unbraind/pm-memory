@@ -1,0 +1,49 @@
+id: pm-memory-smuq
+title: Bring property-suite CI jobs under 90 minutes
+description: "Make each seeded property sequence cheaper without dropping seeds, sequences, or assertions, so each CI test job stays at or under 90 minutes on GitHub-hosted runners."
+type: Task
+status: in_progress
+priority: 2
+tags[3]: ci,performance,tests
+created_at: "2026-11-03T11:22:51.105Z"
+updated_at: "2026-11-03T20:10:47.139Z"
+assignee: codex-sol
+claim_principal: codex-sol
+author: codex-agent
+acceptance_criteria: Each CI test job is estimated at or under 90 minutes without reducing the 500 seeds or assertions; One sequence of each slow property test has a measured cost breakdown; A guard asserts every declared 500-seed list still executes and fails when one seed is dropped
+comments[11]{created_at,author,text}:
+  "2026-11-03T11:23:02.095Z",pi-grok,"Claimed to make each property sequence cheaper without dropping seeds or assertions. Next: profile one sequence of each slow law, then apply equivalent cheaper checks."
+  "2026-11-03T13:25:57.063Z",codex-sol,"Continuing the existing task after provider exhaustion. Will measure direct import/schema costs, preserve every seed and assertion under both runtimes, remove temporary production instrumentation, and verify serial release gates before one commit and push."
+  "2026-11-03T13:33:55.414Z",codex-sol,"Profiled a complete representative sequence in each of the six slow tests. The model sequence issued about 60000 asynchronous filesystem operations; assertions were only milliseconds. Implementing parent-owned registered-schema templates, independent logical namespaces, fixed bounded worker fan-out, failure cleanup, and actual completed-seed receipts. Existing sequence bodies and all SDK oracle assertions remain."
+  "2026-11-03T13:40:25.484Z",codex-sol,"Seed guard verified via the linked test (8 passed) and a separate mutation invocation: removing sequence 237 from MODEL causes an assertion failure (499 versus 500) and exit 1. All eight declared property suites now require actual completion receipts with exact coordinates and seed values. Schema-only sharing alone was insufficient in paired five-seed trials; also evaluating private memory-backed worker temp directories with capacity checks and disk fallback."
+  "2026-11-03T14:09:08.769Z",codex-sol,"Implemented a shared, core-bounded worker budget across test files so one long suite can use spare cores without exceeding four active property workers. Independent tracker copies reuse registered schema while allocating separate namespaces, including fresh model branches. Verified eight seed guards plus concurrency and successful/failed-worker temp cleanup (10 tests passed). Rejected both shared-memory storage and altered V8 coverage modes; production code and coverage collection remain unchanged."
+  "2026-11-03T14:17:02.015Z",codex-sol,"Split the unchanged three full CI release-gate executions into separate runtime jobs. Preserved existing required check names as always-run aggregators that require success from every runtime, including Bun; failure/cancellation/skip controls were tested. Profile tables and candid timing limitations are in docs/property-suite-duration.md. Planning estimates: Node 26 runtime jobs 60-75 minutes, Node 22 80-90 minutes with a lower-confidence scheduler-tail assumption. Actual PR CI confirmation remains for the orchestrator; no CI wait or PR creation is planned."
+  "2026-11-03T16:01:53.649Z",codex-sol,"The serial npm release gate is still running at unchanged thresholds. Its log now contains complete 500-seed actual execution receipts for OWNED and DOCUMENT, with fidelity continuing. This is interim evidence, not a claim that the complete release gate or hosted duration target has passed."
+  "2026-11-03T18:41:56.609Z",codex-sol,"Review correction: the 20 GB free-space stop applies to the shared local host. Removed the added CI-only disk floor because GitHub documents 14 GB SSD storage for standard runners. Local gate prechecks remain in place. CI continues to use the original runner policy and unchanged complete release commands. All seven non-model property suites now have complete 500-seed receipts in the ongoing npm run."
+  "2026-11-03T19:02:56.008Z",codex-sol,"The npm main suite completed with 679 passed, 0 failed and 0 skipped; all eight property receipts contain 500 actual seeds. Coverage-gate self-tests intentionally print failing fixture output, so the observer was corrected to use the enclosing suite summary instead of counting failure-looking fixture lines. The full release gate is finishing real install acceptance checks."
+  "2026-11-03T19:08:42.947Z",codex-sol,"The full npm release gate passed with exit 0. Independently verified actual completed-seed receipts: 4000 sequences across all eight declared 500-seed suites. The Bun gate follows serially after a fresh free-space check; hosted CI duration confirmation remains outstanding."
+  "2026-11-03T20:10:47.138Z",orchestrator,"Orchestrator review (2026-11-03 20:40Z): the codex continuation hit its 6h timeout during the serial Bun gate, after the full npm release gate passed (19:08Z). The staged diff has no profiling hooks (no __pmProfile or PM_MEMORY_PROFILE). Every property budget stays at 500 seeds, and the seed ledger makes each suite prove 500 unique, correctly valued coordinates; the agent's mutation that drops coordinate 237 fails 499 !== 500. The CI matrix keeps the three complete gates as separate jobs, and the test (22) and test (26) required checks aggregate them, refusing failure, cancellation or skip. Local re-check: typecheck 0, lint 0, duplication 0%, the seed/worker-budget/release-ci tests 12/12, changelog current. The PR's CI must confirm the Bun gate and the duration target."
+files[17]{path,scope}:
+  .github/workflows/ci.yml,project
+  test/fixtures/worker-budget.worker.ts,project
+  test/helpers.ts,project
+  test/import-state-helpers.ts,project
+  test/import-state.test.ts,project
+  test/import-state.worker.ts,project
+  test/portable-document.worker.ts,project
+  test/portable-fidelity.worker.ts,project
+  test/portable-grammar.worker.ts,project
+  test/portable-laws.test.ts,project
+  test/portable-laws.worker.ts,project
+  test/portable-model.test.ts,project
+  test/portable-model.worker.ts,project
+  test/property-seeds.test.ts,project
+  test/property-seeds.ts,project
+  test/release-ci.test.ts,project
+  test/worker-budget.test.ts,project
+tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test test/property-seeds.test.ts,project,codex-sol,"2026-11-03T13:36:49.983Z",local_mutation,perf/property-suite-duration
+  node --test test/worker-budget.test.ts,project,codex-sol,"2026-11-03T14:09:03.490Z",local_mutation,perf/property-suite-duration
+docs[1]{path,scope}:
+  docs/property-suite-duration.md,project
+body: "## Outcome\n\nProperty tests keep every seed, sequence and assertion under Node and Bun, while each sequence costs less. CI test jobs should land at or under 90 minutes.\n\n## Constraints\n\n- No sampling, seed-count reduction, skipped runtime, or raised timeout.\n- Temp directories are removed even on failure.\n- Gates run serially after a disk check.\n- The item stays open for orchestrator verification."

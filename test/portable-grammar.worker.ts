@@ -1,3 +1,4 @@
+import { seedLedger } from './property-seeds.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { join } from 'node:path';
 import type { PmClient } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, POLICY_MANIFEST } from '../index.ts';
 import type { Harness, PortablePolicyManifest } from '../index.ts';
-import { tracker, withoutGit, cloneTracker, clonedTracker } from './helpers.ts';
+import { propertyTracker as tracker, withoutGit, cloneTracker, clonedTracker } from './helpers.ts';
 import { referenceRevision, assertRevisionClock } from './portable-reference.ts';
 
 const START = Number(process.env.PM_MEMORY_GRAMMAR_START);
@@ -28,6 +29,7 @@ async function emittedFile(directory: string, slug: string, fallback: string) {
 function nativeState(rows: Awaited<ReturnType<PmClient['listAllComplete']>>['items'], changed: string, content: boolean) { return rows.map(row => row.id === changed ? { ...row, ...(content ? { memory_changed_at: '<content revision clock>' } : {}), updated_at: '<SDK modification clock>' } : row).sort((a, b) => a.id.localeCompare(b.id)); }
 
 test(`current grammar law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }, async t => {
+  const executed = seedLedger(t, 'GRAMMAR', START, COUNT);
   const isolated = await tracker(t); withoutGit(t, isolated.root); await isolated.store.register();
   const templates = new Map<string, Awaited<ReturnType<typeof tracker>>>();
   for (let sequence = START; sequence < START + COUNT; sequence++) {
@@ -91,6 +93,7 @@ test(`current grammar law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }, 
       const expected = (await client.listAllComplete({ includeBody: true })).items.find(row => row.id === id)!;
       for (const key of ['title', 'description', 'body', 'memory_kind', 'memory_why', 'memory_how', 'memory_document']) assert.equal(actual[key], expected[key] ?? new Map<string, unknown>([['memory_kind', 'reference'], ['memory_why', ''], ['memory_how', '']]).get(key), `${label} fresh ${key}`);
       await rm(oracle, { recursive: true });
+      executed.push({ sequence, seed });
     } catch (cause) { t.diagnostic(label); throw new Error(label, { cause }); }
   }
   t.diagnostic(`GRAMMAR_LAW start=${START} count=${COUNT} MASTER_SEED=${MASTER}`);

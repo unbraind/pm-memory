@@ -1,3 +1,4 @@
+import { seedLedger } from './property-seeds.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
@@ -6,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { PmClient, DEPENDENCY_KIND_VALUES } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, renew, POLICY_MANIFEST } from '../index.ts';
 import type { PortableGuidance, PortablePolicyManifest } from '../index.ts';
-import { tracker, cloneTracker } from './helpers.ts';
+import { propertyTracker as tracker, cloneTracker } from './helpers.ts';
 import { referenceRevision, assertRevisionClock } from './portable-reference.ts';
 
 const LAW = process.env.PM_MEMORY_LAW!;
@@ -50,6 +51,7 @@ function compare(actual: Rows, expected: Rows, changedId: string | undefined, co
 }
 
 test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, async t => {
+  const executed = seedLedger(t, LAW, START, COUNT);
   const target = await tracker(t);
   const oldCeiling = process.env.GIT_CEILING_DIRECTORIES; const oldPath = process.env.PATH;
   process.env.GIT_CEILING_DIRECTORIES = dirname(target.root); process.env.PATH = target.root;
@@ -134,6 +136,7 @@ test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, 
       compare(actual, expected, changed ? alphaId : undefined, content, `${label} kind=${requestedKind} targetClass=${chosen}`);
       if (LAW === 'identity') assert.deepEqual(actual, before, label);
       await rm(directory, { recursive: true }); if (changed) await rm(oracle, { recursive: true });
+      executed.push({ sequence, seed });
     } catch (cause) { t.diagnostic(`${label} cause=${cause instanceof Error ? cause.message : String(cause)}`); throw new Error(`${label} kind=${requestedKind} targetClass=${chosen}`, { cause }); }
   }
   t.diagnostic(`OWNERSHIP_LAW law=${LAW} start=${START} count=${COUNT} MASTER_SEED=${MASTER}`);

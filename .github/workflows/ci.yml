@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  runtime:
+    name: release gate (${{ matrix.node-version }}, ${{ matrix.runtime }})
     runs-on: ubuntu-latest
     env:
       NPM_CONFIG_USERCONFIG: /dev/null
@@ -19,7 +20,14 @@ jobs:
       matrix:
         # 22 is the floor declared in `engines` and the first line that strips
         # TypeScript without a flag; 26 is what the fleet develops against.
-        node-version: [22, 26]
+        # Each runtime keeps its complete gate, without making one job run it twice.
+        include:
+          - node-version: 22
+            runtime: npm
+          - node-version: 26
+            runtime: npm
+          - node-version: 26
+            runtime: bun
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -63,11 +71,29 @@ jobs:
         run: npm run identity:check
 
       - name: Full npm release gate
+        if: matrix.runtime == 'npm'
         run: npm run release:check
 
       - name: Verify Bun can install the package graph
+        if: matrix.runtime == 'bun'
         run: bun install --no-save
 
       - name: Bun release gates
-        if: matrix.node-version == 26
+        if: matrix.runtime == 'bun'
         run: bun run release:check
+
+  test:
+    # Preserve the existing required-check names and keep Bun failure load-bearing.
+    name: test (${{ matrix.node-version }})
+    needs: runtime
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 26]
+    steps:
+      - name: Require every complete runtime gate to succeed
+        env:
+          RUNTIME_RESULT: ${{ needs.runtime.result }}
+        run: test "$RUNTIME_RESULT" = success

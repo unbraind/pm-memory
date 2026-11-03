@@ -10,6 +10,10 @@
 
 - Refuse stale merge receipts after intervening memory edits ([pm-memory-c3gv](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-c3gv.toon))
 
+### Other
+
+- Bring property-suite CI jobs under 90 minutes ([pm-memory-smuq](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-smuq.toon))
+
 ## 2026.11.2 - 2026-11-02
 
 ### Added
