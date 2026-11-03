@@ -92,8 +92,21 @@ jobs:
       fail-fast: false
       matrix:
         node-version: [22, 26]
+    permissions:
+      actions: read
     steps:
       - name: Require every complete runtime gate to succeed
         env:
           RUNTIME_RESULT: ${{ needs.runtime.result }}
         run: test "$RUNTIME_RESULT" = success
+      # Do not rely on the aggregate matrix result alone. filter=latest returns
+      # each job's latest attempt, including legs carried over by a re-run of
+      # failed jobs.
+      - name: Require each of the three runtime legs to have succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          legs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
+            --jq '[.jobs[] | select(.name | startswith("release gate (")) | .conclusion]') || exit 1
+          echo "runtime legs: $legs"
+          test "$(jq -r 'length' <<<"$legs")" = 3 && jq -e 'all(. == "success")' <<<"$legs" >/dev/null

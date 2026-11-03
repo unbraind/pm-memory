@@ -14,6 +14,14 @@ import { digest } from '../src/core.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import { assertSeedCoverage, type SeedExecution } from './property-seeds.ts';
 
+/** A slot whose recorded owner process no longer exists was left by a hard-killed run and may be reclaimed. */
+export async function ownerIsGone(file: string): Promise<boolean> {
+  const owner = Number(await readFile(file, 'utf8').catch(() => ''));
+  // An empty or unreadable file may belong to an owner still writing its PID.
+  if (!Number.isInteger(owner) || owner <= 0) return false;
+  try { process.kill(owner, 0); return false; } catch (error) { return (error as NodeJS.ErrnoException).code === 'ESRCH'; }
+}
+
 /** Share the available cores across sibling test files without doubling their worker pools. */
 async function workerSlot(t: TestContext): Promise<() => Promise<void>> {
   const directory = join(tmpdir(), `memory-worker-slots-${process.ppid}`);
@@ -23,14 +31,17 @@ async function workerSlot(t: TestContext): Promise<() => Promise<void>> {
     for (let index = 0; index < Math.min(4, availableParallelism()); index++) {
       const file = join(directory, String(index));
       try {
-        const handle = await open(file, 'wx'); await handle.close(); let released = false;
+        const handle = await open(file, 'wx'); await handle.writeFile(String(process.pid)); await handle.close(); let released = false;
         const release = async () => {
           if (released) return; released = true;
           await rm(file, { force: true });
           try { await rmdir(directory); } catch (error) { if (!['ENOTEMPTY', 'ENOENT'].includes((error as NodeJS.ErrnoException).code!)) throw error; }
         };
         return release;
-      } catch (error) { if (!['EEXIST', 'ENOENT'].includes((error as NodeJS.ErrnoException).code!)) throw error; }
+      } catch (error) {
+        if (!['EEXIST', 'ENOENT'].includes((error as NodeJS.ErrnoException).code!)) throw error;
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST' && await ownerIsGone(file)) { await rm(file, { force: true }); index--; }
+      }
     }
     await delay(25, undefined, { signal: t.signal });
   }
@@ -97,12 +108,11 @@ export async function runModelWorkerPool(t: TestContext, worker: URL, configurat
     await rm(join(registered.workspace, 'memory-origin.json'));
     Object.assign(shared, { PM_MEMORY_TRACKER_TEMPLATE: registered.workspace, PM_MEMORY_EMPTY_TEMPLATE: registered.workspace });
   }
-  let next = 0; const failures: (Error | undefined)[] = []; const executed: SeedExecution[] = [];
-  /** One pool lane claims batches by index until the list is exhausted or a lane observes a failure. */
-  const lane = async () => { for (let index = next++; index < configurations.length; index = next++) { try { executed.push(...await runModelWorker(t, worker, { ...shared, ...configurations[index] }, receipts[index], suite)); } catch (error) { failures[index] = error as Error; return; } } };
+  let next = 0; const failures: Error[] = []; const executed: SeedExecution[] = [];
+  /** One pool lane claims batches by index until the list is exhausted or any lane has recorded a failure, as concurrentCases does. */
+  const lane = async () => { for (let index = next++; index < configurations.length && failures.length === 0; index = next++) { try { executed.push(...await runModelWorker(t, worker, { ...shared, ...configurations[index] }, receipts[index], suite)); } catch (error) { failures.push(error as Error); return; } } };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(modelWorkerPool(4), configurations.length)) }, lane));
-  const observed = failures.filter(error => error !== undefined);
-  if (observed[0] !== undefined) throw new Error(`${observed.length} pooled worker batch(es) failed; first failure follows`, { cause: observed[0] });
+  if (failures.length > 0) throw new Error(`${failures.length} pooled worker batch(es) failed; first failure follows`, { cause: failures[0] });
   if (suite !== undefined) {
     assertSeedCoverage(suite, executed);
     t.diagnostic(`PROPERTY_SEEDS=${JSON.stringify({ suite, executed: executed.sort((a, b) => a.sequence - b.sequence) })}`);
