@@ -31,7 +31,10 @@ async function workerSlot(t: TestContext): Promise<() => Promise<void>> {
     for (let index = 0; index < Math.min(4, availableParallelism()); index++) {
       const file = join(directory, String(index));
       try {
-        const handle = await open(file, 'wx'); await handle.writeFile(String(process.pid)); await handle.close(); let released = false;
+        const handle = await open(file, 'wx');
+        // A claim without its owner PID could never be reclaimed, so a failed write releases it at once.
+        try { await handle.writeFile(String(process.pid)); } catch (error) { await rm(file, { force: true }); throw error; } finally { await handle.close(); }
+        let released = false;
         const release = async () => {
           if (released) return; released = true;
           await rm(file, { force: true });
