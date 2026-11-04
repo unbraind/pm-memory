@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { tmpdir, availableParallelism } from 'node:os';
 import { join } from 'node:path';
-import { ownerIsGone, runModelWorker, runModelWorkerPool } from './helpers.ts';
+import { ownerIsGone, poolLanes, runModelWorker, runModelWorkerPool } from './helpers.ts';
 
 /** Independently observe real child overlap and require all child-owned temporary directories gone. */
 async function evidence(t: TestContext) {
@@ -37,15 +37,37 @@ test('a failed worker still removes every child temporary directory', async t =>
   await assert.rejects(runModelWorker(t, new URL('./fixtures/worker-budget.worker.ts', import.meta.url), { MEMORY_BUDGET_EVIDENCE: root, MEMORY_BUDGET_FAIL: '1' }, 'unused'), /Expected worker failure/);
   await assertCleaned(root);
 });
-test('one failed batch stops every pool lane from claiming further batches', async t => {
+test('a failed pooled batch rejects the pool and every started worker is cleaned up', async t => {
   const root = await evidence(t);
   const worker = new URL('./fixtures/worker-budget.worker.ts', import.meta.url);
   const configurations = Array.from({ length: 12 }, (_, index) => ({ MEMORY_BUDGET_EVIDENCE: root, ...(index === 0 ? { MEMORY_BUDGET_FAIL: '1' } : {}) }));
   await assert.rejects(runModelWorkerPool(t, worker, configurations, configurations.map(() => 'WORKER_BUDGET completed')), /pooled worker batch\(es\) failed/);
-  const started = (await readFile(join(root, 'scratch.txt'), 'utf8')).trim().split('\n').length;
-  // Lanes already running finish their batch; nobody claims a new one after the failure.
-  assert.ok(started < configurations.length, `${started} of ${configurations.length} batches started after the first failure`);
+  // How many batches start depends on which lane wins the shared worker slots, so this test does not count
+  // them; the next test pins the stop property without real processes.
   await assertCleaned(root);
+});
+test('one failed batch stops every pool lane from claiming further batches', async () => {
+  // Batch 0 fails only once all four lanes are busy, and the other three finish only after that failure is
+  // recorded, so the order is fixed and no slot scheduling or runner load can change what starts.
+  const started: number[] = [];
+  let busy!: () => void; const allBusy = new Promise<void>(resolve => { busy = resolve; });
+  let failed!: () => void; const failure = new Promise<void>(resolve => { failed = resolve; });
+  const failures = await poolLanes(4, 12, async index => {
+    started.push(index);
+    if (started.length === 4) busy();
+    if (index === 0) { await allBusy; failed(); throw new Error('Expected batch failure'); }
+    await failure; await delay(0);
+  });
+  // Lanes already running finish their batch; nobody claims a new one after the failure.
+  assert.deepEqual(started.toSorted((left, right) => left - right), [0, 1, 2, 3]);
+  assert.deepEqual(failures.map(error => error.message), ['Expected batch failure']);
+  // Without a failure every batch runs exactly once, and a pool never runs wider than its batch list.
+  const all: number[] = [];
+  assert.deepEqual(await poolLanes(4, 12, async index => { all.push(index); await delay(0); }), []);
+  assert.deepEqual(all.toSorted((left, right) => left - right), Array.from({ length: 12 }, (_, index) => index));
+  let active = 0; let widest = 0;
+  await poolLanes(4, 2, async () => { active++; widest = Math.max(widest, active); await delay(0); active--; });
+  assert.equal(widest, 2);
 });
 test('a slot is reclaimable only when its recorded owner process is gone', async t => {
   const root = await evidence(t);

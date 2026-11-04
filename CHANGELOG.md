@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- Pool-lane stop test assumes the failing batch wins the first worker slot ([pm-memory-x47g](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-x47g.toon))
 - Refuse stale merge receipts after intervening memory edits ([pm-memory-c3gv](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-c3gv.toon))
 
 ### Other
