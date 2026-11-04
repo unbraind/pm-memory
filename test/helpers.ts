@@ -111,13 +111,13 @@ export async function concurrentCases<T>(values: readonly T[], run: (value: T, i
 export async function poolLanes(width: number, count: number, run: (index: number) => Promise<void>): Promise<Error[]> {
   let next = 0; const failures: Error[] = [];
   /** One lane: claim, run, and stop at the end of the list or after any lane's failure. */
-  const lane = async () => { for (let index = next++; index < count && failures.length === 0; index = next++) { try { await run(index); } catch (error) { failures.push(error instanceof Error ? error : new Error(`pooled batch ${index} rejected with a non-Error value: ${String(error)}`, { cause: error })); return; } } };
+  const lane = async () => { for (let index = next++; index < count && failures.length === 0; index = next++) { try { await run(index); } catch (error) { failures.push(error instanceof Error ? error : new Error(`pooled batch ${index} rejected with a non-Error value`, { cause: error })); return; } } };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(width, count)) }, lane));
   return failures;
 }
 
-/** Run independent model-worker batches concurrently through one bounded pool; every batch still reports its own receipt. */
-export async function runModelWorkerPool(t: TestContext, worker: URL, configurations: readonly Record<string, string>[], receipts: readonly string[], suite?: string): Promise<void> {
+/** Run independent model-worker batches through one bounded pool; an injectable runner allows deterministic scheduling tests. */
+export async function runModelWorkerPool(t: TestContext, worker: URL, configurations: readonly Record<string, string>[], receipts: readonly string[], suite?: string, run: typeof runModelWorker = runModelWorker): Promise<void> {
   if (configurations.length !== receipts.length) throw new Error('Every pooled worker batch requires exactly one receipt');
   const shared: Record<string, string> = {};
   if (suite !== undefined) {
@@ -129,7 +129,7 @@ export async function runModelWorkerPool(t: TestContext, worker: URL, configurat
     Object.assign(shared, { PM_MEMORY_TRACKER_TEMPLATE: registered.workspace, PM_MEMORY_EMPTY_TEMPLATE: registered.workspace });
   }
   const executed: SeedExecution[] = [];
-  const failures = await poolLanes(modelWorkerPool(4), configurations.length, async index => { executed.push(...await runModelWorker(t, worker, { ...shared, ...configurations[index] }, receipts[index], suite)); });
+  const failures = await poolLanes(modelWorkerPool(4), configurations.length, async index => { executed.push(...await run(t, worker, { ...shared, ...configurations[index] }, receipts[index], suite)); });
   if (failures.length > 0) throw new Error(`${failures.length} pooled worker batch(es) failed; first failure follows`, { cause: failures[0] });
   if (suite !== undefined) {
     assertSeedCoverage(suite, executed);

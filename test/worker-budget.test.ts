@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { tmpdir, availableParallelism } from 'node:os';
 import { join } from 'node:path';
-import { ownerIsGone, poolLanes, runModelWorker, runModelWorkerPool } from './helpers.ts';
+import { modelWorkerPool, ownerIsGone, poolLanes, runModelWorker, runModelWorkerPool } from './helpers.ts';
 
 /** Independently observe real child overlap and require all child-owned temporary directories gone. */
 async function evidence(t: TestContext) {
@@ -43,8 +43,48 @@ test('a failed pooled batch rejects the pool and every started worker is cleaned
   const configurations = Array.from({ length: 12 }, (_, index) => ({ MEMORY_BUDGET_EVIDENCE: root, ...(index === 0 ? { MEMORY_BUDGET_FAIL: '1' } : {}) }));
   await assert.rejects(runModelWorkerPool(t, worker, configurations, configurations.map(() => 'WORKER_BUDGET completed')), /pooled worker batch\(es\) failed/);
   // How many batches start depends on which lane wins the shared worker slots, so this test does not count
-  // them; the next test pins the stop property without real processes.
+  // them; the deterministic caller and lane tests pin the stop property without real processes.
   await assertCleaned(root);
+});
+test('the model-worker caller stops scheduling and awaits active batches after failure', async t => {
+  const width = modelWorkerPool(4); const started: number[] = []; const finished: number[] = [];
+  const expected = new Error('Expected caller batch failure');
+  const { promise: allBusy, resolve: busy } = Promise.withResolvers<void>();
+  const { promise: failure, resolve: failed } = Promise.withResolvers<void>();
+  const worker = new URL('./fixtures/worker-budget.worker.ts', import.meta.url);
+  const configurations = Array.from({ length: 12 }, (_, index) => ({ index: String(index) }));
+  const receipts = configurations.map(({ index }) => `batch ${index}`);
+  await assert.rejects(runModelWorkerPool(t, worker, configurations, receipts, undefined, async (context, url, variables, receipt, suite) => {
+    assert.equal(context, t); assert.equal(url, worker); assert.equal(suite, undefined);
+    const index = Number(variables.index); assert.equal(receipt, receipts[index]);
+    started.push(index);
+    if (started.length === width) busy();
+    if (index === 0) { await allBusy; failed(); throw expected; }
+    // A timer resumes the other active batches only after the rejection handler has run.
+    await failure; await delay(0); finished.push(index);
+    return [];
+  }), error => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /1 pooled worker batch\(es\) failed/);
+    assert.equal(error.cause, expected);
+    return true;
+  });
+  assert.deepEqual(started.toSorted((left, right) => left - right), Array.from({ length: width }, (_, index) => index));
+  assert.deepEqual(finished.toSorted((left, right) => left - right), Array.from({ length: width - 1 }, (_, index) => index + 1));
+});
+test('unstringifiable rejections stop new batches, await active lanes and retain their cause', async () => {
+  const reason: unknown = Object.create(null);
+  const started: number[] = []; const finished: number[] = [];
+  const { promise: failure, resolve: failed } = Promise.withResolvers<void>();
+  const failures = await poolLanes(2, 6, async index => {
+    started.push(index);
+    if (index === 0) { await Promise.resolve(); failed(); throw reason; }
+    await failure; await delay(0); finished.push(index);
+  });
+  assert.deepEqual(started, [0, 1]); assert.deepEqual(finished, [1]);
+  assert.equal(failures.length, 1); assert.ok(failures[0] instanceof Error);
+  assert.equal(failures[0].message, 'pooled batch 0 rejected with a non-Error value');
+  assert.equal(failures[0].cause, reason);
 });
 test('one failed batch stops every pool lane from claiming further batches', async () => {
   // Batch 0 fails only once all four lanes are busy, and the other three finish only after that failure is
@@ -66,7 +106,7 @@ test('one failed batch stops every pool lane from claiming further batches', asy
   // A rejection that is not an Error still reaches the caller as one, with the original value as its cause.
   const [wrapped] = await poolLanes(1, 1, async () => { throw 'not an error'; });
   assert.ok(wrapped instanceof Error);
-  assert.match(wrapped.message, /pooled batch 0 rejected with a non-Error value: not an error/);
+  assert.equal(wrapped.message, 'pooled batch 0 rejected with a non-Error value');
   assert.equal(wrapped.cause, 'not an error');
   // Without a failure every batch runs exactly once, and a pool never runs wider than its batch list.
   const all: number[] = [];
