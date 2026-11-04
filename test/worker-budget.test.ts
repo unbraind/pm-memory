@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test, type TestContext } from 'node:test';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
+import { access, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 import { tmpdir, availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import { ownerIsGone, runModelWorker, runModelWorkerPool } from './helpers.ts';
@@ -53,4 +55,37 @@ test('a slot is reclaimable only when its recorded owner process is gone', async
     assert.equal(await ownerIsGone(file), gone, owner || 'empty');
   }
   assert.equal(await ownerIsGone(join(root, 'missing')), false);
+});
+test('a claimed slot is never visible without its owner PID', { skip: process.platform === 'win32' ? 'SIGSTOP is POSIX-only' : false }, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'worker-budget-test-'));
+  // The claimer's parent is this process, so its slots live in a directory named after this PID.
+  const directory = join(root, `memory-worker-slots-${process.pid}`);
+  const claimer = spawn(process.execPath, [fileURLToPath(new URL('./fixtures/slot-claimer.ts', import.meta.url))], { env: { ...process.env, TMPDIR: root, TMP: root, TEMP: root }, stdio: 'ignore' });
+  const exited = new Promise(resolve => { claimer.once('exit', resolve); });
+  // Stop the claimer before removing its directory, or it recreates files there.
+  t.after(async () => { claimer.kill('SIGKILL'); await exited; await rm(root, { recursive: true, force: true }); });
+  const owner = String(claimer.pid);
+  // The claimer loads the whole helper module first; freeze only once it is claiming.
+  for (let waited = 0; claimer.exitCode === null && (await readdir(directory).catch(() => [])).length === 0; waited += 25) {
+    assert.ok(waited < 60_000, 'the claimer never claimed a slot');
+    await delay(25);
+  }
+  // Freezing the claimer at arbitrary moments leaves the files exactly as a hard kill would.
+  let observed = 0; const ownerless: string[] = [];
+  for (let freeze = 0; freeze < 600 && claimer.exitCode === null; freeze++) {
+    await delay(Math.random() * 2);
+    claimer.kill('SIGSTOP');
+    try {
+      for (const name of await readdir(directory).catch(() => [])) {
+        if (!/^\d+$/.test(name)) continue;
+        const recorded = await readFile(join(directory, name), 'utf8').catch(() => null);
+        if (recorded === null) continue;
+        observed++;
+        if (recorded !== owner) ownerless.push(JSON.stringify(recorded));
+      }
+    } finally { claimer.kill('SIGCONT'); }
+  }
+  assert.equal(claimer.exitCode, null, 'the claimer must still be running');
+  assert.ok(observed >= 100, `only ${observed} claimed slots were observed`);
+  assert.deepEqual(ownerless, [], 'a published slot must already record its owner');
 });

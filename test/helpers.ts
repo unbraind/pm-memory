@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { mkdtemp, rm, readdir, readlink, readFile, mkdir, writeFile, cp, open, rmdir } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, readlink, readFile, mkdir, writeFile, cp, link, rmdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { tmpdir, availableParallelism } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,17 +24,19 @@ export async function ownerIsGone(file: string): Promise<boolean> {
 }
 
 /** Share the available cores across sibling test files without doubling their worker pools. */
-async function workerSlot(t: TestContext): Promise<() => Promise<void>> {
+export async function workerSlot(t: Pick<TestContext, 'signal'>): Promise<() => Promise<void>> {
   const directory = join(tmpdir(), `memory-worker-slots-${process.ppid}`);
   for (;;) {
     t.signal.throwIfAborted();
     await mkdir(directory, { recursive: true });
     for (let index = 0; index < Math.min(4, availableParallelism()); index++) {
       const file = join(directory, String(index));
+      // The owner PID is written to a private file first and published with a no-replace link,
+      // so a slot is never visible without its owner, even if this process is killed mid-claim.
+      const pending = join(directory, `${index}.${process.pid}.${randomUUID()}.pending`);
       try {
-        const handle = await open(file, 'wx');
-        // A claim without its owner PID could never be reclaimed, so a failed write releases it at once.
-        try { await handle.writeFile(String(process.pid)); } catch (error) { await rm(file, { force: true }); throw error; } finally { await handle.close(); }
+        await writeFile(pending, String(process.pid), { flag: 'wx' });
+        try { await link(pending, file); } finally { await rm(pending, { force: true }); }
         let released = false;
         const release = async () => {
           if (released) return; released = true;
