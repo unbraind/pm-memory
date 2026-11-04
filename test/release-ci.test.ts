@@ -81,7 +81,7 @@ test('required checks also verify each runtime leg, including legs carried over 
       [jobs(['success', 'failure', 'success'], [...running, ['unrelated', 'success']]), 1, 'a failed leg beside an unrelated success'],
       [jobs(['success', 'success'], [...running, ['unrelated', 'success']]), 1, 'a missing leg'],
       [jobs(['success', 'success', 'success', 'success'], running), 1, 'a duplicated leg'],
-      [JSON.stringify({ jobs: [legNames[0], legNames[1], legNames[1]].map(name => ({ name, conclusion: 'success' })).concat(running.map(([name, conclusion]) => ({ name, conclusion }))) }), 1, 'a duplicated leg standing in for a missing one'],
+      [JSON.stringify({ jobs: [...[legNames[0], legNames[1], legNames[1]].map(name => ({ name, conclusion: 'success' })), ...running.map(([name, conclusion]) => ({ name, conclusion }))] }), 1, 'a duplicated leg standing in for a missing one'],
       [jobs(['success', 'cancelled', 'success'], running), 1, 'a cancelled leg'],
       [jobs(['success', 'skipped', 'success'], running), 1, 'a skipped leg'],
       [jobs(['success', null, 'success'], running), 1, 'a leg without a conclusion'],
