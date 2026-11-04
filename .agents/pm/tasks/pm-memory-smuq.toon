@@ -2,15 +2,19 @@ id: pm-memory-smuq
 title: Run each property-suite release gate in its own CI job
 description: "Make each seeded property sequence cheaper without dropping seeds, sequences, or assertions, and run the three complete release gates (npm on Node 22 and 26, Bun) as separate CI jobs so no job runs two gates. The 90-minute target for the Node 22 job continues in pm-memory-higm."
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags[3]: ci,performance,tests
 created_at: "2026-11-03T11:22:51.105Z"
-updated_at: "2026-11-04T06:01:25.696Z"
-assignee: codex-sol
+updated_at: "2026-11-04T09:35:26.418Z"
+closed_at: "2026-11-04T09:35:26.404Z"
+completed_at: "2026-11-04T09:35:26.404Z"
 claim_principal: codex-sol
 author: codex-agent
 acceptance_criteria: One sequence of each slow property test has a measured cost breakdown; A guard asserts every declared 500-seed list still executes and fails when one seed is dropped; Each runtime's complete release gate runs in its own CI job behind the existing test (22) and test (26) required checks without reducing the 500 seeds or assertions; Hosted CI measures every runtime job and the documentation reports the measured durations
+resolution: Implemented and merged in #42 (e5a55dc).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #42 as e5a55dc; checks successful at head 3ad14a1: CodeQL, codeql, release gate (22, npm), release gate (26, bun), release gate (26, npm), test (22), test (26)."
 comments[20]{created_at,author,text}:
   "2026-11-03T11:23:02.095Z",pi-grok,"Claimed to make each property sequence cheaper without dropping seeds or assertions. Next: profile one sequence of each slow law, then apply equivalent cheaper checks."
   "2026-11-03T13:25:57.063Z",codex-sol,"Continuing the existing task after provider exhaustion. Will measure direct import/schema costs, preserve every seed and assertion under both runtimes, remove temporary production instrumentation, and verify serial release gates before one commit and push."
@@ -56,4 +60,5 @@ tests[2]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   node --test test/worker-budget.test.ts,project,codex-sol,"2026-11-03T14:09:03.490Z",local_mutation,perf/property-suite-duration
 docs[1]{path,scope}:
   docs/property-suite-duration.md,project
+close_reason: "Delivered by #42 \"Split the complete release gates into separate CI jobs and prove all 500 seeds of every property suite ran\" (merged as e5a55dc). Checks successful at the PR head 3ad14a1: CodeQL, codeql, release gate (22, npm), release gate (26, bun), release gate (26, npm), test (22), test (26)."
 body: "## Outcome\n\nProperty tests keep every seed, sequence and assertion under Node and Bun, while each sequence costs less. The three complete release gates (npm on Node 22 and 26, Bun) run in separate CI jobs, and the documentation reports their measured hosted durations. Bringing the Node 22 npm job to 90 minutes or less continues in pm-memory-higm.\n\n## Constraints\n\n- No sampling, seed-count reduction, skipped runtime, or raised timeout.\n- Temp directories are removed even on failure.\n- Local gate runs on the shared host run serially, each after an external free-space precheck. CI runs the three gates as independent jobs on GitHub-hosted runners without a disk check.\n- The item stays open for orchestrator verification."
