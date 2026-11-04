@@ -1,0 +1,12 @@
+id: pm-memory-higm
+title: Bring the Node 22 npm release gate under 90 minutes
+description: "After pm-memory-smuq split the three complete release gates into one CI job per runtime, hosted CI measured the Node 22 npm gate step at 94m48s on d5ecee2 (run 41748616597) and 184m18s on dbf86a1 (run 41755973119), although nothing between those heads changes the suite. On the same heads the Node 26 npm gate took 37m and 31m, and the Bun gates 58m each. Find where Node 22 spends the extra time and why it varies so much between runners (for example V8 coverage, type stripping, worker start-up or runner core count), and bring that job to 90 minutes or less without reducing the 500 seeds per property suite or any assertion."
+type: Task
+status: open
+priority: 2
+tags[3]: ci,performance,tests
+created_at: "2026-11-04T03:26:26.179Z"
+updated_at: "2026-11-04T04:48:32.972Z"
+author: orchestrator
+acceptance_criteria: "A per-phase timing breakdown on hosted Node 22 and Node 26 runners explains the gap between them; The release gate (22, npm) job finishes in 90 minutes or less on two consecutive hosted CI runs; Every property suite still proves 500 completed seeds and no assertion is removed"
+body: ""

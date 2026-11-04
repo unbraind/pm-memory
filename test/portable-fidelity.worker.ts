@@ -1,3 +1,4 @@
+import { seedLedger } from './property-seeds.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { dirname, join, relative } from 'node:path';
 import { PmClient, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, POLICY_MANIFEST } from '../index.ts';
 import type { PortableExportResult, PortablePolicyManifest } from '../index.ts';
-import { tracker } from './helpers.ts';
+import { propertyTracker as tracker } from './helpers.ts';
 
 const MASTER = 0x13631d07;
 const START = Number(process.env.PM_MEMORY_FIDELITY_START);
@@ -40,6 +41,7 @@ async function copyTracker(from: string, to: string) {
 }
 
 test(`fidelity sequences ${START}-${START + COUNT - 1}`, { timeout: 600000 }, async t => {
+  const executed = seedLedger(t, 'FIDELITY', START, COUNT);
   const base = await tracker(t); const empty = await tracker(t); await empty.store.register();
   const raw = join(base.root, 'raw'); await mkdir(raw);
   await writeFile(join(raw, 'MEMORY.md'), '- [Alpha](alpha.md)\n- [Beta](beta.md)\n');
@@ -112,6 +114,7 @@ test(`fidelity sequences ${START}-${START + COUNT - 1}`, { timeout: 600000 }, as
       assert.equal(after.body, desired, label); assert.equal(after.memory_source, 'native:item');
       assert.equal(after.memory_original, 'Native-only bookkeeping'); assert.equal(after.memory_path, 'native-only.md'); assert.equal(after.memory_edited, true);
       assert.deepEqual((await client.get(replacement.id, { full: true })).item, replacement, label);
+      executed.push({ sequence, seed });
     } catch (cause) { t.diagnostic(label); throw new Error(label, { cause }); }
     finally { await rm(root, { recursive: true, force: true }); }
   }

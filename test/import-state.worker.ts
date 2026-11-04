@@ -1,3 +1,4 @@
+import { seedLedger } from './property-seeds.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, writeFile, cp, rm } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { join } from 'node:path';
 import { exportDir, importDir, recall, POLICY_MANIFEST } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody } from '../src/portable.ts';
-import { clonedTracker } from './helpers.ts';
+import { clonedTracker, propertyTracker, withoutGit } from './helpers.ts';
 import { sourceFixture as fixture } from './import-state-helpers.ts';
 
 const START = Number(process.env.PM_MEMORY_OWNED_START);
@@ -14,8 +15,9 @@ assert.ok(Number.isInteger(START) && START >= 0 && START < 500 && START % 5 === 
 assert.equal(COUNT, 5);
 
 test(`owned state batch ${START}: seeded field add/change/remove and recall`, { timeout: 600000 }, async t => {
+  const executed = seedLedger(t, 'OWNED', START, COUNT);
   const master = 0x1363f014; let random = master;
-  const base = await fixture(t, 'raw');
+  const base = await fixture(t, 'raw', undefined, propertyTracker); withoutGit(t, base.root);
   await writeFile(join(base.path, 'beta.md'), '# Beta\nIndependent target');
   await writeFile(join(base.path, 'MEMORY.md'), '- [Alpha](alpha.md)\n- [Beta](beta.md)\n');
   await writeFile(base.file, '---\nname: alpha\ndescription: Initial hook\ntype: project\n---\n# Alpha\nInitial content [[beta]]\n**Why:** Initial evidence\n**How to apply:** Initial application\n');
@@ -74,7 +76,7 @@ test(`owned state batch ${START}: seeded field add/change/remove and recall`, { 
       await rm(target.root, { recursive: true, force: true }); completed = true;
     });
     assert.equal(completed, true, `Seed ${seed} failed before completing its sequence`);
-    completedCount++;
+    completedCount++; executed.push({ sequence, seed });
   }
   assert.equal(completedCount, COUNT);
   t.diagnostic(`OWNED_STATE_BATCH start=${START} count=${COUNT} STEPS=${COUNT * 3} MASTER_SEED=0x${master.toString(16)}`);

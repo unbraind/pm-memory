@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  runtime:
+    name: release gate (${{ matrix.node-version }}, ${{ matrix.runtime }})
     runs-on: ubuntu-latest
     env:
       NPM_CONFIG_USERCONFIG: /dev/null
@@ -19,7 +20,14 @@ jobs:
       matrix:
         # 22 is the floor declared in `engines` and the first line that strips
         # TypeScript without a flag; 26 is what the fleet develops against.
-        node-version: [22, 26]
+        # Each runtime keeps its complete gate, without making one job run it twice.
+        include:
+          - node-version: 22
+            runtime: npm
+          - node-version: 26
+            runtime: npm
+          - node-version: 26
+            runtime: bun
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -63,11 +71,44 @@ jobs:
         run: npm run identity:check
 
       - name: Full npm release gate
+        if: matrix.runtime == 'npm'
         run: npm run release:check
 
       - name: Verify Bun can install the package graph
+        if: matrix.runtime == 'bun'
         run: bun install --no-save
 
       - name: Bun release gates
-        if: matrix.node-version == 26
+        if: matrix.runtime == 'bun'
         run: bun run release:check
+
+  test:
+    # Preserve the existing required-check names and keep Bun failure load-bearing.
+    name: test (${{ matrix.node-version }})
+    needs: runtime
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 26]
+    permissions:
+      actions: read
+    steps:
+      - name: Require every complete runtime gate to succeed
+        env:
+          RUNTIME_RESULT: ${{ needs.runtime.result }}
+        run: test "$RUNTIME_RESULT" = success
+      # Do not rely on the aggregate matrix result alone. filter=latest returns
+      # each job's latest attempt, including legs carried over by a re-run of
+      # failed jobs. Exactly one successful record must exist for each expected
+      # leg name, so a duplicate cannot stand in for a missing leg. The list
+      # below must match the runtime matrix (release-ci.test.ts checks it).
+      - name: Require each of the three runtime legs to have succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          legs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
+            --jq '[.jobs[] | select(.name | startswith("release gate (")) | {name, conclusion}]') || exit 1
+          echo "runtime legs: $legs"
+          jq -e '(map(.name) | sort) == ["release gate (22, npm)", "release gate (26, bun)", "release gate (26, npm)"] and all(.[]; .conclusion == "success")' <<<"$legs" >/dev/null

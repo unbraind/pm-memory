@@ -1,3 +1,4 @@
+import { seedLedger } from './property-seeds.ts';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 import { test } from 'node:test';
@@ -6,7 +7,7 @@ import { dirname, join, relative } from 'node:path';
 import { canonicalDocument, certifyCompleteListResult, PmClient, WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
 import { exportDir, importDir, remember, renew, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
-import { tracker, assertClosedGraph } from './helpers.ts';
+import { propertyTracker as tracker, assertClosedGraph } from './helpers.ts';
 
 const MASTER_SEED = 0x1363cafe;
 const START = Number(process.env.PM_MEMORY_MODEL_START);
@@ -77,10 +78,11 @@ function generator(seed: number): () => number { return () => { seed = (Math.imu
 
 // Each independent sequence uses a real non-git clone of one initialized SDK tracker.
 test(`model batch ${START}: seeded stateful replay, SDK provenance and relationships`, { timeout: 600000 }, async t => {
+  const executed = seedLedger(t, 'MODEL', START, SEQUENCES);
   t.diagnostic(`MASTER_SEED=0x${MASTER_SEED.toString(16)} sequences=${SEQUENCES}`);
   const base = await tracker(t);
-  const emptyTemplate = join(base.root, 'empty-sdk');
-  await cp(base.workspace, emptyTemplate, { recursive: true, filter: path => !['runtime', 'locks', 'checkpoints'].includes(relative(base.workspace, path).split('/')[0]) });
+  const emptyTemplate = join(base.root, 'empty-sdk'); const plain = process.env.PM_MEMORY_EMPTY_TEMPLATE!;
+  await cp(plain, emptyTemplate, { recursive: true, filter: path => !['runtime', 'locks', 'checkpoints'].includes(relative(plain, path).split('/')[0]) });
   const ceiling = process.env.GIT_CEILING_DIRECTORIES; const commandPath = process.env.PATH;
   process.env.GIT_CEILING_DIRECTORIES = dirname(base.root); process.env.PATH = base.root;
   t.after(() => { if (ceiling === undefined) delete process.env.GIT_CEILING_DIRECTORIES; else process.env.GIT_CEILING_DIRECTORIES = ceiling; if (commandPath === undefined) delete process.env.PATH; else process.env.PATH = commandPath; });
@@ -377,6 +379,7 @@ test(`model batch ${START}: seeded stateful replay, SDK provenance and relations
       completed = true;
     });
     assert.equal(completed, true, `MASTER_SEED=${MASTER_SEED} SEQUENCE_SEED=${seed}: sequence did not complete`);
+    executed.push({ sequence, seed });
   }
   assert.equal(totalSteps, SEQUENCES * 45);
   assert.equal(freshCases, 1);

@@ -539,7 +539,7 @@ Behavioral reverts of only the extractor, import parser and recall function each
 | 3 | Near duplicate or source/export conflict | Update the existing slug, force a distinct fact, or choose an empty export directory |
 | 4 | Privacy refusal | Remove credentials; explicitly allow email only when intended |
 
-`npm run release:check` and `bun run release:check` run the fleet gates. Publication is separately held by the manual-only workflow and the maintainer-controlled release enable variable.
+`npm run release:check` and `bun run release:check` run the fleet gates. The CI workflow tests run the workflow's own steps with `bash` and `jq`, as GitHub's runners do: a local run without either tool skips those two tests and names the missing tool, while a run with `CI` set fails instead. Publication is separately held by the manual-only workflow and the maintainer-controlled release enable variable.
 
 ## Optional local semantic recall
 

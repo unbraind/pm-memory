@@ -5,8 +5,8 @@ import type { PortablePolicyManifest } from '../index.ts';
 import { tracker } from './helpers.ts';
 
 /** Exercise source text, companion snapshots and canonical payload edits through their public entry point. */
-export async function sourceFixture(t: Parameters<typeof tracker>[0], mode: 'raw' | 'companion' | 'policy', initial?: string) {
-  const target = await tracker(t); const original = initial ?? '---\nname: alpha\ndescription: Original hook\ntype: feedback\ncustom: retained\n---\n# Alpha\nOriginal content\n**Why:** Original evidence\n**How to apply:** Obsolete instructions\n';
+export async function sourceFixture(t: Parameters<typeof tracker>[0], mode: 'raw' | 'companion' | 'policy', initial?: string, createTracker = tracker) {
+  const target = await createTracker(t); const original = initial ?? '---\nname: alpha\ndescription: Original hook\ntype: feedback\ncustom: retained\n---\n# Alpha\nOriginal content\n**Why:** Original evidence\n**How to apply:** Obsolete instructions\n';
   const raw = join(target.root, 'raw'); await mkdir(raw); await writeFile(join(raw, 'alpha.md'), original);
   await writeFile(join(raw, 'MEMORY.md'), '- [Alpha](alpha.md)\n');
   await importDir(raw, { ...target.options, from: 'claude-code' });

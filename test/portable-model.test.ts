@@ -18,7 +18,7 @@ test('model: 500 seeded stateful sequences preserve old replays, SDK-normalized 
     configurations.push({ PM_MEMORY_MODEL_START: String(start), PM_MEMORY_MODEL_COUNT: String(BATCH_SIZE) });
     receipts.push(`MODEL_BATCH start=${start} count=${BATCH_SIZE} SDK-read steps=${batchChecks} MASTER_SEED=0x${MASTER_SEED.toString(16)}`);
   }
-  await runModelWorkerPool(t, new URL('./portable-model.worker.ts', import.meta.url), configurations, receipts);
+  await runModelWorkerPool(t, new URL('./portable-model.worker.ts', import.meta.url), configurations, receipts, 'MODEL');
   assert.equal(configurations.length * BATCH_SIZE, SEQUENCES);
   assert.equal(checks, 22933);
   t.diagnostic(`MODEL sequences=${SEQUENCES} SDK-read steps=${checks} MASTER_SEED=0x${MASTER_SEED.toString(16)} batches=${configurations.length} wall=concurrent`);
