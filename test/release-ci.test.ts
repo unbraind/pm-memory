@@ -3,9 +3,22 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
+
+/**
+ * The workflow steps under test are bash scripts that use jq, as on GitHub's
+ * runners. Locally a missing tool skips them with its name; under CI it fails,
+ * so the hosted check can never pass by skipping.
+ */
+function requireWorkflowTools(t: TestContext): boolean {
+  const missing = ['bash', 'jq'].filter(tool => spawnSync(tool, ['--version'], { stdio: 'ignore' }).error !== undefined);
+  if (missing.length === 0) return true;
+  assert.equal(process.env.CI, undefined, `CI must provide ${missing.join(' and ')} for the workflow step tests`);
+  t.skip(`${missing.join(' and ')} not installed; the workflow step tests need them`);
+  return false;
+}
 
 test('CI invokes the complete npm and Bun release gates', () => {
   const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
@@ -14,7 +27,8 @@ test('CI invokes the complete npm and Bun release gates', () => {
 });
 
 
-test('CI separates full runtime gates while required checks refuse failed, canceled or skipped runtimes', () => {
+test('CI separates full runtime gates while required checks refuse failed, canceled or skipped runtimes', t => {
+  if (!requireWorkflowTools(t)) return;
   const ci = parse(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'));
   assert.deepEqual(ci.jobs.runtime.strategy.matrix.include, [
     { 'node-version': 22, runtime: 'npm' }, { 'node-version': 26, runtime: 'npm' }, { 'node-version': 26, runtime: 'bun' },
@@ -34,7 +48,8 @@ test('CI separates full runtime gates while required checks refuse failed, cance
   }
 });
 
-test('required checks also verify each runtime leg, including legs carried over by a re-run', () => {
+test('required checks also verify each runtime leg, including legs carried over by a re-run', t => {
+  if (!requireWorkflowTools(t)) return;
   const ci = parse(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'));
   const required = ci.jobs.test;
   assert.deepEqual(required.permissions, { actions: 'read' });
