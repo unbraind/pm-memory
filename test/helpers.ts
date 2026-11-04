@@ -105,12 +105,13 @@ export async function concurrentCases<T>(values: readonly T[], run: (value: T, i
 /**
  * Run `count` batches across at most `width` lanes. Each lane claims the next batch index until the list is
  * exhausted or any lane has recorded a failure, as concurrentCases does: lanes already running finish their
- * batch, and none claims another after the first failure. Resolves with every recorded failure once all lanes stop.
+ * batch, and none claims another after the first failure. Resolves with every recorded failure once all lanes stop;
+ * a rejection that is not an Error is wrapped in one that keeps it as `cause`.
  */
 export async function poolLanes(width: number, count: number, run: (index: number) => Promise<void>): Promise<Error[]> {
   let next = 0; const failures: Error[] = [];
   /** One lane: claim, run, and stop at the end of the list or after any lane's failure. */
-  const lane = async () => { for (let index = next++; index < count && failures.length === 0; index = next++) { try { await run(index); } catch (error) { failures.push(error as Error); return; } } };
+  const lane = async () => { for (let index = next++; index < count && failures.length === 0; index = next++) { try { await run(index); } catch (error) { failures.push(error instanceof Error ? error : new Error(`pooled batch ${index} rejected with a non-Error value: ${String(error)}`, { cause: error })); return; } } };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(width, count)) }, lane));
   return failures;
 }

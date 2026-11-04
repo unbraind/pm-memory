@@ -49,7 +49,7 @@ test('a failed pooled batch rejects the pool and every started worker is cleaned
 test('one failed batch stops every pool lane from claiming further batches', async () => {
   // Batch 0 fails only once all four lanes are busy, and the other three finish only after that failure is
   // recorded, so the order is fixed and no slot scheduling or runner load can change what starts.
-  const started: number[] = [];
+  const started: number[] = []; const finished: number[] = [];
   let busy!: () => void; const allBusy = new Promise<void>(resolve => { busy = resolve; });
   let failed!: () => void; const failure = new Promise<void>(resolve => { failed = resolve; });
   const failures = await poolLanes(4, 12, async index => {
@@ -57,10 +57,17 @@ test('one failed batch stops every pool lane from claiming further batches', asy
     if (started.length === 4) busy();
     if (index === 0) { await allBusy; failed(); throw new Error('Expected batch failure'); }
     await failure; await delay(0);
+    finished.push(index);
   });
-  // Lanes already running finish their batch; nobody claims a new one after the failure.
+  // Lanes already running finish their batch before the pool returns; nobody claims a new one after the failure.
   assert.deepEqual(started.toSorted((left, right) => left - right), [0, 1, 2, 3]);
+  assert.deepEqual(finished.toSorted((left, right) => left - right), [1, 2, 3]);
   assert.deepEqual(failures.map(error => error.message), ['Expected batch failure']);
+  // A rejection that is not an Error still reaches the caller as one, with the original value as its cause.
+  const [wrapped] = await poolLanes(1, 1, async () => { throw 'not an error'; });
+  assert.ok(wrapped instanceof Error);
+  assert.match(wrapped.message, /pooled batch 0 rejected with a non-Error value: not an error/);
+  assert.equal(wrapped.cause, 'not an error');
   // Without a failure every batch runs exactly once, and a pool never runs wider than its batch list.
   const all: number[] = [];
   assert.deepEqual(await poolLanes(4, 12, async index => { all.push(index); await delay(0); }), []);
