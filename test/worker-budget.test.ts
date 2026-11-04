@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, type TestContext } from 'node:test';
 import { access, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -88,4 +89,40 @@ test('a claimed slot is never visible without its owner PID', { skip: process.pl
   assert.equal(claimer.exitCode, null, 'the claimer must still be running');
   assert.ok(observed >= 100, `only ${observed} claimed slots were observed`);
   assert.deepEqual(ownerless, [], 'a published slot must already record its owner');
+});
+
+/** Whether a process still runs: it exists and, where procfs shows it, is not a zombie awaiting its reaper. */
+function running(pid: number): boolean {
+  try { process.kill(pid, 0); } catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
+  try { return !/\) Z /.test(readFileSync(`/proc/${pid}/stat`, 'utf8')); } catch { return true; }
+}
+test('an orphaned slot claimer exits once its parent process is gone', { skip: process.platform === 'win32' ? 'POSIX process probes only' : false }, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'worker-budget-test-'));
+  const fixture = fileURLToPath(new URL('./fixtures/slot-claimer.ts', import.meta.url));
+  // An intermediate parent starts the claimer, reports its PID and is then killed without any cleanup.
+  const launcher = `const { spawn } = require('node:child_process'); const claimer = spawn(process.execPath, [${JSON.stringify(fixture)}], { stdio: 'ignore' }); console.log(claimer.pid); setInterval(() => {}, 1000);`;
+  const parent = spawn(process.execPath, ['-e', launcher], { env: { ...process.env, TMPDIR: root, TMP: root, TEMP: root }, stdio: ['ignore', 'pipe', 'ignore'] });
+  const parentExited = new Promise(resolve => { parent.once('exit', resolve); });
+  let claimer = 0;
+  t.after(async () => {
+    parent.kill('SIGKILL'); await parentExited;
+    if (claimer > 0) {
+      if (running(claimer)) process.kill(claimer, 'SIGKILL');
+      for (let waited = 0; running(claimer) && waited < 5000; waited += 25) await delay(25);
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+  claimer = await new Promise<number>((resolve, reject) => {
+    let output = '';
+    parent.stdout.on('data', chunk => { output += String(chunk); const reported = /^(\d+)\n/.exec(output); if (reported) resolve(Number(reported[1])); });
+    parent.once('exit', () => { reject(new Error('the launcher exited before reporting the claimer')); });
+  });
+  const directory = join(root, `memory-worker-slots-${parent.pid}`);
+  for (let waited = 0; (await readdir(directory).catch(() => [])).length === 0; waited += 25) {
+    assert.ok(waited < 60_000 && running(claimer), 'the claimer never claimed a slot');
+    await delay(25);
+  }
+  parent.kill('SIGKILL'); await parentExited;
+  for (let waited = 0; running(claimer) && waited < 15_000; waited += 25) await delay(25);
+  assert.equal(running(claimer), false, 'an orphaned claimer must stop instead of spinning');
 });
