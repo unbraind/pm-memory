@@ -6,7 +6,7 @@ status: closed
 priority: 0
 tags[3]: ci,npm,release
 created_at: "2026-10-28T15:21:28.882Z"
-updated_at: "2026-11-04T18:59:24.396Z"
+updated_at: "2026-11-04T21:09:24.055Z"
 closed_at: "2026-11-04T15:32:57.495Z"
 completed_at: "2026-11-04T15:32:57.495Z"
 author: claude-hub
@@ -15,9 +15,10 @@ severity: high
 resolution: Implemented and merged in #26 (2eccb02).
 expected_result: The change described by this item is on main.
 actual_result: "Merged in #26 as 2eccb02; checks successful at head d053352: CodeQL, codeql, test (22), test (26)."
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-10-28T15:21:30.282Z",claude-hub,"Evidence: the failed release job log shows 'npm error command git --no-replace-objects ls-remote ssh://git@github.com/release-artifact/package.tgz.git' and 'git@github.com: Permission denied (publickey)' on each of the 3 attempts (same failure in pm-evidence, pm-hypothesis, pm-jev, pm-lint, pm-memory, pm-review, pm-rlm and pm-swarm, which all carry the scaffold line). The other uses of release-artifact/package.tgz in release.yml are shell arguments (mv, sha256sum, openssl), not npm package specs. Fleet tracking: unbraind/pm-cli-companion item pm-cli-website-l9y4."
   "2026-11-04T18:59:24.392Z",claude-orchestrator,"Release evidence for the acceptance criteria (verified 2026-11-04): the fix 2eccb02 (#26) is in tag v2026.10.28, the first release after it. Scheduled releases are enabled (release.yml cron '23 3 * * *', and the repository variable PM_RELEASE_APPROVED has been true since 2026-10-26T10:43Z). pm-memory 2026.10.28 reached npm at 2026-10-28T18:00:23Z with an SLSA v1 provenance attestation (https://registry.npmjs.org/-/npm/v1/attestations/pm-memory@2026.10.28), and 2026.10.31 and 2026.11.2 published with provenance as well. release.yml runs 'npm publish ./release-artifact/package.tgz'."
+  "2026-11-04T21:09:24.055Z",claude-orchestrator,"Provenance references for each release, re-fetched 2026-11-04T21:10Z, all HTTP 200, each with a publish v0.1 and an SLSA v1 attestation: 2026.10.28 https://registry.npmjs.org/-/npm/v1/attestations/pm-memory@2026.10.28 (dist.integrity sha512-JZ1dJqewAD6xnkuCsy5HpIdv07vaZRokJ6b2Wh/F/4m7qo5aPyB7xpG7SzHJn1yIyRq1beQxGfHBoLC9zLom9A==); 2026.10.31 https://registry.npmjs.org/-/npm/v1/attestations/pm-memory@2026.10.31 (sha512-TAgFGvRH2sT8oG7kBROwz7DeH2XuFMs6Kx/4O+QDBKBK9dR10UTv4IvcpdPHAakY89VT5w4EVWeveN8YOaZQiw==); 2026.11.2 https://registry.npmjs.org/-/npm/v1/attestations/pm-memory@2026.11.2 (sha512-x1bCKqDSMtv6FTCQ6cgWEC55nVo+d6G3Si6/ganbDsaLq2TcWOJZ+NrZnyNgPH7MJul0t+T3bI6D+dyF3Ljj0g==)."
 files[1]{path,scope}:
   .github/workflows/release.yml,project
 close_reason: "Delivered by #26 \"Publish the verified release archive as a local file so daily releases reach npm\" (merged as 2eccb02). Checks successful at the PR head d053352: CodeQL, codeql, test (22), test (26)."
