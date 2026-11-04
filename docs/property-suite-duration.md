@@ -111,7 +111,28 @@ doubled job duration independently of any microbenchmark speedup. Planning estim
 shared four-core budget removes the long two-worker tail. The Node 22 estimate is
 lower confidence: local load and the incomplete original run prevent a certified
 bound. The next PR's actual CI durations must confirm the 90-minute target;
-this change does not claim that confirmation or wait for CI.
+this change does not claim that confirmation or wait for CI. The hosted
+measurements below replace these estimates.
+
+## Hosted CI durations
+
+Gate step durations on GitHub-hosted runners, from each job's step timestamps:
+
+| Head | CI run | npm, Node 26 | Bun gates, Node 26 | npm, Node 22 |
+| --- | --- | ---: | ---: | ---: |
+| `d5ecee2` | 41748616597 | 37m 11s | 58m 08s | 94m 48s |
+| `dbf86a1` | 41755973119 | 30m 48s | 58m 26s | 184m 18s |
+
+Before the split, `test (22)` ran the npm and Bun gates in one job for about
+3 h 20 min (run 41569138337: 02:56Z to 06:22Z on 2026-11-03). Each job now runs
+one complete gate. The Node 26 npm and Bun jobs finish well within 90 minutes.
+The Node 22 npm job does not, and it varies widely between runners. It took
+94m 48s on `d5ecee2` and 184m 18s on `dbf86a1`, although nothing between those
+heads changes the suite: they differ only in the workflow's leg-name check,
+one release-CI test and tracker metadata. The same gate takes a third of that
+time or less on Node 26, so the remaining gap is specific to the runtime. The
+90-minute target is met for two of the three runtime jobs; `pm-memory-higm`
+tracks the Node 22 job.
 
 ## Final validation
 

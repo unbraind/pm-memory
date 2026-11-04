@@ -1,17 +1,17 @@
 id: pm-memory-smuq
-title: Bring property-suite CI jobs under 90 minutes
-description: "Make each seeded property sequence cheaper without dropping seeds, sequences, or assertions, so each CI test job stays at or under 90 minutes on GitHub-hosted runners."
+title: Run each property-suite release gate in its own CI job
+description: "Make each seeded property sequence cheaper without dropping seeds, sequences, or assertions, and run the three complete release gates (npm on Node 22 and 26, Bun) as separate CI jobs so no job runs two gates. The 90-minute target for the Node 22 job continues in pm-memory-higm."
 type: Task
 status: in_progress
 priority: 2
 tags[3]: ci,performance,tests
 created_at: "2026-11-03T11:22:51.105Z"
-updated_at: "2026-11-04T01:42:44.147Z"
+updated_at: "2026-11-04T04:48:34.129Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-agent
-acceptance_criteria: Each CI test job is estimated at or under 90 minutes without reducing the 500 seeds or assertions; One sequence of each slow property test has a measured cost breakdown; A guard asserts every declared 500-seed list still executes and fails when one seed is dropped
-comments[16]{created_at,author,text}:
+acceptance_criteria: One sequence of each slow property test has a measured cost breakdown; A guard asserts every declared 500-seed list still executes and fails when one seed is dropped; Each runtime's complete release gate runs in its own CI job behind the existing test (22) and test (26) required checks without reducing the 500 seeds or assertions; Hosted CI measures every runtime job and the documentation reports the measured durations
+comments[18]{created_at,author,text}:
   "2026-11-03T11:23:02.095Z",pi-grok,"Claimed to make each property sequence cheaper without dropping seeds or assertions. Next: profile one sequence of each slow law, then apply equivalent cheaper checks."
   "2026-11-03T13:25:57.063Z",codex-sol,"Continuing the existing task after provider exhaustion. Will measure direct import/schema costs, preserve every seed and assertion under both runtimes, remove temporary production instrumentation, and verify serial release gates before one commit and push."
   "2026-11-03T13:33:55.414Z",codex-sol,"Profiled a complete representative sequence in each of the six slow tests. The model sequence issued about 60000 asynchronous filesystem operations; assertions were only milliseconds. Implementing parent-owned registered-schema templates, independent logical namespaces, fixed bounded worker fan-out, failure cleanup, and actual completed-seed receipts. Existing sequence bodies and all SDK oracle assertions remain."
@@ -28,6 +28,8 @@ comments[16]{created_at,author,text}:
   "2026-11-03T23:38:14.716Z",orchestrator,"CodeRabbit round 3 on ca80ac2. (1) The docs said local gates stop below 20 GB, but release:check has no disk check. The docs now say the recorded runs were started by an external 20 GB free-space precheck on the shared host and that release:check itself does not check disk space. (2) The gh stand-in now applies the workflow's own --jq filter to job objects. Leg names are rendered from the runtime job's name template and matrix. Cases include running aggregators (null conclusions), an unrelated failed job (ignored), and a failed leg beside an unrelated success. Selecting every job, or the wrong prefix, fails the test. release-ci passes 3/3 under Node and Bun; lint, typecheck and duplication pass."
   "2026-11-04T00:40:31.222Z",orchestrator,"CodeRabbit round 4 on 7d927a1: the workflow-step tests in release-ci.test.ts need bash and jq. A local run without them failed for no workflow reason. requireWorkflowTools() now skips those two tests locally and names the missing tool, and fails under CI so the hosted check can never pass by skipping. Checked with a PATH holding only node: 1 pass and 2 skipped locally, 2 failures with CI=true. The README declares both tools. Lint, typecheck, duplication and docstring pass; release-ci passes 3/3 under Node and Bun."
   "2026-11-04T01:42:44.146Z",orchestrator,"CodeRabbit round 5 on d5ecee2: the per-leg step checked only the number and conclusions of release-gate records, so a duplicated leg could stand in for a missing one. The step now requires the sorted names to equal exactly the three expected leg names, all successful. The test checks that this list equals the names rendered from the runtime matrix, and adds the duplicate-plus-missing case. A count-plus-subset filter accepts that payload (exit 0); the exact-name filter refuses it (exit 1). release-ci passes 3/3 under Node and Bun."
+  "2026-11-04T03:26:38.512Z",orchestrator,"author=orchestrator,text=CodeRabbit round 6 on dbf86a1: the CHANGELOG entry presented the 90-minute target as achieved. Hosted CI now measures it. On d5ecee2 (run 41748616597) the Node 26 npm gate took 37m, the Bun gates 58m and the Node 22 npm gate 94m48s. On dbf86a1 (run 41755973119) Node 26 npm took 31m and Bun 58m46s, while Node 22 npm was still running after 110 minutes. Before this PR test (22) ran both gates for about 3h20m. The split delivered, but Node 22 misses 90 minutes, so the title and first criterion now describe the per-runtime split and the measured durations, and the Node 22 target moved to pm-memory-higm."
+  "2026-11-04T04:48:34.129Z",orchestrator,"author=orchestrator,text=Correction to the round 6 comment: when it was written, the Node 22 npm gate on dbf86a1 had run about 103 minutes, not 110. It finished successfully at 04:47:55Z after 184m18s, against 94m48s on d5ecee2 with no suite change in between. Both figures are in docs/property-suite-duration.md and pm-memory-higm."
 files[17]{path,scope}:
   .github/workflows/ci.yml,project
   test/fixtures/worker-budget.worker.ts,project

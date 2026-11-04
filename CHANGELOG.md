@@ -12,7 +12,7 @@
 
 ### Other
 
-- Bring property-suite CI jobs under 90 minutes ([pm-memory-smuq](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-smuq.toon))
+- Run each property-suite release gate in its own CI job ([pm-memory-smuq](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-smuq.toon))
 
 ## 2026.11.2 - 2026-11-02
 
