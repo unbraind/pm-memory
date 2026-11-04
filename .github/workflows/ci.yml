@@ -101,12 +101,14 @@ jobs:
         run: test "$RUNTIME_RESULT" = success
       # Do not rely on the aggregate matrix result alone. filter=latest returns
       # each job's latest attempt, including legs carried over by a re-run of
-      # failed jobs.
+      # failed jobs. Exactly one successful record must exist for each expected
+      # leg name, so a duplicate cannot stand in for a missing leg. The list
+      # below must match the runtime matrix (release-ci.test.ts checks it).
       - name: Require each of the three runtime legs to have succeeded
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           legs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
-            --jq '[.jobs[] | select(.name | startswith("release gate (")) | .conclusion]') || exit 1
+            --jq '[.jobs[] | select(.name | startswith("release gate (")) | {name, conclusion}]') || exit 1
           echo "runtime legs: $legs"
-          test "$(jq -r 'length' <<<"$legs")" = 3 && jq -e 'all(. == "success")' <<<"$legs" >/dev/null
+          jq -e '(map(.name) | sort) == ["release gate (22, npm)", "release gate (26, bun)", "release gate (26, npm)"] and all(.[]; .conclusion == "success")' <<<"$legs" >/dev/null

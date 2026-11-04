@@ -64,6 +64,10 @@ test('required checks also verify each runtime leg, including legs carried over 
     const legNames = (ci.jobs.runtime.strategy.matrix.include as { 'node-version': number; runtime: string }[]).map(leg =>
       String(ci.jobs.runtime.name).replace('${{ matrix.node-version }}', String(leg['node-version'])).replace('${{ matrix.runtime }}', leg.runtime));
     assert.deepEqual(legNames, ['release gate (22, npm)', 'release gate (26, npm)', 'release gate (26, bun)']);
+    // The step's expected-name list must be exactly the rendered matrix names.
+    const expected = /== (\[[^\]]*\])/u.exec(legs.run)?.[1];
+    assert.ok(expected, 'the step must compare against an explicit leg-name list');
+    assert.deepEqual(JSON.parse(expected), [...legNames].sort());
     const jobs = (conclusions: (string | null)[], others: [string, string | null][] = []) => JSON.stringify({ jobs: [
       ...legNames.slice(0, conclusions.length).map((name, index) => ({ name, conclusion: conclusions[index] })),
       ...conclusions.slice(legNames.length).map(conclusion => ({ name: 'release gate (26, npm)', conclusion })),
@@ -77,6 +81,7 @@ test('required checks also verify each runtime leg, including legs carried over 
       [jobs(['success', 'failure', 'success'], [...running, ['unrelated', 'success']]), 1, 'a failed leg beside an unrelated success'],
       [jobs(['success', 'success'], [...running, ['unrelated', 'success']]), 1, 'a missing leg'],
       [jobs(['success', 'success', 'success', 'success'], running), 1, 'a duplicated leg'],
+      [JSON.stringify({ jobs: [legNames[0], legNames[1], legNames[1]].map(name => ({ name, conclusion: 'success' })).concat(running.map(([name, conclusion]) => ({ name, conclusion }))) }), 1, 'a duplicated leg standing in for a missing one'],
       [jobs(['success', 'cancelled', 'success'], running), 1, 'a cancelled leg'],
       [jobs(['success', 'skipped', 'success'], running), 1, 'a skipped leg'],
       [jobs(['success', null, 'success'], running), 1, 'a leg without a conclusion'],
