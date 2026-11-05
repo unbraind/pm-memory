@@ -1,0 +1,27 @@
+id: pm-memory-toolchain-1104
+title: Migrate the November 4 toolchain and verification collision fixtures
+description: "Supersede https://github.com/unbraind/pm-memory/pull/46 with exact requested toolchain pins. Reproduce timestamp-collision and tags failures, classify their upstream contracts, retain semantic and source revision safety controls."
+type: Chore
+status: in_progress
+priority: 2
+tags[4]: dependencies,"gh:unbraind/pm-memory#46",migration,sdk
+created_at: "2026-11-05T05:10:03.809Z"
+updated_at: "2026-11-05T07:18:10.853Z"
+author: codex-toolchain-1104
+acceptance_criteria: Focused collision regression and relevant gates pass; no weakened coverage or assertions; merge latest main including pool-lane stop tests; separate review PR with tracker evidence
+comments[3]{created_at,author,text}:
+  "2026-11-05T05:13:40.826Z",codex-toolchain-1104,"Cause (test): pm-cli 2026.10.30 GH-1606 validates mutation operands before internals. The isolated verification-collision file reproduces field=tags with invalid_argument_value: update tags must be a string; its parent fails because of that subtest. Supply the native string tag option, additionally assert the persisted tags changed, and retain all exact checked/skipped/verdict, timestamp-collision and ABA assertions. No production mutation change or new upstream regression is indicated by this refusal."
+  "2026-11-05T05:17:52.222Z",codex-toolchain-1104,"Focused verification-collision.test.ts passes 18/18 through pm test, with all 17 cases retained: 14 collisions, SDK revision refusal, ABA refusal and wall-clock-only allowance. Typecheck (including test compilation), lint, build, identity gate and changelog regeneration/check pass. README development pin now matches 2026.11.4; the dated design audit explicitly labels its old pin as historical. Main merge includes PR 48 pool-lane stop tests. Full-suite coverage remains queued behind the one active fleet suite; no coverage percentage is claimed yet."
+  "2026-11-05T07:18:03.604Z",codex-toolchain-1104,"The complete npm coverage command reached its unchanged 3300-second linked-run budget and was terminated with SIGTERM. The long import-state model and later files were interrupted; no final test count or valid final coverage receipt exists. The import-state file failure marker appears in the cancellation output without a standalone assertion diagnostic, so it is not classified as a new SDK regression. The isolated verification-collision file remains verified at 18/18, with all timestamp, semantic/source revision and ABA controls intact. Typecheck with test compilation, lint, build, identity, strict tracker health and changelog checks pass. Keep all property seeds, scenarios, inventory and four 100-percent thresholds unchanged; exact-head full gates remain for CI and orchestrator verification."
+files[4]{path,scope}:
+  CHANGELOG.md,project
+  package-lock.json,project
+  package.json,project
+  test/verification-collision.test.ts,project
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  nice -n 10 node --test test/verification-collision.test.ts,project,600,codex-toolchain-1104,"2026-11-05T05:13:51.142Z",local_mutation,fix/toolchain-2026-11-4
+  NPM_CONFIG_USERCONFIG=/dev/null nice -n 10 npm run coverage,project,3300,codex-toolchain-1104,"2026-11-05T06:07:05.344Z",local_mutation,fix/toolchain-2026-11-4
+docs[2]{path,scope}:
+  docs/time-bounded-guidance-validation.md,project
+  README.md,project
+body: ""

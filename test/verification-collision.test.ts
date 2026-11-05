@@ -21,7 +21,7 @@ test('verification property: timestamp collisions never authorize another semant
   const mutations: Record<string, unknown>[] = [
     {},
     { memoryChangedAt: '2026-06-02T12:00:00.000Z' },
-    { description: 'Native C' }, { memoryKind: 'project' }, { tags: ['native-c'] }, { memoryPinned: true },
+    { description: 'Native C' }, { memoryKind: 'project' }, { tags: 'native-c' }, { memoryPinned: true },
     { externalPayload: JSON.stringify({ payload: 'Native C' }) }, { externalContext: JSON.stringify({ context: 'Native C' }) },
     { memoryOriginal: Buffer.from('Native C').toString('base64') },
     { memorySource: 'agents-md:relative-file' }, { memoryPath: 'AGENTS.md' }, { memorySlug: 'native-c' },
@@ -51,6 +51,7 @@ test('verification property: timestamp collisions never authorize another semant
           abaProof = after.proof;
         }
         const changed = (await target.client.get(memory.id, { full: true })).item;
+        if (options.tags !== undefined) assert.deepEqual(changed.tags, ['native-c'], 'the valid SDK tag option must change native tags');
         assert.equal(changed.updated_at, '2026-06-01T12:00:00.000Z', `case=${index}: force native timestamp collision`);
         if (index !== 1) assert.equal(changed.memory_changed_at, '2026-06-01T12:00:00.000Z', `case=${index}: force content timestamp collision`);
       } finally { finish(); }

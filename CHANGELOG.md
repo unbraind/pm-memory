@@ -14,6 +14,7 @@
 
 ### Other
 
+- Migrate the November 4 toolchain and verification collision fixtures ([pm-memory-toolchain-1104](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-toolchain-1104.toon))
 - Address PR 48 rejection and caller-stop review findings ([pm-memory-review48](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-review48.toon))
 - Run each property-suite release gate in its own CI job ([pm-memory-smuq](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-smuq.toon))
 

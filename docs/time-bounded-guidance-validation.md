@@ -4,7 +4,7 @@ This feature builds on semantic-recall PR #5 and must merge after it.
 
 ## Overlap audit
 
-The current pm CLI 2026.10.21 SDK exposes deadline scheduling and deadline pressure in context relevance. The package-pinned 2026.10.19 SDK has the same relevant contracts. Core deadlines schedule work. The inspected pm-context deadline rendering, pm-ops lifecycle policy and pm-review sources do not implement standing-memory truth validity or renewal evidence. pm-memory already owns pins, recency, claim verification, bounded retrieval, registered fields and the shared process writer lock; this feature reuses those boundaries.
+At design time (2026-10-21), the pm CLI 2026.10.21 SDK exposed deadline scheduling and deadline pressure in context relevance. The then-pinned 2026.10.19 SDK had the same relevant contracts. Core deadlines schedule work. The inspected pm-context deadline rendering, pm-ops lifecycle policy and pm-review sources do not implement standing-memory truth validity or renewal evidence. pm-memory already owns pins, recency, claim verification, bounded retrieval, registered fields and the shared process writer lock; this feature reuses those boundaries.
 
 ## Read-only public corpus
 
