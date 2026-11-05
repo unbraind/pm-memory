@@ -9,6 +9,7 @@
 ### Fixed
 
 - Pool-lane stop test assumes the failing batch wins the first worker slot ([pm-memory-x47g](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-x47g.toon))
+- Daily release never publishes: npm reads release-artifact/package.tgz as a GitHub repository ([pm-memory-ielg](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-ielg.toon))
 - Refuse stale merge receipts after intervening memory edits ([pm-memory-c3gv](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-c3gv.toon))
 
 ### Other
