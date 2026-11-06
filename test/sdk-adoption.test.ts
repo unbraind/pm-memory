@@ -220,9 +220,11 @@ test('shared scanner and stronger memory supplements retain legacy refusals and 
   for (const value of ['', 'token: accounting', 'password=$BUILD_PASSWORD', '_authToken=${BUILD_TOKEN}', 'Use a secret manager', 'https://service.test/path', 'eyJ' + 'x'.repeat(12) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(8), 'resources/guide.md', 'ghp_' + 'x'.repeat(15) + '_x', 'eyJ' + 'x'.repeat(10) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(8), 'EYJ' + 'x'.repeat(10) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(10)]) privacy(value);
 });
 
-test('legacy generic key prefixes remain refused across SDK provider floors and token boundaries', async t => {
+test('legacy generic key prefixes and long SDK markers remain refused across scanner boundaries', async t => {
   const target = await tracker(t); const kept = await snapshot(target.workspace);
-  for (const value of ['sk-ant-' + 'x'.repeat(16), 'sk-' + 'x'.repeat(15) + '-'.repeat(5), 'sk-' + '-'.repeat(16)]) {
+  const marker = '-----BEGIN ' + 'X'.repeat(200) + 'PRIVATE KEY-----';
+  assert.ok(scanMutationSecrets(marker).some(row => row.rule === 'private_key'));
+  for (const value of ['sk-ant-' + 'x'.repeat(16), 'sk-' + 'x'.repeat(15) + '-'.repeat(5), 'sk-' + '-'.repeat(16), marker]) {
     await assert.rejects(remember(value, { ...target.options, kind: 'reference', allowEmail: true }), error => error instanceof MemoryError && error.code === 'privacy' && !error.message.includes(value));
     assert.deepEqual(await snapshot(target.workspace), kept);
   }

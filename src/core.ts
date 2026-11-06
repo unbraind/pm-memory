@@ -186,7 +186,7 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
 function supplementalCredential(value: string): boolean {
   const legacy = /\b(?:sk|pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\b(?:gh[pousr]_[a-z0-9]{16,19}|github_pat_[a-z0-9_]{16,19})\b|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
   // Shared findings already returned above; this fallback retains mixed-case and long markers.
-  const privateKey = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/i.test(value);
+  const privateKey = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/i.test(value);
   for (const [, name, separator, assigned] of value.matchAll(/\b(password|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)) {
     if (!(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned))) return true;
   }

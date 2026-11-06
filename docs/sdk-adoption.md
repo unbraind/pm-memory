@@ -32,7 +32,7 @@ Narrow supplements retain the stronger existing policy:
 | Generic sk/pk/rk prefixes and short GitHub keys | Legacy prefix refusal starts at 16 characters, includes short Anthropic-style keys, and has no word-end boundary for generic keys. SDK provider-specific floors, exclusions and boundaries differ. |
 | Authorization headers and URL passwords | The shared scanner has no equivalent header or URL-authority rule. |
 | JWT stream scan | Use the union of the old header/payload/signature thresholds and the SDK thresholds, preserving safe short JWT-shaped text while scanning arbitrarily long segments in linear time. |
-| Mixed-case or long private-key markers | The SDK literal marker is uppercase; long markers can span bounded scan windows. |
+| Mixed-case or long private-key markers | The SDK literal marker is uppercase; long markers can span bounded scan windows, including prefixes without a separator before PRIVATE KEY. The whole-marker supplement preserves this SDK-positive case and the stronger case-insensitive policy. |
 | Encoded credentials | Credential rules are literal in this SDK; percent/JSON escapes (including serialized escape wrappers), NFKC, legacy provider prefix/AWS case and invisible controls receive up to four decoding passes before the same policy. Escape runs are consumed once, preserving ordinary backslashes without quadratic retries. Remaining repeated encoding refuses safely at the limit. Invalid UTF-8 bytes become replacement characters in the inspection view, so a malformed suffix cannot conceal valid credential bytes. |
 
 The SDK private-host matcher exhibits quadratic behavior on a long hyphenated
