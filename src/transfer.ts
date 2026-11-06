@@ -386,7 +386,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     }));
     if (memories.some(item => item.consent !== undefined && !isCanceled(item) && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
     for (const item of memories.filter(item => !isCanceled(item) && !item.artifact)) {
-      for (const value of [item.title, item.slug, item.description ?? '', item.body, item.why, item.how, ...item.tags, ...item.links]) privacy(value, true);
+      for (const value of [item.title, item.slug, item.description, item.body, item.why, item.how, ...item.tags, ...item.links]) privacy(value, true);
       if (item.document !== undefined) privacy(Buffer.from(item.document.original, 'base64').toString('utf8'), true);
     }
     await ensureTrackerOrigin(store); const catalog = await originCatalog(store);

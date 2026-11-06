@@ -281,6 +281,7 @@ test('document receipt fingerprints reject foreign invalid values independently 
   const exported = await exportedPolicy(target); const fields = exported.manifest.guidance[0].baseline!.fields;
   const receipt = { id: 'memory-example', fields, relationships: [], graph: [] };
   assert.equal(validOwnedTarget(receipt), true);
+  for (const value of [null, 1, [], Object.assign([], fields)]) assert.equal(validOwnedTarget({ ...receipt, fields: value }), false, 'Invalid partial field receipts cannot grant ownership');
   for (const key of ['documentHash', 'policyBodyHash']) {
     assert.equal(validOwnedTarget({ ...receipt, [key]: digest('complete document') }), true);
     for (const value of [null, 1, '', 'invalid', {}]) assert.equal(validOwnedTarget({ ...receipt, [key]: value }), false);
