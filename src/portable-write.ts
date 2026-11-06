@@ -1,11 +1,11 @@
 import { resolve } from 'node:path';
-import { certifyCompleteListResult, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, runWithActiveExtensions, create, update, commitWorkspaceTransaction, itemDocumentToMutationOptions, resolveRuntimeFieldRegistry } from '@unbrained/pm-cli/sdk';
+import { certifyCompleteListResult, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, runWithActiveExtensions, create, update, commitWorkspaceTransaction, itemDocumentToMutationOptions, resolveRuntimeFieldRegistry, readItemRevision, withExpectedItemRevisions, isItemRevisionConflict } from '@unbrained/pm-cli/sdk';
 import type { ItemDocument, BulkItemMutation, WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { ImportPlan } from './portable-plan.ts';
 import type { Store } from './store.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { savePlan, importIdentity, retainForwardWrites } from './portable-plan.ts';
+import { savePlan, importIdentity, retainForwardWrites, retireOwnedTransaction } from './portable-plan.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
 import { foreignMemories, type ImportConflict, type PortableImportOptions } from './portable.ts';
 import { birthDocument } from './portable-preview.ts';
@@ -79,6 +79,7 @@ export async function publishPending(store: Store, plan: ImportPlan, options?: P
     const snapshot = async () => JSON.parse(JSON.stringify(result)) as WorkspaceTransactionJsonValue;
     await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${pending.transactionId}-snapshot`, steps: [{ id: pending.stepId, inspect: async () => ({ state: 'applied', result: await snapshot() }), apply: snapshot, compensate: retainForwardWrites }], onTransition: options?.onTransition });
   }
+  await retireOwnedTransaction(store, `${pending.transactionId}-snapshot`, plan.author, pending.stepId);
   delete plan.publication; await savePlan(store, plan); await options?.onStep?.('recover-recorded');
 }
 /** Read an input-keyed planned outcome without consulting inherited object properties. */
@@ -97,13 +98,15 @@ async function dependencyConflict(store: Store, plan: ImportPlan, target: OwnedT
 /** A peer already satisfied the actual SDK-normalized input; no revision-only write is authorized. */
 class CompletedInput extends Error {}
 
-/** Recheck a saved field base in the SDK's actual pre-write hook; plain writers can still race the later publication. */
+/** Publish under a locked native revision while retaining the domain field, birth and immutable-history proofs. */
 async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMutation, target: OwnedTarget, base: ItemDocument | null, options: PortableImportOptions, stepId: string): Promise<void> {
   const identity = await importIdentity(store, plan.input); let completed: NativeProof | undefined;
   await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${identity.transactionId}-snapshot`, steps: [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply: async () => {
+  const revision = mutation.op === 'update' ? await readItemRevision(mutation.id, { pmRoot: store.workspace }) : undefined;
   const initial = await nativeState(store, mutation.id);
   if (mutation.op === 'create' && initial.document !== null || mutation.op === 'update' && initial.document === null) throw new ImportMoved(importConflict(mutation.id, ['id'], { id: base?.metadata.id }, { id: initial.document?.metadata.id }));
   assertBase(mutation.id, base, initial.document, initial.document);
+  await options.onStep?.('revision-bound');
   const publish = async () => {
     const schema = await trackerSchema(store.workspace); let failure: unknown; let preserveRevision = false; let normalized: Record<string, unknown> = {};
     const suffix = mutation.op === 'create' ? `-nodes ${mutation.id} create memory-birth-v1:${digest(plan.births!.find(row => row.id === mutation.id)!.document)}` : ` forward ${mutation.id}`;
@@ -163,7 +166,8 @@ async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMu
       try { await dispatch(); } catch (retryError) { throw failure ?? retryError; }
     }
   };
-  if (store.hostClient === undefined) await runWithActiveExtensions({ path: store.workspace, noExtensions: true }, publish); else await publish();
+  const guarded = () => withExpectedItemRevisions(revision === undefined ? [] : [{ id: mutation.id, itemHash: revision.item_hash }], publish, { pmRoot: store.workspace });
+  if (store.hostClient === undefined) await runWithActiveExtensions({ path: store.workspace, noExtensions: true }, guarded); else await guarded();
   if (plannedOutcome(plan, mutation.id) !== 'unchanged') (plan.applied ??= []).push(mutation.id);
   await options.onStep?.('written');
   const result = plan.publication === undefined ? undefined : await publicationResult(store, plan.publication); completed = result?.targets[0].proof;
@@ -197,7 +201,7 @@ export async function commitPortableBatch(store: Store, plan: ImportPlan, _trans
       if (plan.result.skipped.some(row => row.conflict?.item === mutation.id)) continue;
       await writeForward(store, plan, mutation, phase === 'nodes' ? { ...target, relationships: [], graph: [] } : target, base, options, `${index + 1}-${phase}-${mutation.id}`);
     } catch (error) {
-      const conflict = error instanceof ImportMoved ? error.conflict : error instanceof MemoryError && error.code === 'conflict' ? importConflict(mutation.id, ['document'], { document: plan.expected.find(row => row.id === mutation.id)!.history }, { document: 'unverified native document' }) : undefined;
+      const conflict = isItemRevisionConflict(error) ? importConflict(mutation.id, ['revision'], { revision: plan.expected.find(row => row.id === mutation.id)!.history }, { revision: 'native revision moved' }) : error instanceof ImportMoved ? error.conflict : error instanceof MemoryError && error.code === 'conflict' ? importConflict(mutation.id, ['document'], { document: plan.expected.find(row => row.id === mutation.id)!.history }, { document: 'unverified native document' }) : undefined;
       if (conflict === undefined) throw error;
       skipItem(plan, conflict.item, conflict); await savePlan(store, plan);
     }

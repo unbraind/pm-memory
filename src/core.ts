@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { estimatePmOutputTokens, tokenizeSimilarityText, jaccardSimilarity } from '@unbrained/pm-cli/sdk';
+import { estimatePmOutputTokens, tokenizeSimilarityText, jaccardSimilarity, scanMutationSecrets } from '@unbrained/pm-cli/sdk';
 import { encode } from '@toon-format/toon';
 import { KINDS } from './types.ts';
 import type { MemoryKind, Packet } from './types.ts';
@@ -39,21 +39,56 @@ export function slug(value: string): string {
 export function digest(value: string): string { return createHash('sha256').update(value).digest('hex'); }
 /** Refuse credentials, private keys and unapproved email addresses before persistence. */
 export function privacy(value: string, allowEmail = false): void {
-  const secret = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----|\b(?:sk|pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\b(?:gh[pousr]_[a-z0-9]{16,}|github_pat_[a-z0-9_]{16,}|AKIA[A-Z0-9]{16})\b|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
-  const assignments = [...value.matchAll(/\b(password|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)];
-  const literal = assignments.some(([, name, separator, assigned]) => {
-    if (/^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/.test(assigned)) return false;
-    return !(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned));
-  });
-  if (secret.test(value) || literal || credentialJwt(value) || credentialUrl(value)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
+  for (const view of credentialViews(value)) {
+    // Environment references carry no literal value. The SDK's npm/password rules
+    // deliberately flag some of these source forms, so mask only the reference.
+    const literals = view.replace(/\b(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\b\s*[=:]\s*["']?\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/gi, 'environment reference ');
+    const shared = sharedCredential(literals);
+    if (shared || supplementalCredential(literals)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
+  }
   if (!allowEmail && /\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}\b/i.test(value)) throw new MemoryError('privacy', 'Email address refused', 'Remove addresses or explicitly use --allow-email');
 }
-/** Consume each JWT header run once and anchor the remaining segments without restarting. */
+/** Bound the SDK's unanchored private-host rule on hyphenated noncredentials; overlap preserves bounded credential prefixes. */
+function sharedCredential(value: string): boolean {
+  let previous: string | undefined;
+  for (let offset = 0; offset < value.length; offset += 64) {
+    const window = value.slice(offset, offset + 128);
+    if (window === previous) continue;
+    previous = window;
+    if (scanMutationSecrets(window).some(finding => !['absolute_home_path', 'private_ip', 'private_ssh_target', 'user_at_private_host'].includes(finding.rule))) return true;
+  }
+  return false;
+}
+/** Bounded transport decoding supplements the SDK, which normalizes paths but scans credential rules literally. */
+function credentialViews(value: string): string[] {
+  const views = [value];
+  for (let pass = 0; pass < 4; pass++) {
+    const previous = views.at(-1)!;
+    const next = previous.replace(/(?:%[a-f0-9]{2})+/gi, run => {
+      try { return decodeURIComponent(run); } catch { return run; }
+    }).replace(/\\(?:u([a-f0-9]{4})|x([a-f0-9]{2}))/gi, (_match, unicode: string | undefined, byte: string | undefined) => String.fromCharCode(Number.parseInt(unicode ?? byte!, 16))).normalize('NFKC').replace(/\b(?:sk-(?:proj-)?|gh[pousr]_|github_pat_)/gi, prefix => prefix.toLowerCase()).replace(/\b(?:AKIA|ASIA)[a-z0-9]{16}\b/gi, key => key.toUpperCase()).replace(/[\p{Bidi_Control}\u200b-\u200f\u2060-\u206f\ufeff]/gu, '');
+    if (next === previous) break;
+    views.push(next);
+    if (pass === 3 && /%[a-f0-9]{2}|\\(?:u[a-f0-9]{4}|x[a-f0-9]{2})/i.test(next)) throw new MemoryError('privacy', 'Memory normalization limit exceeded', 'Replace repeatedly encoded content with plain text and secret-manager references');
+  }
+  return views;
+}
+/** Stronger memory policy: shorter/legacy keys, generic literal assignments, auth headers, URL passwords and short JWT signatures. */
+function supplementalCredential(value: string): boolean {
+  const legacy = /\b(?:pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\bsk-(?:[a-z0-9_-]{16,19}|proj-[a-z0-9_-]{16,19})\b|\b(?:gh[pousr]_|github_pat_)[a-z0-9_]{16,19}\b|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
+  const key = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/i.exec(value);
+  const lowerKey = key !== null && (key[0] !== key[0].toUpperCase() || key[0].length > 64);
+  for (const [, name, separator, assigned] of value.matchAll(/\b(password|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)) {
+    if (!(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned))) return true;
+  }
+  return legacy.test(value) || lowerKey || credentialJwt(value) || credentialUrl(value);
+}
+/** Cover arbitrarily long JWT segments across SDK windows with a linear scan, retaining the stronger eight-character signature floor. */
 function credentialJwt(value: string): boolean {
-  const tail = /[a-z0-9_-]{12,}\.[a-z0-9_-]{8,}\b/iy;
+  const tail = /[a-z0-9_-]{10,}\.[a-z0-9_-]{8,}\b/iy;
   for (const match of value.matchAll(/\beyJ[a-z0-9_-]*/gi)) {
     const end = match.index + match[0].length;
-    if (match[0].length < 15 || value[end] !== '.') continue;
+    if (match[0].length < 13 || value[end] !== '.') continue;
     tail.lastIndex = end + 1;
     if (tail.test(value)) return true;
   }

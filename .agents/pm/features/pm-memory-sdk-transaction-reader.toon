@@ -1,16 +1,16 @@
 id: pm-memory-sdk-transaction-reader
 title: Adopt public SDK transaction inspection and native hash preconditions
-description: Upstream unbraind/pm-cli#1597 and #1598 are closed. The pinned SDK 2026.10.27 compatibility adapter still reads only its owned transaction receipts and uses a scoped private preview. Adoption must verify public inspection and host-bound preview declarations within the supported host range and retain native precondition guarantees; unbraind/pm-cli#1576 and #1620 remain open. This follow-up is waiting for those supported surfaces and is not actionable as a package-only replacement today.
-type: Task
-status: open
-priority: 3
-tags[9]: "gh:unbraind/pm-cli#1576","gh:unbraind/pm-cli#1597","gh:unbraind/pm-cli#1598","gh:unbraind/pm-cli#1620",sdk-gap,"upstream:pm-cli#1576","upstream:pm-cli#1597","upstream:pm-cli#1598","upstream:pm-cli#1620"
+description: "Adopt public SDK transaction readers, host-bound item batches and locked expected revisions while retaining portable history, read-set and forward-retention proofs."
+type: Feature
+status: in_progress
+priority: 1
+tags[9]: "gh:unbraind/pm-cli#1576","gh:unbraind/pm-cli#1597","gh:unbraind/pm-cli#1598","gh:unbraind/pm-cli#1620",sdk-adoption,"upstream:pm-cli#1576","upstream:pm-cli#1597","upstream:pm-cli#1598","upstream:pm-cli#1620"
 created_at: "2026-10-27T06:21:15.119Z"
-updated_at: "2026-11-02T08:27:48.900Z"
+updated_at: "2026-11-06T10:32:25.777Z"
 author: codex-agent
 acceptance_criteria: "Replace owned SDK journal reads with public transaction inspection without weakening crash recovery, CAS, foreign preservation or replay tests"
 parent: pm-memory-0kwy
-comments[9]{created_at,author,text}:
+comments[12]{created_at,author,text}:
   "2026-10-27T08:53:47.062Z",codex-agent,"Additional verified SDK adapter limit: previewItemMutations accepts only pmRoot, transactionId, author and mutations; no include/exclude path or authoritative-item projection option exists. Its owned snapshot includes extensions, so installed dependency links can refuse normal imports. The package now projects SDK-certified item documents, relevant exact history streams and guarded SDK schema/settings into a private disposable tracker before invoking the same SDK validator. PmClient still has no host-bound preview method (related upstream issue 1598); that issue covers the public host-context surface, while this managed-directory scoping constraint is a separate observed symptom. Adopt a public scoped preview when available; do not remove validation or copy installed code."
   "2026-10-27T09:39:43.693Z",codex-agent,"Capability precision: runWorkspaceTransactionGc(dryRun: true) provides status/age sweep decisions, but not the ownership payload or step results needed for recovery, abandonment or replanning. It is not a substitute for the missing full transaction receipt reader tracked by 1597. No GC of foreign or SDK journals was added."
   "2026-10-29T02:15:08.111Z",codex-agent,"Portable import review confirms the remaining native read-to-write gap: the installed public update options have no expectedItemHash precondition (upstream 1576), and commitWorkspaceTransaction serializes transactions without excluding ordinary SDK/CLI writes (upstream 1620, verified on SDK 2026.10.25 and 2026.10.28). Future adoption must replace best-effort final hash/history rereads with the public native precondition when available. Existing receipt-payload reader/abandon/replan and scoped staged-document preview needs remain tracked by upstream 1597/1598. Current compensation cancels creations, preserves incoming/outgoing references, checks the real SDK proposal for unowned field side effects, and restores only still-owned field values; it does not claim native-writer isolation. Evidence and reverts remain on pm-memory-1363 and PR 15."
@@ -20,9 +20,17 @@ comments[9]{created_at,author,text}:
   "2026-11-02T04:42:49.648Z",pi-memory,"Thread PRRT_kwDOVPw2oc6yXN3S (P3): the task description still presented the closed upstream #1597/#1598 as open and omitted the open native precondition blockers (#1576/#1620). Description updated to reflect the closed status and the open blockers so the task no longer reads as actionable today."
   "2026-11-02T06:42:47.157Z",codex-sol,"Continuation audit of cubic thread PRRT_kwDOVPw2oc6yXN3S: verified upstream states live: #1597/#1598 CLOSED, #1576/#1620 OPEN. Removed the inherited contradictory phrase claiming no acceptance criterion was blocked; the existing acceptance criterion still requires a supported public replacement without weakening native preconditions. Compatibility status and open blockers are now explicit. No upstream mutation was made."
   "2026-11-02T08:27:48.899Z",codex-sol,"Local strict project health has a host-only optional-extension skew: the pinned package SDK is 2026.10.27 while the globally installed pm-github advertises 2026.11.2. The pinned no-extensions health check passes 10/10 with zero warnings. Pins and global installations were retained. Clean CI installation remains the full health gate; this does not establish an SDK protocol defect or satisfy the still-open native-precondition blockers."
-files[4]{path,scope}:
+  "2026-11-06T10:08:55.719Z",codex-sol,"Implements companion pm-cli-website-tdwu G1. Reuse the existing owner item; public readers replace private journal paths and shapes, with native revision refusals supplementing immutable history and field ownership checks. Full release gates are delegated to CI per task; targeted real-tracker regressions, lint and typecheck run locally."
+  "2026-11-06T10:09:38.889Z",codex-sol,"SDK batch compensation restores values and its create inspection adopts an existing id; those semantics differ from portable forward-only retention and positive creation ownership. Keep the domain coordinator and final ownership hook for source publication; use host-bound batches for independent birth construction and host-bound preview for canonical staging, plus withExpectedItemRevisions around source updates. Public abandonment is restricted to exact owned custom steps and never applied to foreign or item-batch recovery plans."
+  "2026-11-06T10:32:18.611Z",codex-sol,"Validation: focused portable/adoption suite passed 79/79 tests with concurrency 2. Linked transaction regressions passed 5/5 through pm test --run --progress. Disposable behavioral reverts: native revision scope 2 failures; public receipt reader 1; public occupied-identity reader 1; supported retirement 1. Restoring the implementation passed all 15 adoption regressions. Concurrent edits, ABA/history-prefix rewrite, create-if-absent/foreign births, interrupted replay and compensation controls remain covered. Typecheck, lint, duplication, docstrings and identity checks pass; full npm/Bun release gates are delegated to CI per task."
+files[5]{path,scope}:
   src/portable-ownership.ts,project
   src/portable-plan.ts,project
   src/portable-preview.ts,project
   src/portable-write.ts,project
+  test/sdk-adoption.test.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  "node --test --test-concurrency=2 --test-name-pattern=\"locked SDK|public reader|public receipt|supported abandonment\" test/sdk-adoption.test.ts",project,300,codex-sol,"2026-11-06T10:25:50.381Z",local_mutation,adopt-sdk-transaction-readers-and-secret-scan
+docs[1]{path,scope}:
+  docs/sdk-adoption.md,project
 body: ""

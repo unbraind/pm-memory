@@ -1,7 +1,7 @@
-import { mkdir, readFile, rm, access } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { writeFileAtomic, deriveMutationTransactionId, WorkspaceTransactionInterruptedError, commitWorkspaceTransaction, appendWorkspaceAuditEvent, getHistoryPath, readHistoryEntries, hashHistoryStream } from '@unbrained/pm-cli/sdk';
+import { writeFileAtomic, deriveMutationTransactionId, WorkspaceTransactionInterruptedError, commitWorkspaceTransaction, appendWorkspaceAuditEvent, getHistoryPath, readHistoryEntries, hashHistoryStream, readWorkspaceTransaction, readItemTransaction, abandonWorkspaceTransaction } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation, ItemDocument } from '@unbrained/pm-cli/sdk';
 import { commitPortableBatch, publishPending, validNativeProof } from './portable-write.ts';
 import type { Publication } from './portable-write.ts';
@@ -22,10 +22,10 @@ const intentTokens = new WeakMap<ImportPlan, string>();
 export async function importIdentity(store: Store, input: string, candidate: string = randomUUID()): Promise<{ attempt: string; transactionId: string }> {
   for (;;) {
     const transactionId = `memory-policy-${deriveMutationTransactionId(JSON.stringify([input, candidate]))}`;
-    const occupied = await Promise.all(['', '-nodes', '-snapshot'].map(async suffix => {
-      try { await access(join(store.workspace, 'transactions', 'sdk', `${transactionId}${suffix}.json`)); return true; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw new MemoryError('transaction', 'Portable transaction namespace is unavailable', 'Restore access to transactions/sdk and retry'); }
-    }));
+    let occupied;
+    try {
+      occupied = await Promise.all([readItemTransaction(store.workspace, transactionId), readItemTransaction(store.workspace, `${transactionId}-nodes`), readWorkspaceTransaction(store.workspace, `${transactionId}-snapshot`)]);
+    } catch { throw new MemoryError('transaction', 'Portable transaction namespace is unavailable', 'Restore access to the retained transaction receipts and retry'); }
     if (!occupied.some(Boolean)) return { attempt: candidate, transactionId };
     candidate = randomUUID();
   }
@@ -40,7 +40,7 @@ export interface ExpectedTarget {
   slug: string;
   /** Exported immutable lineage, never resolved from a mutable alias. */
   origin?: PortableOrigin;
-  /** Observed SDK revision, used for diagnostics rather than native-writer isolation. */
+  /** Observed modification clock for diagnostics; native locked revisions are captured at publication. */
   version: string | null;
   /** Expected number of immutable history entries. */
   length: number;
@@ -143,11 +143,26 @@ export async function pendingImport(store: Store, _onStep?: PortableImportOption
     if (plan.publication !== undefined && (plan.forwardOnly !== 1 || typeof plan.publication.id !== 'string' || typeof plan.publication.stepId !== 'string' || !IMPORT_ID.test(plan.publication.transactionId) || !validNativeProof(plan.publication.before) || !/^[a-f0-9]{64}$/.test(plan.publication.proposed) || !validOwnedTarget(plan.publication.target) || plan.publication.id !== plan.publication.target.id)) throw new Error();
   } catch { throw new MemoryError('history', 'Invalid portable import intent', 'Preserve the owned intent and restore its verified copy'); }
   intentTokens.set(plan, current.payload);
-  if (plan.forwardOnly === 1) await publishPending(store, plan, { onStep: _onStep, onTransition: _onTransition });
+  if (plan.forwardOnly === 1) { await publishPending(store, plan, { onStep: _onStep, onTransition: _onTransition }); await retireOwnedTransaction(store, plan.transactionId, plan.author, 'attempt'); }
   await appendWorkspaceAuditEvent({ pmRoot: store.workspace, op: 'memory_import_replan', author: store.author, message: plan.forwardOnly === 1 ? 'Retired interrupted forward import; retain completed writes and replan current state' : 'Discarded legacy import intent without restoring values; replan current state', context: { transactionId: plan.transactionId, format: plan.forwardOnly === 1 ? 'forward-only' : 'legacy' }, lockTtlSeconds: 120, lockWaitMs: 10000 });
   await _onStep?.('retire-audit');
   const removed = await removeIntent(store, plan); await _onStep?.('retired-intent');
   return removed ? undefined : 'foreign';
+}
+/** Retire only the exact custom coordinator step; item batches and foreign plans retain their own recovery authority. */
+export async function retireOwnedTransaction(store: Store, transactionId: string, author: string, stepId: string): Promise<void> {
+  /** Revalidate the original adapter identity both before and under the coordinator lock. */
+  const assertOwned = (journal: NonNullable<Awaited<ReturnType<typeof readWorkspaceTransaction>>>) => {
+    if (journal.author !== author || journal.recoveryData !== undefined || journal.stepIds.length !== 1 || journal.stepIds[0] !== stepId) throw new MemoryError('foreign_intent', 'Foreign transaction retained', 'Let the transaction owner reconcile its original plan before retrying');
+  };
+  const journal = await readWorkspaceTransaction(store.workspace, transactionId);
+  if (journal === undefined) return;
+  assertOwned(journal);
+  if (journal.status === 'committed' || journal.status === 'abandoned') return;
+  await abandonWorkspaceTransaction({ pmRoot: store.workspace, transactionId, author, reason: 'Retire interrupted portable step; retain all completed forward item writes', resolveSteps: current => {
+    assertOwned(current);
+    return [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply: retainForwardWrites, compensate: retainForwardWrites }];
+  } });
 }
 /** Every adapter retires old plans before independently planning the current input. */
 export async function recoverInput(store: Store, _input: string, options: PortableImportOptions): Promise<PortableImportResult | undefined> {
@@ -187,7 +202,7 @@ function forwardResult(plan: ImportPlan): PortableImportResult {
   return result;
 }
 /** SDK compensation records recovery without reversing successful native writes. */
-export async function retainForwardWrites(): Promise<void> {}
+export async function retainForwardWrites(): Promise<undefined> { return undefined; }
 /** Apply item steps once, retaining partial success and never issuing inverse mutations. */
 export async function applyImport(store: Store, plan: ImportPlan, options: PortableImportOptions): Promise<PortableImportResult> {
   try {
