@@ -6,18 +6,27 @@ import { commitWorkspaceTransaction, readWorkspaceTransaction, readItemTransacti
 import type { WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import type { PortableImportResult } from '../index.ts';
 import { importDir, MemoryError, remember } from '../index.ts';
-import { importIdentity, retireOwnedTransaction, retainForwardWrites } from '../src/portable-plan.ts';
+import { importIdentity, retireOwnedTransaction, retainForwardWrites, portableRecoveryData, savePlan } from '../src/portable-plan.ts';
+import { publishPending } from '../src/portable-write.ts';
+import { nativeState } from '../src/native-revision.ts';
 import { previousOwnership } from '../src/portable-ownership.ts';
 import { capturedPublication, applyCaptured } from './portable-publication-helpers.ts';
 import { nativeHost } from './native-host-helpers.ts';
-import { tracker, snapshot } from './helpers.ts';
+import { tracker, snapshot, readImportPlan } from './helpers.ts';
 import { privacy } from '../src/core.ts';
 
 for (const host of [false, true]) test(`locked SDK revision refuses a concurrent foreign-field edit (${host ? 'host' : 'directory'})`, async t => {
   const { target, mutation } = await capturedPublication(t); let injected = false;
-  const run = async (client?: PmClient) => importDir(join(target.root, 'input'), { ...target.options, client, from: 'agents-md', onStep: async step => {
+  const run = async (client?: PmClient) => importDir(join(target.root, 'input'), { ...target.options, client, from: 'agents-md', onTransition: async event => {
+    if (event.transition !== 'prepared') return;
+    const journal = await readWorkspaceTransaction(target.workspace, event.transactionId);
+    assert.deepEqual(journal?.recoveryData, { owner: 'pm-memory-forward-transaction:1', transactionId: event.transactionId, author: target.options.author, stepId: journal?.stepIds[0] });
+  }, onStep: async step => {
     if (step !== 'revision-bound' || injected) return;
-    injected = true; await target.client.update(mutation.id, { priority: 1 });
+    injected = true;
+    const plan = await readImportPlan(target.workspace);
+    assert.deepEqual((await readWorkspaceTransaction(target.workspace, plan.transactionId))?.recoveryData, { owner: 'pm-memory-forward-transaction:1', transactionId: plan.transactionId, author: target.options.author, stepId: 'attempt' });
+    await target.client.update(mutation.id, { priority: 1 });
   } });
   const result = host ? await nativeHost(target.workspace, run) : await run();
   assert.ok(injected); assert.equal(result.updated, 0);
@@ -87,21 +96,21 @@ test('public receipt validation cannot grant ownership from a counterfeit SDK sc
 test('supported abandonment retires an interrupted owned step and preserves a foreign item batch', async t => {
   const target = await tracker(t); const transactionId = 'owned-retirement-control';
   const steps = [{ id: 'owned-step', inspect: async () => ({ state: 'pending' as const }), apply: async () => null, compensate: retainForwardWrites }];
-  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author: target.options.author, transactionId, steps, onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author: target.options.author, transactionId, recoveryData: portableRecoveryData(transactionId, target.options.author, 'owned-step'), steps, onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
   const kept = await snapshot(target.workspace);
   await retireOwnedTransaction(target.store, transactionId, target.options.author, 'owned-step');
   assert.equal((await readWorkspaceTransaction(target.workspace, transactionId))?.status, 'abandoned');
   await retireOwnedTransaction(target.store, transactionId, target.options.author, 'owned-step');
   await assert.rejects(target.client.commitItemMutations({ transactionId: 'foreign-batch-control', mutations: [{ op: 'create', id: 'memory-test-foreign', options: { title: 'Foreign planned task' } }], onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
-  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author: target.options.author, transactionId: 'started-retirement-control', steps, onTransition: event => { if (event.transition === 'step_applied') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author: target.options.author, transactionId: 'started-retirement-control', recoveryData: portableRecoveryData('started-retirement-control', target.options.author, 'owned-step'), steps, onTransition: event => { if (event.transition === 'step_applied') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
   await retireOwnedTransaction(target.store, 'started-retirement-control', target.options.author, 'owned-step');
   assert.equal((await readWorkspaceTransaction(target.workspace, 'started-retirement-control'))?.status, 'abandoned');
-  await commitWorkspaceTransaction({ pmRoot: target.workspace, author: target.options.author, transactionId: 'committed-retirement-control', steps });
+  await commitWorkspaceTransaction({ pmRoot: target.workspace, author: target.options.author, transactionId: 'committed-retirement-control', recoveryData: portableRecoveryData('committed-retirement-control', target.options.author, 'owned-step'), steps });
   await retireOwnedTransaction(target.store, 'committed-retirement-control', target.options.author, 'owned-step');
   assert.equal((await readWorkspaceTransaction(target.workspace, 'committed-retirement-control'))?.status, 'committed');
   for (const [author, ids, requested] of [['foreign-author', ['owned-step'], 'owned-step'], [target.options.author, ['one', 'two'], 'one'], [target.options.author, ['foreign-step'], 'owned-step']] as const) {
     const id = `foreign-${requested}-${ids.length}-${author}`;
-    await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author, transactionId: id, steps: ids.map(id => ({ ...steps[0], id })), onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+    await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author, transactionId: id, recoveryData: portableRecoveryData(id, target.options.author, requested), steps: ids.map(id => ({ ...steps[0], id })), onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
     const before = await readWorkspaceTransaction(target.workspace, id);
     await assert.rejects(retireOwnedTransaction(target.store, id, target.options.author, requested), error => error instanceof MemoryError && error.code === 'foreign_intent');
     assert.deepEqual(await readWorkspaceTransaction(target.workspace, id), before);
@@ -113,6 +122,47 @@ test('supported abandonment retires an interrupted owned step and preserves a fo
   // Supported abandonment appends workspace audit events; it never erases them.
   delete kept['history/_workspace.jsonl']; delete after['history/_workspace.jsonl'];
   assert.deepEqual(after, kept);
+});
+
+test('matching-field foreign and legacy workspace transactions retain their recovery authority', async t => {
+  const target = await tracker(t); const stepId = 'same-step';
+  const payloads: (WorkspaceTransactionJsonValue | undefined)[] = [undefined, null, {}, { owner: 'another-package' }, { ...portableRecoveryData('wrong-id', target.options.author, stepId) }, { ...portableRecoveryData('extra-marker', target.options.author, stepId), extra: true }];
+  for (const [index, recoveryData] of payloads.entries()) {
+    const transactionId = `matching-foreign-${index}`;
+    await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author: target.options.author, transactionId, recoveryData, steps: [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply: async () => null, compensate: retainForwardWrites }], onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+    const before = await readWorkspaceTransaction(target.workspace, transactionId); const kept = await snapshot(target.workspace);
+    if (recoveryData === undefined) await retireOwnedTransaction(target.store, transactionId, target.options.author, stepId);
+    else await assert.rejects(retireOwnedTransaction(target.store, transactionId, target.options.author, stepId), error => error instanceof MemoryError && error.code === 'foreign_intent');
+    assert.deepEqual(await readWorkspaceTransaction(target.workspace, transactionId), before);
+    assert.deepEqual(await snapshot(target.workspace), kept);
+  }
+});
+
+test('proven native publication leaves unmarked or foreign coordinator receipts untouched', async t => {
+  for (const mode of ['legacy', 'foreign', 'missing'] as const) {
+    const { target, plan, mutation, before } = await capturedPublication(t);
+    const identity = await importIdentity(target.store, 'legacy-publication'); const stepId = 'legacy-step';
+    const transactionId = `${identity.transactionId}-snapshot`; const message = `bulk-item-transaction ${identity.transactionId} forward ${mutation.id}`;
+    await target.store.write(async () => {
+      const apply = async () => {
+        await target.client.update(mutation.id, { ...mutation.options, message });
+        const current = await nativeState(target.store, mutation.id);
+        plan.publication = { id: mutation.id, transactionId: identity.transactionId, message, stepId, before: before.proof, proposed: current.proof.hash!, target: plan.ownership!.find(row => row.id === mutation.id)! };
+        await savePlan(target.store, plan); return null;
+      };
+      if (mode === 'missing') await apply();
+      else await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, transactionId, author: plan.author, recoveryData: mode === 'foreign' ? { owner: 'another-package' } : undefined, steps: [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply, compensate: retainForwardWrites }], onTransition: event => { if (event.transition === 'step_applied') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+      const journal = await readWorkspaceTransaction(target.workspace, transactionId); const native = await nativeState(target.store, mutation.id);
+      if (mode === 'foreign') await assert.rejects(publishPending(target.store, plan), error => error instanceof MemoryError && error.code === 'foreign_intent');
+      else { await publishPending(target.store, plan); assert.equal(plan.publication, undefined); }
+      if (mode === 'missing') {
+        const receipt = await readWorkspaceTransaction(target.workspace, transactionId);
+        assert.equal(receipt?.status, 'committed');
+        assert.deepEqual(receipt?.recoveryData, { owner: 'pm-memory-forward-transaction:1', transactionId, author: plan.author, stepId });
+      } else assert.deepEqual(await readWorkspaceTransaction(target.workspace, transactionId), journal);
+      assert.deepEqual(await nativeState(target.store, mutation.id), native);
+    });
+  }
 });
 
 /** Read native history through the supported SDK stream reader. */

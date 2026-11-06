@@ -1,8 +1,9 @@
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { writeFileAtomic, deriveMutationTransactionId, WorkspaceTransactionInterruptedError, commitWorkspaceTransaction, appendWorkspaceAuditEvent, getHistoryPath, readHistoryEntries, hashHistoryStream, readWorkspaceTransaction, readItemTransaction, abandonWorkspaceTransaction } from '@unbrained/pm-cli/sdk';
-import type { BulkItemMutation, ItemDocument } from '@unbrained/pm-cli/sdk';
+import type { BulkItemMutation, ItemDocument, WorkspaceTransactionJournal } from '@unbrained/pm-cli/sdk';
 import { commitPortableBatch, publishPending, validNativeProof } from './portable-write.ts';
 import type { Publication } from './portable-write.ts';
 import { digest, MemoryError } from './core.ts';
@@ -149,18 +150,22 @@ export async function pendingImport(store: Store, _onStep?: PortableImportOption
   const removed = await removeIntent(store, plan); await _onStep?.('retired-intent');
   return removed ? undefined : 'foreign';
 }
-/** Retire only the exact custom coordinator step; item batches and foreign plans retain their own recovery authority. */
+/** Durable package marker binds compensation authority to one coordinator identity. */
+export function portableRecoveryData(transactionId: string, author: string, stepId: string) {
+  return { owner: 'pm-memory-forward-transaction:1', transactionId, author, stepId };
+}
+/** Validate package recovery authority before any journal publication or abandonment. */
+export function assertPortableTransactionOwner(journal: WorkspaceTransactionJournal, transactionId: string, author: string, stepId: string): void {
+  if (journal.author !== author || journal.stepIds.length !== 1 || journal.stepIds[0] !== stepId || !isDeepStrictEqual(journal.recoveryData, portableRecoveryData(transactionId, author, stepId))) throw new MemoryError('foreign_intent', 'Foreign transaction retained', 'Let the transaction owner reconcile its original plan before retrying');
+}
+/** Retire marked package coordinators; legacy unmarked receipts retain their recovery authority. */
 export async function retireOwnedTransaction(store: Store, transactionId: string, author: string, stepId: string): Promise<void> {
-  /** Revalidate the original adapter identity both before and under the coordinator lock. */
-  const assertOwned = (journal: NonNullable<Awaited<ReturnType<typeof readWorkspaceTransaction>>>) => {
-    if (journal.author !== author || journal.recoveryData !== undefined || journal.stepIds.length !== 1 || journal.stepIds[0] !== stepId) throw new MemoryError('foreign_intent', 'Foreign transaction retained', 'Let the transaction owner reconcile its original plan before retrying');
-  };
   const journal = await readWorkspaceTransaction(store.workspace, transactionId);
-  if (journal === undefined) return;
-  assertOwned(journal);
+  if (journal === undefined || journal.recoveryData === undefined) return;
+  assertPortableTransactionOwner(journal, transactionId, author, stepId);
   if (journal.status === 'committed' || journal.status === 'abandoned') return;
   await abandonWorkspaceTransaction({ pmRoot: store.workspace, transactionId, author, reason: 'Retire interrupted portable step; retain all completed forward item writes', resolveSteps: current => {
-    assertOwned(current);
+    assertPortableTransactionOwner(current, transactionId, author, stepId);
     return [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply: retainForwardWrites, compensate: retainForwardWrites }];
   } });
 }
@@ -210,7 +215,7 @@ export async function applyImport(store: Store, plan: ImportPlan, options: Porta
     await mkdir(join(store.workspace, 'runtime'), { recursive: true });
     if (plan.nodes === undefined && plan.mutations.some(row => row.op === 'create')) { plan.nodes = prepareImportNodes(plan); await captureBirths(store, plan); sealBirths(plan); }
     await savePlan(store, plan); await options.onStep?.('intent');
-    await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: plan.transactionId, steps: [{ id: 'attempt', inspect: async () => ({ state: 'pending' }), apply: async () => ({ input: plan.input }), compensate: retainForwardWrites }] });
+    await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: plan.transactionId, recoveryData: portableRecoveryData(plan.transactionId, plan.author, 'attempt'), steps: [{ id: 'attempt', inspect: async () => ({ state: 'pending' }), apply: async () => ({ input: plan.input }), compensate: retainForwardWrites }] });
     if (plan.nodes !== undefined) {
       await commitPortableBatch(store, plan, `${plan.transactionId}-nodes`, 'nodes', plan.nodes, options);
       const failed = new Set(plan.result.skipped.flatMap(row => row.conflict === undefined ? [] : [row.conflict.item]));

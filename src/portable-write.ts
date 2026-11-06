@@ -1,11 +1,11 @@
 import { resolve } from 'node:path';
-import { certifyCompleteListResult, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, runWithActiveExtensions, create, update, commitWorkspaceTransaction, itemDocumentToMutationOptions, resolveRuntimeFieldRegistry, readItemRevision, withExpectedItemRevisions, isItemRevisionConflict } from '@unbrained/pm-cli/sdk';
+import { certifyCompleteListResult, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, runWithActiveExtensions, create, update, commitWorkspaceTransaction, itemDocumentToMutationOptions, resolveRuntimeFieldRegistry, readItemRevision, readWorkspaceTransaction, withExpectedItemRevisions, isItemRevisionConflict } from '@unbrained/pm-cli/sdk';
 import type { ItemDocument, BulkItemMutation, WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { ImportPlan } from './portable-plan.ts';
 import type { Store } from './store.ts';
 import { isDeepStrictEqual } from 'node:util';
-import { savePlan, importIdentity, retainForwardWrites, retireOwnedTransaction } from './portable-plan.ts';
+import { savePlan, importIdentity, retainForwardWrites, retireOwnedTransaction, portableRecoveryData, assertPortableTransactionOwner } from './portable-plan.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
 import { foreignMemories, type ImportConflict, type PortableImportOptions } from './portable.ts';
 import { birthDocument } from './portable-preview.ts';
@@ -75,9 +75,12 @@ export async function publishPending(store: Store, plan: ImportPlan, options?: P
   const pending = plan.publication; if (pending === undefined) return;
   await options?.onStep?.('recover-publication');
   const result = await publicationResult(store, pending);
-  if (result !== undefined) {
+  const transactionId = `${pending.transactionId}-snapshot`;
+  const journal = await readWorkspaceTransaction(store.workspace, transactionId);
+  if (result !== undefined && (journal === undefined || journal.recoveryData !== undefined)) {
+    if (journal !== undefined) assertPortableTransactionOwner(journal, transactionId, plan.author, pending.stepId);
     const snapshot = async () => JSON.parse(JSON.stringify(result)) as WorkspaceTransactionJsonValue;
-    await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${pending.transactionId}-snapshot`, steps: [{ id: pending.stepId, inspect: async () => ({ state: 'applied', result: await snapshot() }), apply: snapshot, compensate: retainForwardWrites }], onTransition: options?.onTransition });
+    await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId, recoveryData: portableRecoveryData(transactionId, plan.author, pending.stepId), steps: [{ id: pending.stepId, inspect: async () => ({ state: 'applied', result: await snapshot() }), apply: snapshot, compensate: retainForwardWrites }], onTransition: options?.onTransition });
   }
   await retireOwnedTransaction(store, `${pending.transactionId}-snapshot`, plan.author, pending.stepId);
   delete plan.publication; await savePlan(store, plan); await options?.onStep?.('recover-recorded');
@@ -101,7 +104,7 @@ class CompletedInput extends Error {}
 /** Publish under a locked native revision while retaining the domain field, birth and immutable-history proofs. */
 async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMutation, target: OwnedTarget, base: ItemDocument | null, options: PortableImportOptions, stepId: string): Promise<void> {
   const identity = await importIdentity(store, plan.input); let completed: NativeProof | undefined;
-  await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${identity.transactionId}-snapshot`, steps: [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply: async () => {
+  await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${identity.transactionId}-snapshot`, recoveryData: portableRecoveryData(`${identity.transactionId}-snapshot`, plan.author, stepId), steps: [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply: async () => {
   const revision = mutation.op === 'update' ? await readItemRevision(mutation.id, { pmRoot: store.workspace }) : undefined;
   const initial = await nativeState(store, mutation.id);
   if (mutation.op === 'create' && initial.document !== null || mutation.op === 'update' && initial.document === null) throw new ImportMoved(importConflict(mutation.id, ['id'], { id: base?.metadata.id }, { id: initial.document?.metadata.id }));

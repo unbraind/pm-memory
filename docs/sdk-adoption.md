@@ -6,7 +6,11 @@ birth construction, and locked expected revisions. Source publication retains it
 forward-only domain coordinator because generic batch compensation restores
 values and create replay adopts existing ids. Those semantics cannot replace a
 portable birth proof. Field ownership, history prefixes, ABA detection, dependency
-read sets and positive complete-birth evidence remain required.
+read sets and positive complete-birth evidence remain required. New coordinator journals carry
+a package marker in public recoveryData, bound to transaction, author and step.
+Recovery validates it before publishing or abandoning a receipt, including under
+the abandonment lock. Legacy unmarked receipts remain untouched; their native
+forward writes remain readable and are never reversed.
 
 ## Credential policy
 
@@ -39,7 +43,7 @@ private-key markers use the supplements above. A second SDK inspection uses comp
 quoted spans with bounded bodies and whitespace-normalized prefix contexts. Quoted-rule prefix contexts restart at quote delimiters. Short contiguous spans
 already covered completely by a raw window skip redundant SDK calls; normalized
 whitespace and long spans still receive the complete projection. It
-retains both quote styles and mixed delimiters, so long quoted SSH passwords and
+retains both quote styles and mixed delimiters, so quoted SSH passwords with long values and
 passphrases cannot bypass the host rules. Credential grammars and finding exclusions
 still belong to the SDK adapter; no sshpass/password grammar is copied. This preserves the existing
 adversarial-input deadline without copying the shared provider grammars.
