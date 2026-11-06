@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { estimatePmOutputTokens, tokenizeSimilarityText, jaccardSimilarity, scanMutationSecrets } from '@unbrained/pm-cli/sdk';
+import type { SecretGuardFinding } from '@unbrained/pm-cli/sdk';
 import { encode } from '@toon-format/toon';
 import { KINDS } from './types.ts';
 import type { MemoryKind, Packet } from './types.ts';
@@ -51,9 +52,18 @@ export function privacy(value: string, allowEmail = false): void {
   }
   if (!allowEmail && value.includes('@') && /\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}\b/i.test(value)) throw new MemoryError('privacy', 'Email address refused', 'Remove addresses or explicitly use --allow-email');
 }
+/** Review SDK rule additions through its public literal union; unknown runtime findings refuse conservatively. */
+const SDK_FINDING_POLICY = {
+  private_key: true, github_token: true, npm_token: true, aws_access_key: true, google_api_key: true,
+  slack_token: true, anthropic_api_key: true, openai_api_key: true, gitlab_token: true, jwt_like_token: true,
+  npm_auth_token_assignment: true, sentry_user_token: true, sentry_org_token: true,
+  private_ip: false, private_ssh_target: false, sshpass_inline_password: true, password_assignment: true,
+  absolute_home_path: false, user_at_private_host: false, high_entropy_assignment: true,
+} satisfies Record<SecretGuardFinding['rule'], boolean>;
+const SDK_FINDINGS = new Map<string, boolean>(Object.entries(SDK_FINDING_POLICY));
 /** Apply the shared credential findings while leaving identity/path policy local. */
 function sharedSecret(value: string): boolean {
-  return scanMutationSecrets(value).some(finding => !['absolute_home_path', 'private_ip', 'private_ssh_target', 'user_at_private_host'].includes(finding.rule));
+  return scanMutationSecrets(value).some(finding => SDK_FINDINGS.get(finding.rule) !== false);
 }
 /** Project complete quoted spans with bounded bodies and normalized prefix whitespace, retaining SDK-owned credential grammars. */
 function* quotedCredentialViews(value: string): Generator<string, void, unknown> {
@@ -141,7 +151,7 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
       } else if (Array.isArray(row.value)) {
         for (const child of row.value) pending.push({ name: row.name, value: child });
       } else if (row.value !== null && typeof row.value === 'object') {
-        for (const [name, child] of Object.entries(row.value)) pending.push({ name: /^(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)$/i.test(name) ? name : undefined, value: child });
+        for (const [name, child] of Object.entries(row.value)) pending.push({ name: /^(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)$/i.test(name) ? name : row.name, value: child });
       }
     }
     return false;

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { commitWorkspaceTransaction, readWorkspaceTransaction, readItemTransaction, WorkspaceTransactionInterruptedError, PmClient, readHistoryEntries, getHistoryPath, scanMutationSecrets } from '@unbrained/pm-cli/sdk';
+import { commitWorkspaceTransaction, readWorkspaceTransaction, readItemTransaction, WorkspaceTransactionInterruptedError, PmClient, readHistoryEntries, getHistoryPath, scanMutationSecrets, readItemRevision } from '@unbrained/pm-cli/sdk';
 import type { WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import type { PortableImportResult } from '../index.ts';
 import { importDir, exportDir, POLICY_MANIFEST, MemoryError, remember } from '../index.ts';
@@ -14,10 +14,10 @@ import { previousOwnership } from '../src/portable-ownership.ts';
 import { capturedPublication, applyCaptured } from './portable-publication-helpers.ts';
 import { nativeHost } from './native-host-helpers.ts';
 import { tracker, snapshot, readImportPlan } from './helpers.ts';
-import { privacy } from '../src/core.ts';
+import { privacy, digest } from '../src/core.ts';
 
 for (const host of [false, true]) test(`locked SDK revision refuses a concurrent foreign-field edit (${host ? 'host' : 'directory'})`, async t => {
-  const { target, mutation } = await capturedPublication(t); let injected = false;
+  const { target, mutation } = await capturedPublication(t); let injected = false; let currentRevision = ''; let expectedHistory = '';
   const run = async (client?: PmClient) => importDir(join(target.root, 'input'), { ...target.options, client, from: 'agents-md', onTransition: async event => {
     if (event.transition !== 'prepared') return;
     const journal = await readWorkspaceTransaction(target.workspace, event.transactionId);
@@ -27,11 +27,15 @@ for (const host of [false, true]) test(`locked SDK revision refuses a concurrent
     injected = true;
     const plan = await readImportPlan(target.workspace);
     assert.deepEqual((await readWorkspaceTransaction(target.workspace, plan.transactionId))?.recoveryData, { owner: 'pm-memory-forward-transaction:1', transactionId: plan.transactionId, author: target.options.author, stepId: 'attempt' });
+    expectedHistory = plan.expected.find(row => row.id === mutation.id)!.history;
     await target.client.update(mutation.id, { priority: 1 });
+    currentRevision = (await readItemRevision(mutation.id, { pmRoot: target.workspace })).item_hash;
   } });
   const result = host ? await nativeHost(target.workspace, run) : await run();
   assert.ok(injected); assert.equal(result.updated, 0);
-  assert.ok((result as PortableImportResult).skipped.some(row => row.conflict?.fields.includes('revision')));
+  const conflict = (result as PortableImportResult).skipped.find(row => row.conflict?.fields.includes('revision'))!.conflict!;
+  assert.equal(conflict.current.revision, digest(JSON.stringify({ present: true, value: currentRevision })));
+  assert.equal(conflict.base.revision, digest(JSON.stringify({ present: true, value: expectedHistory })));
   const item = (await target.client.get(mutation.id, { full: true })).item;
   assert.equal(item.body, 'Alpha A'); assert.equal(item.priority, 1);
 });
@@ -61,7 +65,7 @@ test('public receipt validation cannot grant ownership from a counterfeit SDK sc
   const originalBytes = await readFile(file, 'utf8');
   const malformed = JSON.stringify({ ...journal, schemaVersion: 999 }); await writeFile(file, malformed);
   const kept = await snapshot(target.workspace);
-  assert.notEqual((await previousOwnership(target.store, item, ids))?.fields.body, owned.fields.body);
+  await assert.rejects(previousOwnership(target.store, item, ids), error => error instanceof MemoryError && error.code === 'transaction');
   assert.equal(await readFile(file, 'utf8'), malformed); assert.deepEqual(await snapshot(target.workspace), kept);
   await writeFile(file, originalBytes);
   /** Package envelopes remain untrusted even when the SDK coordinator transport is valid. */

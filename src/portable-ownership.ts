@@ -263,7 +263,7 @@ export function ownershipPatch(current: Memory, row: PortableGuidance, body: str
 /** Read one complete, committed package receipt; missing or foreign journals prove nothing. */
 async function committedReceipt(store: Store, transactionId: string, id: string): Promise<OwnedTarget | undefined> {
   let journal;
-  try { journal = await readWorkspaceTransaction(store.workspace, `${transactionId}-snapshot`); } catch { return undefined; }
+  try { journal = await readWorkspaceTransaction(store.workspace, `${transactionId}-snapshot`); } catch { throw new MemoryError('transaction', 'Native transaction receipt could not be verified', 'Preserve the receipt and restore SDK-readable transaction evidence before retrying'); }
   if (journal?.status !== 'committed') return undefined;
   for (const receipt of Object.values(journal.results)) {
     if (receipt === null || typeof receipt !== 'object' || Array.isArray(receipt) || receipt.owner !== 'pm-memory-policy-ownership:1' || !Array.isArray(receipt.targets)) continue;

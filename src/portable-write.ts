@@ -204,7 +204,7 @@ export async function commitPortableBatch(store: Store, plan: ImportPlan, _trans
       if (plan.result.skipped.some(row => row.conflict?.item === mutation.id)) continue;
       await writeForward(store, plan, mutation, phase === 'nodes' ? { ...target, relationships: [], graph: [] } : target, base, options, `${index + 1}-${phase}-${mutation.id}`);
     } catch (error) {
-      const conflict = isItemRevisionConflict(error) ? importConflict(mutation.id, ['revision'], { revision: plan.expected.find(row => row.id === mutation.id)!.history }, { revision: 'native revision moved' }) : error instanceof ImportMoved ? error.conflict : error instanceof MemoryError && error.code === 'conflict' ? importConflict(mutation.id, ['document'], { document: plan.expected.find(row => row.id === mutation.id)!.history }, { document: 'unverified native document' }) : undefined;
+      const conflict = isItemRevisionConflict(error) ? importConflict(mutation.id, ['revision'], { revision: plan.expected.find(row => row.id === mutation.id)!.history }, { revision: error.context.current_revision }) : error instanceof ImportMoved ? error.conflict : error instanceof MemoryError && error.code === 'conflict' ? importConflict(mutation.id, ['document'], { document: plan.expected.find(row => row.id === mutation.id)!.history }, { document: 'unverified native document' }) : undefined;
       if (conflict === undefined) throw error;
       skipItem(plan, conflict.item, conflict); await savePlan(store, plan);
     }

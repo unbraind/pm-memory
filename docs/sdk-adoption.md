@@ -52,3 +52,7 @@ New admission rules run before schema/item writes. Native history and older
 persisted records remain readable; emitted content still passes export policy.
 
 Credential checks run before export origin setup, including decoded retained original documents, and on exact output bytes before publication. Existing records remain readable; credential-bearing legacy content cannot be emitted. Export retains its existing email-consent behavior. JSON string wrappers have a four-level inspection budget; malformed escaped credential declarations refuse safely without echoing their content.
+
+The finding policy is exhaustively checked against the public `SecretGuardFinding["rule"]` union. Detector additions or removals fail typecheck until their category is reviewed; unknown findings from a newer runtime SDK refuse conservatively. Known identity/path findings stay local, and credential grammars remain SDK-owned. Nested objects retain their enclosing credential key when inspecting scalar descendants.
+
+Unreadable transaction receipts surface a safe typed transaction refusal rather than being treated as missing ownership. Revision conflict fingerprints retain the current revision found by the SDK locked write and the original expected history value.

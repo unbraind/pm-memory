@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { readFile, writeFile, mkdir, rm, cp } from 'node:fs/promises';
 import { exportDir, importDir, remember, renew, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody } from '../src/portable.ts';
 import { tracker, snapshot, crashAtStep, assertSkippedUnchanged, exportedPolicy, editIntent, crashAfterCompensation, assertOriginRefused, importText } from './helpers.ts';
-import { WorkspaceTransactionInterruptedError, commitItemMutations, commitWorkspaceTransaction, sealHistoryRecord, appendHistoryEntry, type WorkspaceTransactionJsonValue, getHistoryPath, readHistoryEntries, getItemPath, canonicalDocument, serializeItemDocument, resolveItemTypeRegistry, readSettings } from '@unbrained/pm-cli/sdk';
+import { WorkspaceTransactionInterruptedError, commitItemMutations, commitWorkspaceTransaction, sealHistoryRecord, appendHistoryEntry, type WorkspaceTransactionJsonValue, getHistoryPath, readHistoryEntries, getItemPath, canonicalDocument, serializeItemDocument, resolveItemTypeRegistry, readSettings, readWorkspaceTransaction } from '@unbrained/pm-cli/sdk';
 import type { ImportPlan } from '../src/portable-plan.ts';
 import { creationMetadata, recordedCreation } from '../src/portable-ownership.ts';
 
@@ -165,7 +165,10 @@ test('foreign ownership receipts never authorize a later native edit to be overw
   const before = await snapshot(target.workspace);
   for (const value of ['{', ...values.map(value => JSON.stringify(value))]) {
     await writeFile(journalPath, value);
-    await importDir(path, { ...target.options, from: 'agents-md' });
+    const readable = await readWorkspaceTransaction(target.workspace, basename(journalPath, '.json')).then(() => true, () => false);
+    const apply = () => importDir(path, { ...target.options, from: 'agents-md' });
+    if (readable) await apply();
+    else await assert.rejects(apply(), error => error instanceof MemoryError && error.code === 'transaction');
     assert.equal(await readFile(journalPath, 'utf8'), value);
     assert.deepEqual(await snapshot(target.workspace), before);
   }
