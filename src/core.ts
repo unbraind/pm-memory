@@ -52,7 +52,7 @@ export function privacy(value: string, allowEmail = false): void {
 function sharedCredential(value: string): boolean {
   let previous: string | undefined;
   for (let offset = 0; offset < value.length; offset += 64) {
-    const window = value.slice(offset, offset + 128);
+    const window = (offset === 0 ? '' : '0' + value[offset - 1]) + value.slice(offset, offset + 128);
     if (window === previous) continue;
     previous = window;
     if (scanMutationSecrets(window).some(finding => !['absolute_home_path', 'private_ip', 'private_ssh_target', 'user_at_private_host'].includes(finding.rule))) return true;
@@ -64,9 +64,7 @@ function credentialViews(value: string): string[] {
   const views = [value];
   for (let pass = 0; pass < 4; pass++) {
     const previous = views.at(-1)!;
-    const next = previous.replace(/(?:%[a-f0-9]{2})+/gi, run => {
-      try { return decodeURIComponent(run); } catch { return run; }
-    }).replace(/\\(?:u([a-f0-9]{4})|x([a-f0-9]{2}))/gi, (_match, unicode: string | undefined, byte: string | undefined) => String.fromCharCode(Number.parseInt(unicode ?? byte!, 16))).normalize('NFKC').replace(/\b(?:sk-(?:proj-)?|gh[pousr]_|github_pat_)/gi, prefix => prefix.toLowerCase()).replace(/\b(?:AKIA|ASIA)[a-z0-9]{16}\b/gi, key => key.toUpperCase()).replace(/[\p{Bidi_Control}\u200b-\u200f\u2060-\u206f\ufeff]/gu, '');
+    const next = previous.replace(/(?:%[a-f0-9]{2})+/gi, run => Buffer.from([...run.matchAll(/%([a-f0-9]{2})/gi)].map(([, byte]) => Number.parseInt(byte, 16))).toString('utf8')).replace(/\\(?:u([a-f0-9]{4})|x([a-f0-9]{2}))/gi, (_match, unicode: string | undefined, byte: string | undefined) => String.fromCharCode(Number.parseInt(unicode ?? byte!, 16))).normalize('NFKC').replace(/\b(?:sk-(?:proj-)?|gh[pousr]_|github_pat_)/gi, prefix => prefix.toLowerCase()).replace(/\b(?:AKIA|ASIA)[a-z0-9]{16}\b/gi, key => key.toUpperCase()).replace(/[\p{Bidi_Control}\u200b-\u200f\u2060-\u206f\ufeff]/gu, '');
     if (next === previous) break;
     views.push(next);
     if (pass === 3 && /%[a-f0-9]{2}|\\(?:u[a-f0-9]{4}|x[a-f0-9]{2})/i.test(next)) throw new MemoryError('privacy', 'Memory normalization limit exceeded', 'Replace repeatedly encoded content with plain text and secret-manager references');

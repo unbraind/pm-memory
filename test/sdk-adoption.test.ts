@@ -87,10 +87,11 @@ test('supported abandonment retires an interrupted owned step and preserves a fo
 /** Read native history through the supported SDK stream reader. */
 async function importHistory(workspace: string, id: string) { return readHistoryEntries(getHistoryPath(workspace, id), id); }
 
-for (const encoding of ['raw', 'percent', 'escape', 'unicode', 'hex', 'nested', 'overlimit', 'invisible'] as const) test(`shared SDK secrets refuse ${encoding} content before any tracker write without echo`, async t => {
+for (const encoding of ['raw', 'percent', 'escape', 'unicode', 'hex', 'nested', 'overlimit', 'invisible', 'malformed'] as const) test(`shared SDK secrets refuse ${encoding} content before any tracker write without echo`, async t => {
   const target = await tracker(t); const secret = 'npm_' + 'SyntheticFixture1234567890';
   let fixture = secret;
-  if (['percent', 'nested', 'overlimit'].includes(encoding)) for (let depth = 0; depth < (encoding === 'nested' ? 4 : encoding === 'overlimit' ? 5 : 1); depth++) fixture = [...fixture].map(char => '%' + char.charCodeAt(0).toString(16)).join('');
+  if (['percent', 'nested', 'overlimit', 'malformed'].includes(encoding)) for (let depth = 0; depth < (encoding === 'nested' ? 4 : encoding === 'overlimit' ? 5 : 1); depth++) fixture = [...fixture].map(char => '%' + char.charCodeAt(0).toString(16)).join('');
+  if (encoding === 'malformed') fixture += '%ff';
   if (encoding === 'escape' || encoding === 'hex') fixture = [...secret].map(char => encoding === 'escape' ? '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0') : '\\x' + char.charCodeAt(0).toString(16)).join('');
   if (encoding === 'unicode') fixture = [...secret].map(char => String.fromCharCode(char.charCodeAt(0) + 0xfee0)).join('');
   if (encoding === 'invisible') fixture = secret.slice(0, 2) + '\u200b' + secret.slice(2);
@@ -107,7 +108,7 @@ for (const encoding of ['raw', 'percent', 'escape', 'unicode', 'hex', 'nested', 
 
 test('SDK credential policy rejects new provider keys in raw portable files and retains safe long input', async t => {
   const target = await tracker(t); const path = join(target.root, 'input'); await mkdir(path);
-  const file = join(path, 'alpha.md'); const long = 'eyJ-'.repeat(50000);
+  const file = join(path, 'alpha.md'); const long = 'A'.repeat(64) + 'npm_' + 'SyntheticFixture1234567890' + '\n' + 'eyJ-'.repeat(50000);
   await writeFile(file, long); assert.equal((await importDir(path, { ...target.options, from: 'agents-md' })).imported, 1);
   const kept = await snapshot(target.workspace);
   for (const secret of ['xoxb-' + 'SyntheticFixture12345', 'ASIA' + 'ABCDEFGHIJKLMNOP', 'glpat-' + 'SyntheticFixture1234567890']) {
