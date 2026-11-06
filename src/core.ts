@@ -41,8 +41,11 @@ export function digest(value: string): string { return createHash('sha256').upda
 export function privacy(value: string, allowEmail = false): void {
   for (const view of credentialViews(value)) {
     // Environment references carry no literal value. The SDK's npm/password rules
-    // deliberately flag some of these source forms, so mask only the reference.
-    const literals = view.replace(/\b(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\b\s*[=:]\s*["']?\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/gi, 'environment reference ');
+    // deliberately flag these forms, so mask whole reference assignments only at a value boundary.
+    const literals = view.replace(/(\b(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\b\s*[=:]\s*["']?)\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/gi, (match: string, prefix: string, offset: number) => {
+      const following = view[offset + match.length];
+      return following === undefined || /[\s"'`;,)}\](]/.test(following) ? 'environment reference ' : prefix;
+    });
     const shared = sharedCredential(literals);
     if (shared || supplementalCredential(literals)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
   }
@@ -75,7 +78,9 @@ function* quotedCredentialViews(value: string): Generator<string, void, unknown>
       // Prefixes restart at quotes, which terminate the SDK's quoted-rule preambles.
       const start = quote.index - quote.context.length;
       if (end - start + 1 <= 64 && value.slice(start, quote.index) === quote.context) continue;
-      const candidate = (quote.context.length < 64 ? '' : '0') + quote.context + quote.mark + value.slice(quote.index + 1, Math.min(end, quote.index + 65)) + value[end];
+      // Eight body characters retain the pinned SDK's quoted six/eight-character floors.
+      // Contiguous provider tokens are already inspected in the raw windows.
+      const candidate = (quote.context.length < 64 ? '' : '0') + quote.context + quote.mark + value.slice(quote.index + 1, Math.min(end, quote.index + 9)) + value[end];
       if (seen.has(candidate)) continue;
       seen.add(candidate); yield candidate;
     }
@@ -83,12 +88,14 @@ function* quotedCredentialViews(value: string): Generator<string, void, unknown>
 }
 /** Bound the SDK's private-host matcher; complete quoted views preserve rules whose closing delimiter can lie beyond a window. */
 function sharedCredential(value: string): boolean {
-  let previous: string | undefined;
-  for (let offset = 0; offset < value.length; offset += 64) {
-    const window = (offset === 0 ? '' : '0' + value[offset - 1]) + value.slice(offset, offset + 128);
-    if (window === previous) continue;
-    previous = window;
-    if (sharedSecret(window)) return true;
+  for (const view of new Set([value, value.replace(/\s+/g, ' ')])) {
+    let previous: string | undefined;
+    for (let offset = 0; offset < view.length; offset += 64) {
+      const window = (offset === 0 ? '' : '0' + view[offset - 1]) + view.slice(offset, offset + 128);
+      if (window === previous) continue;
+      previous = window;
+      if (sharedSecret(window)) return true;
+    }
   }
   for (const candidate of quotedCredentialViews(value)) if (sharedSecret(candidate)) return true;
   return false;

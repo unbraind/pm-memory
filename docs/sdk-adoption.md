@@ -38,17 +38,15 @@ Narrow supplements retain the stronger existing policy:
 The SDK private-host matcher exhibits quadratic behavior on a long hyphenated
 noncredential without an at-sign. Credential scanning uses overlapping
 128-character windows at 64-character strides and reuses adjacent identical
-windows. Each later window preserves the preceding character behind a neutral word prefix, so slicing cannot turn an embedded identifier into a new credential start. Bounded provider-key prefixes remain detectable; unbounded JWT and
+windows. A second window pass collapses whitespace, preserving unquoted SDK assignment context across arbitrarily long spacing without copying the assignment grammar. Each later window preserves the preceding character behind a neutral word prefix, so slicing cannot turn an embedded identifier into a new credential start. Bounded provider-key prefixes remain detectable; unbounded JWT and
 private-key markers use the supplements above. A second SDK inspection uses complete
-quoted spans with bounded bodies and whitespace-normalized prefix contexts. Quoted-rule prefix contexts restart at quote delimiters. Short contiguous spans
+quoted spans with eight-character body prefixes and whitespace-normalized prefix contexts. The pinned SDK quoted rules require six or eight body characters; contiguous provider tokens remain covered by raw windows. Bounding the projection avoids redundant SDK work for long distinct quoted spans. Quoted-rule prefix contexts restart at quote delimiters. Short contiguous spans
 already covered completely by a raw window skip redundant SDK calls; normalized
 whitespace and long spans still receive the complete projection. It
 retains both quote styles and mixed delimiters, so quoted SSH passwords with long values and
 passphrases cannot bypass the host rules. Credential grammars and finding exclusions
-still belong to the SDK adapter; no sshpass/password grammar is copied. This preserves the existing
-adversarial-input deadline without copying the shared provider grammars.
-Environment-reference masking removes only a recognized assignment reference,
-leaving adjacent literal content available to both scanners.
+still belong to the SDK adapter; no sshpass/password grammar is copied. The adversarial-input deadline controls remain unchanged, including distinct spans longer than 64 characters; CI certifies the complete gate.
+Standalone environment-reference masking replaces the assignment key, separator, optional opening quote and reference with neutral text. An adjacent literal suffix instead retains the original assignment key and separator while removing the reference, so both scanners inspect that literal in context. Parenthesized explanatory suffixes remain accepted.
 
 New admission rules run before schema/item writes. Native history and older
 persisted records remain readable; emitted content still passes export policy.
