@@ -1,6 +1,6 @@
 # Public SDK adoption
 
-The peer floor and development pin are 2026.11.5. Real temporary trackers exercise
+The exact supported peer and development pin are 2026.11.5. Real temporary trackers exercise
 public transaction readers, supported abandonment, host-bound batch staging and
 birth construction, and locked expected revisions. Source publication retains its
 forward-only domain coordinator because generic batch compensation restores
@@ -53,6 +53,6 @@ persisted records remain readable; emitted content still passes export policy.
 
 Credential checks run before export origin setup, including decoded retained original documents, and on exact output bytes before publication. Existing records remain readable; credential-bearing legacy content cannot be emitted. Export retains its existing email-consent behavior. JSON string wrappers have a four-level inspection budget; malformed escaped credential declarations refuse safely without echoing their content.
 
-The finding policy is exhaustively checked against the public `SecretGuardFinding["rule"]` union. Detector additions or removals fail typecheck until their category is reviewed; unknown findings from a newer runtime SDK refuse conservatively. Known identity/path findings stay local, and credential grammars remain SDK-owned. Nested objects retain their enclosing credential key when inspecting scalar descendants.
+The finding policy is exhaustively checked against the public `SecretGuardFinding["rule"]` union. Detector additions or removals fail typecheck until their category is reviewed; unknown findings from an unsupported newer runtime SDK refuse conservatively. The exact peer range prevents claiming compatibility with an unreviewed inventory; widening it requires reviewing the public rule union and passing the real SDK compatibility fixtures. Known identity/path findings stay local, and credential grammars remain SDK-owned. Nested objects retain their enclosing credential key when inspecting scalar descendants.
 
 Unreadable transaction receipts surface a safe typed transaction refusal rather than being treated as missing ownership. Revision conflict fingerprints retain the current revision found by the SDK locked write and the original expected history value.

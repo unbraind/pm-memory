@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFile } from 'node:fs/promises';
 import { scanMutationSecrets } from '@unbrained/pm-cli/sdk';
 import { remember, get, MemoryError } from '../index.ts';
 import { privacy } from '../src/core.ts';
@@ -18,6 +19,11 @@ test('nested object credentials retain their enclosing credential key', async t 
 });
 
 test('public SDK finding policy preserves reviewed identity exclusions and credentials', async t => {
+  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { peerDependencies: Record<string, string>; devDependencies: Record<string, string> };
+  const lock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8')) as { packages: Record<string, { version: string }> };
+  const reviewed = lock.packages['node_modules/@unbrained/pm-cli'].version;
+  assert.equal(manifest.peerDependencies['@unbrained/pm-cli'], reviewed, 'Supported SDK must match the reviewed detector inventory');
+  assert.equal(manifest.devDependencies['@unbrained/pm-cli'], reviewed);
   const target = await tracker(t);
   const ip = [192, 168, 50, 60].join('.');
   const identity = '/' + ['home', 'fixture', 'guide'].join('/') + '\nssh fixture@' + ip;

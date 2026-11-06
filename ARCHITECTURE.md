@@ -76,7 +76,7 @@ Export resolves every wiki reference against emitted facts and their actual re-i
 
 ## Writer lock recovery evidence
 
-The minimum SDK is `@unbrained/pm-cli` 2026.11.5. The package delegates
+The supported SDK is `@unbrained/pm-cli` 2026.11.5; expanding this exact peer contract requires a detector-inventory compatibility review. The package delegates
 acquisition, bounded waiting, host/process-start identity, recovery receipts,
 cleanup gates and release to `acquireLockLease`. It never creates cleanup gates
 or unlinks native locks. Its read-only diagnostic adapter reports PID and age
