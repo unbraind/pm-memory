@@ -176,8 +176,8 @@ test('legacy generic key prefixes remain refused across SDK provider floors and 
 
 test('shared quoted credentials span complete values and whitespace without bypassing SDK exclusions', async t => {
   const target = await tracker(t); const kept = await snapshot(target.workspace);
-  for (const [open, close] of [['"', '"'], ["'", "'"], ['"', "'"], ["'", '"']] as const) for (const spacing of [' ', ' '.repeat(200)]) {
-    const value = `sshpass${spacing}-p${spacing}${open}${'x'.repeat(512)}${close}`;
+  for (const [open, close] of [['"', '"'], ["'", "'"], ['"', "'"], ["'", '"']] as const) for (const spacing of [' ', ' '.repeat(200)]) for (const length of [8, 512]) {
+    const value = `sshpass${spacing}-p${spacing}${open}${'x'.repeat(length)}${close}`;
     assert.ok(scanMutationSecrets(value).some(finding => finding.rule === 'sshpass_inline_password'));
     await assert.rejects(remember(value, { ...target.options, kind: 'reference' }), error => error instanceof MemoryError && error.code === 'privacy' && !error.message.includes(value));
     assert.deepEqual(await snapshot(target.workspace), kept);

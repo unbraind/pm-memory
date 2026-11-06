@@ -61,7 +61,7 @@ function* quotedCredentialViews(value: string): Generator<string, void, unknown>
     context = (context + value.slice(cursor, match.index)).slice(-64);
     const mark = match[0];
     if (mark === '"' || mark === "'") quotes.push({ index: match.index, mark, context });
-    context = (context + (mark === '"' || mark === "'" ? mark : ' ')).slice(-64);
+    context = mark === '"' || mark === "'" ? '' : (context + ' ').slice(-64);
     cursor = match.index + mark.length;
   }
   const next = new Map<string, number>(); let nextAny: number | undefined;
@@ -71,6 +71,10 @@ function* quotedCredentialViews(value: string): Generator<string, void, unknown>
     next.set(quote.mark, quote.index); nextAny = quote.index;
     for (const end of ends) {
       if (end === undefined) continue;
+      // Short contiguous spans already fit a raw window, including their prefix.
+      // Prefixes restart at quotes, which terminate the SDK's quoted-rule preambles.
+      const start = quote.index - quote.context.length;
+      if (end - start + 1 <= 64 && value.slice(start, quote.index) === quote.context) continue;
       const candidate = (quote.context.length < 64 ? '' : '0') + quote.context + quote.mark + value.slice(quote.index + 1, Math.min(end, quote.index + 65)) + value[end];
       if (seen.has(candidate)) continue;
       seen.add(candidate); yield candidate;

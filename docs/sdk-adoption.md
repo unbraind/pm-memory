@@ -36,7 +36,9 @@ noncredential without an at-sign. Credential scanning uses overlapping
 128-character windows at 64-character strides and reuses adjacent identical
 windows. Each later window preserves the preceding character behind a neutral word prefix, so slicing cannot turn an embedded identifier into a new credential start. Bounded provider-key prefixes remain detectable; unbounded JWT and
 private-key markers use the supplements above. A second SDK inspection uses complete
-quoted spans with bounded bodies and whitespace-normalized prefix contexts. It
+quoted spans with bounded bodies and whitespace-normalized prefix contexts. Quoted-rule prefix contexts restart at quote delimiters. Short contiguous spans
+already covered completely by a raw window skip redundant SDK calls; normalized
+whitespace and long spans still receive the complete projection. It
 retains both quote styles and mixed delimiters, so long quoted SSH passwords and
 passphrases cannot bypass the host rules. Credential grammars and finding exclusions
 still belong to the SDK adapter; no sshpass/password grammar is copied. This preserves the existing
