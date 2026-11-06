@@ -28,7 +28,7 @@ Narrow supplements retain the stronger existing policy:
 
 | Rule | Reason |
 | --- | --- |
-| Generic literal assignments | Eight-character low-entropy values and aliases such as pwd/access token are outside the SDK entropy heuristic. Environment references remain accepted. |
+| Generic literal assignments | Eight-character low-entropy values and aliases such as pwd/access token are outside the SDK entropy heuristic. Quoted JSON/YAML keys also need a local supplement: this SDK does not recognize their closing key quote. JSON scalar values and bounded nested string copies are decoded before applying the same literal policy; short values still delegate to SDK assignment rules. Environment references and explicit secret-manager placeholders remain accepted. |
 | Generic sk/pk/rk prefixes and short GitHub keys | Legacy prefix refusal starts at 16 characters, includes short Anthropic-style keys, and has no word-end boundary for generic keys. SDK provider-specific floors, exclusions and boundaries differ. |
 | Authorization headers and URL passwords | The shared scanner has no equivalent header or URL-authority rule. |
 | JWT stream scan | Use the union of the old header/payload/signature thresholds and the SDK thresholds, preserving safe short JWT-shaped text while scanning arbitrarily long segments in linear time. |
@@ -52,3 +52,5 @@ leaving adjacent literal content available to both scanners.
 
 New admission rules run before schema/item writes. Native history and older
 persisted records remain readable; emitted content still passes export policy.
+
+Credential checks run before export origin setup, including decoded retained original documents, and on exact output bytes before publication. Existing records remain readable; credential-bearing legacy content cannot be emitted. Export retains its existing email-consent behavior. JSON string wrappers have a four-level inspection budget; malformed escaped credential declarations refuse safely without echoing their content.

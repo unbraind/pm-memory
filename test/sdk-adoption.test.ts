@@ -5,10 +5,11 @@ import { join } from 'node:path';
 import { commitWorkspaceTransaction, readWorkspaceTransaction, readItemTransaction, WorkspaceTransactionInterruptedError, PmClient, readHistoryEntries, getHistoryPath, scanMutationSecrets } from '@unbrained/pm-cli/sdk';
 import type { WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import type { PortableImportResult } from '../index.ts';
-import { importDir, MemoryError, remember } from '../index.ts';
+import { importDir, exportDir, POLICY_MANIFEST, MemoryError, remember } from '../index.ts';
 import { importIdentity, retireOwnedTransaction, retainForwardWrites, portableRecoveryData, savePlan } from '../src/portable-plan.ts';
 import { publishPending } from '../src/portable-write.ts';
 import { nativeState } from '../src/native-revision.ts';
+import { parsePolicy } from '../src/portable.ts';
 import { previousOwnership } from '../src/portable-ownership.ts';
 import { capturedPublication, applyCaptured } from './portable-publication-helpers.ts';
 import { nativeHost } from './native-host-helpers.ts';
@@ -236,4 +237,19 @@ test('shared quoted credentials span complete values and whitespace without bypa
   await assert.rejects(remember(phrase, { ...target.options, kind: 'reference' }), error => error instanceof MemoryError && error.code === 'privacy');
   assert.deepEqual(await snapshot(target.workspace), kept);
   for (const value of ['"' + 'safe '.repeat(128) + '"', 'passphrase="${BUILD_PHRASE}"', 'quoted "reference" and \'another reference\'', ' "safe reference" '.repeat(2000), '"' + [192, 168, 50, 60].join('.') + '"']) privacy(value);
+});
+
+test('array baseline fields refuse at the policy boundary before native writes', async t => {
+  const source = await tracker(t); const target = await tracker(t);
+  await remember('Safe baseline guidance', { ...source.options, kind: 'reference', slug: 'baseline' });
+  const path = join(source.root, 'policy'); await exportDir(path, { ...source.options, to: 'agents-md' });
+  const file = join(path, POLICY_MANIFEST);
+  const manifest = JSON.parse(await readFile(file, 'utf8')) as { guidance: { baseline: { fields: Record<string, string> | unknown[] } }[] };
+  const baseline = manifest.guidance[0].baseline;
+  baseline.fields = Object.assign([], baseline.fields);
+  assert.throws(() => parsePolicy(manifest), MemoryError);
+  await writeFile(file, JSON.stringify(manifest));
+  const before = await snapshot(target.workspace);
+  await assert.rejects(importDir(path, { ...target.options, from: 'agents-md' }), MemoryError);
+  assert.deepEqual(await snapshot(target.workspace), before);
 });

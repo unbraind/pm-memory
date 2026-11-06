@@ -105,6 +105,66 @@ function credentialViews(value: string): string[] {
   }
   return views;
 }
+/** Apply literal assignment policy after decoding JSON strings, preserving explicit references. */
+function credentialLiteral(name: string, value: string): boolean {
+  const normalized = credentialViews(value).at(-1)!;
+  if (/^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/.test(normalized.trim()) || /^<[^<>]*>$/.test(normalized.trim())) return false;
+  return value.length >= 8 || normalized.length >= 8 || sharedCredential((name.toLowerCase() === '_authtoken' ? '_authToken' : name) + '=' + normalized);
+}
+/** Inspect quoted scalar keys and bounded JSON string wrappers without copying SDK provider grammars. */
+function quotedAssignmentCredential(value: string, depth = 0): boolean {
+  const signal = /["'](?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\\*["']\s*[=:]/i;
+  if (!signal.test(value)) return false;
+  /** Decode only credential-bearing string copies, within the finite wrapper budget. */
+  const nested = (text: string): boolean => {
+    if (!signal.test(text)) return false;
+    if (depth === 4) throw new MemoryError('privacy', 'Memory normalization limit exceeded', 'Replace repeatedly encoded content with plain text and secret-manager references');
+    return quotedAssignmentCredential(text, depth + 1);
+  };
+  let parsed: unknown; let valid = false;
+  try { parsed = JSON.parse(value); valid = true; } catch { /* Free text and YAML use the same scalar policy below. */ }
+  if (valid) {
+    const pending: { name?: string; value: unknown }[] = [{ value: parsed }];
+    while (pending.length > 0) {
+      const row = pending.pop()!;
+      if (typeof row.value === 'string') {
+        if (row.name !== undefined && credentialLiteral(row.name, row.value) || nested(row.value)) return true;
+      } else if (typeof row.value === 'number') {
+        if (row.name !== undefined && credentialLiteral(row.name, String(row.value))) return true;
+      } else if (Array.isArray(row.value)) {
+        for (const child of row.value) pending.push({ name: row.name, value: child });
+      } else if (row.value !== null && typeof row.value === 'object') {
+        for (const [name, child] of Object.entries(row.value)) pending.push({ name: /^(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)$/i.test(name) ? name : undefined, value: child });
+      }
+    }
+    return false;
+  }
+  for (const match of value.matchAll(/(["'])(password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\1\s*[=:]\s*("(?:\\.|[^"\\])*(?:"|$)|'(?:''|\\.|[^'\\])*(?:'|$)|[^\s"'\x60<>]+)/gi)) {
+    let literal = match[3];
+    if (literal.startsWith('"')) { try { literal = JSON.parse(literal) as string; } catch { literal = literal.slice(1, literal.endsWith('"') ? -1 : undefined); } }
+    else if (literal.startsWith("'")) literal = literal.slice(1, literal.endsWith("'") ? -1 : undefined).replace(/''/g, "'");
+    if (credentialLiteral(match[2], literal)) return true;
+  }
+  // Successful JSON string tokens never overlap; stop after one incomplete token.
+  const token = /"(?:\\.|[^"\\])*"/y; const remainder: string[] = []; let kept = 0;
+  for (let cursor = 0; cursor < value.length; cursor++) {
+    if (value[cursor] !== '"') continue;
+    token.lastIndex = cursor; const match = token.exec(value); if (match === null) break;
+    let decoded: string;
+    try { decoded = JSON.parse(match[0]) as string; } catch { cursor = token.lastIndex - 1; continue; }
+    if (nested(decoded)) return true;
+    remainder.push(value.slice(kept, cursor)); kept = token.lastIndex; cursor = token.lastIndex - 1;
+  }
+  remainder.push(value.slice(kept));
+  const unresolved = remainder.join('');
+  if (/\\["'](?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\\+["']\s*[=:]/i.test(unresolved)) {
+    let decoded: string;
+    try { decoded = JSON.parse('"' + unresolved.replace(/\\'/g, "'").replace(/[\u0000-\u001f]/g, char => JSON.stringify(char).slice(1, -1)) + '"') as string; }
+    catch { throw new MemoryError('privacy', 'Escaped credential declaration refused', 'Use plain text with an environment or secret-manager reference'); }
+    return nested(decoded);
+  }
+  return false;
+}
 /** Stronger memory policy: shorter/legacy keys, generic literal assignments, auth headers, URL passwords and short JWT signatures. */
 function supplementalCredential(value: string): boolean {
   const legacy = /\b(?:sk|pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\b(?:gh[pousr]_[a-z0-9]{16,19}|github_pat_[a-z0-9_]{16,19})\b|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
@@ -113,7 +173,7 @@ function supplementalCredential(value: string): boolean {
   for (const [, name, separator, assigned] of value.matchAll(/\b(password|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)) {
     if (!(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned))) return true;
   }
-  return legacy.test(value) || privateKey || credentialJwt(value) || credentialUrl(value);
+  return quotedAssignmentCredential(value) || legacy.test(value) || privateKey || credentialJwt(value) || credentialUrl(value);
 }
 /** Cover arbitrarily long JWT segments across SDK windows with a linear scan, retaining the stronger eight-character signature floor. */
 function credentialJwt(value: string): boolean {
