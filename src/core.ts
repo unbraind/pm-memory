@@ -46,17 +46,47 @@ export function privacy(value: string, allowEmail = false): void {
     const shared = sharedCredential(literals);
     if (shared || supplementalCredential(literals)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
   }
-  if (!allowEmail && /\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}\b/i.test(value)) throw new MemoryError('privacy', 'Email address refused', 'Remove addresses or explicitly use --allow-email');
+  if (!allowEmail && value.includes('@') && /\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}\b/i.test(value)) throw new MemoryError('privacy', 'Email address refused', 'Remove addresses or explicitly use --allow-email');
 }
-/** Bound the SDK's unanchored private-host rule on hyphenated noncredentials; overlap preserves bounded credential prefixes. */
+/** Apply the shared credential findings while leaving identity/path policy local. */
+function sharedSecret(value: string): boolean {
+  return scanMutationSecrets(value).some(finding => !['absolute_home_path', 'private_ip', 'private_ssh_target', 'user_at_private_host'].includes(finding.rule));
+}
+/** Project complete quoted spans with bounded bodies and normalized prefix whitespace, retaining SDK-owned credential grammars. */
+function* quotedCredentialViews(value: string): Generator<string, void, unknown> {
+  if (!/["']/.test(value)) return;
+  const quotes: { index: number; mark: string; context: string }[] = [];
+  let context = ''; let cursor = 0;
+  for (const match of value.matchAll(/\s+|["']/g)) {
+    context = (context + value.slice(cursor, match.index)).slice(-64);
+    const mark = match[0];
+    if (mark === '"' || mark === "'") quotes.push({ index: match.index, mark, context });
+    context = (context + (mark === '"' || mark === "'" ? mark : ' ')).slice(-64);
+    cursor = match.index + mark.length;
+  }
+  const next = new Map<string, number>(); let nextAny: number | undefined;
+  const seen = new Set<string>();
+  for (const quote of quotes.reverse()) {
+    const ends = new Set([nextAny, next.get(quote.mark)]);
+    next.set(quote.mark, quote.index); nextAny = quote.index;
+    for (const end of ends) {
+      if (end === undefined) continue;
+      const candidate = (quote.context.length < 64 ? '' : '0') + quote.context + quote.mark + value.slice(quote.index + 1, Math.min(end, quote.index + 65)) + value[end];
+      if (seen.has(candidate)) continue;
+      seen.add(candidate); yield candidate;
+    }
+  }
+}
+/** Bound the SDK's private-host matcher; complete quoted views preserve rules whose closing delimiter can lie beyond a window. */
 function sharedCredential(value: string): boolean {
   let previous: string | undefined;
   for (let offset = 0; offset < value.length; offset += 64) {
     const window = (offset === 0 ? '' : '0' + value[offset - 1]) + value.slice(offset, offset + 128);
     if (window === previous) continue;
     previous = window;
-    if (scanMutationSecrets(window).some(finding => !['absolute_home_path', 'private_ip', 'private_ssh_target', 'user_at_private_host'].includes(finding.rule))) return true;
+    if (sharedSecret(window)) return true;
   }
+  for (const candidate of quotedCredentialViews(value)) if (sharedSecret(candidate)) return true;
   return false;
 }
 /** Bounded transport decoding supplements the SDK, which normalizes paths but scans credential rules literally. */
@@ -73,22 +103,23 @@ function credentialViews(value: string): string[] {
 }
 /** Stronger memory policy: shorter/legacy keys, generic literal assignments, auth headers, URL passwords and short JWT signatures. */
 function supplementalCredential(value: string): boolean {
-  const legacy = /\b(?:pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\bsk-(?:[a-z0-9_-]{16,19}|proj-[a-z0-9_-]{16,19})\b|\b(?:gh[pousr]_|github_pat_)[a-z0-9_]{16,19}\b|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
-  const key = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/i.exec(value);
-  const lowerKey = key !== null && (key[0] !== key[0].toUpperCase() || key[0].length > 64);
+  const legacy = /\b(?:sk|pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\b(?:gh[pousr]_[a-z0-9]{16,19}|github_pat_[a-z0-9_]{16,19})\b|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
+  // Shared findings already returned above; this fallback retains mixed-case and long markers.
+  const privateKey = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/i.test(value);
   for (const [, name, separator, assigned] of value.matchAll(/\b(password|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)) {
     if (!(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned))) return true;
   }
-  return legacy.test(value) || lowerKey || credentialJwt(value) || credentialUrl(value);
+  return legacy.test(value) || privateKey || credentialJwt(value) || credentialUrl(value);
 }
 /** Cover arbitrarily long JWT segments across SDK windows with a linear scan, retaining the stronger eight-character signature floor. */
 function credentialJwt(value: string): boolean {
-  const tail = /[a-z0-9_-]{10,}\.[a-z0-9_-]{8,}\b/iy;
+  const tail = /([a-z0-9_-]{10,})\.([a-z0-9_-]{8,})\b/iy;
   for (const match of value.matchAll(/\beyJ[a-z0-9_-]*/gi)) {
     const end = match.index + match[0].length;
     if (match[0].length < 13 || value[end] !== '.') continue;
     tail.lastIndex = end + 1;
-    if (tail.test(value)) return true;
+    const parts = tail.exec(value);
+    if (parts !== null && (match[0].length >= 15 && parts[1].length >= 12 || match[0].startsWith('eyJ') && parts[2].length >= 10)) return true;
   }
   return false;
 }

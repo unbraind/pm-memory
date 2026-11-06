@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { commitWorkspaceTransaction, readWorkspaceTransaction, readItemTransaction, WorkspaceTransactionInterruptedError, PmClient, readHistoryEntries, getHistoryPath } from '@unbrained/pm-cli/sdk';
+import { commitWorkspaceTransaction, readWorkspaceTransaction, readItemTransaction, WorkspaceTransactionInterruptedError, PmClient, readHistoryEntries, getHistoryPath, scanMutationSecrets } from '@unbrained/pm-cli/sdk';
+import type { WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import type { PortableImportResult } from '../index.ts';
 import { importDir, MemoryError, remember } from '../index.ts';
 import { importIdentity, retireOwnedTransaction, retainForwardWrites } from '../src/portable-plan.ts';
@@ -47,10 +48,40 @@ test('public receipt validation cannot grant ownership from a counterfeit SDK sc
   const transactionId = /^bulk-item-transaction (\S+) /.exec(message)![1];
   const journal = await readWorkspaceTransaction(target.workspace, `${transactionId}-snapshot`); assert.ok(journal);
   const file = join(target.workspace, 'transactions', 'sdk', `${transactionId}-snapshot.json`);
+  const originalBytes = await readFile(file, 'utf8');
   const malformed = JSON.stringify({ ...journal, schemaVersion: 999 }); await writeFile(file, malformed);
   const kept = await snapshot(target.workspace);
   assert.notEqual((await previousOwnership(target.store, item, ids))?.fields.body, owned.fields.body);
   assert.equal(await readFile(file, 'utf8'), malformed); assert.deepEqual(await snapshot(target.workspace), kept);
+  await writeFile(file, originalBytes);
+  /** Package envelopes remain untrusted even when the SDK coordinator transport is valid. */
+  const envelope = (targets: WorkspaceTransactionJsonValue): WorkspaceTransactionJsonValue => ({ owner: 'pm-memory-policy-ownership:1', targets });
+  const otherTarget = JSON.parse(JSON.stringify({ ...plan.ownership![0], id: 'unrelated-native-id' })) as WorkspaceTransactionJsonValue;
+  /** A copied native marker alone never establishes portable ownership. */
+  const peerWrite = (identity: string, label: string) => target.client.update(item.id, { body: label, message: `bulk-item-transaction ${identity} forward ${item.id}` });
+  const payloads: (WorkspaceTransactionJsonValue | undefined)[] = [undefined, null, 7, [], {}, { owner: 'foreign' }, envelope(null), envelope([]), envelope([null]), envelope([otherTarget])];
+  for (const [index, payload] of payloads.entries()) {
+    const identity = await importIdentity(target.store, `foreign-receipt-${index}`);
+    await commitWorkspaceTransaction({ pmRoot: target.workspace, author: 'foreign-fixture', transactionId: `${identity.transactionId}-snapshot`, steps: [{ id: 'foreign-result', inspect: async () => ({ state: 'pending' }), apply: async () => {
+      await peerWrite(identity.transactionId, `Foreign publication ${index}`);
+      return payload;
+    }, compensate: retainForwardWrites }] });
+    assert.equal((await readWorkspaceTransaction(target.workspace, `${identity.transactionId}-snapshot`))?.status, 'committed');
+    const [foreign] = await target.store.read(); const before = await snapshot(target.workspace);
+    assert.equal((await previousOwnership(target.store, foreign, ids))?.fields.body, undefined);
+    assert.deepEqual(await snapshot(target.workspace), before);
+  }
+
+  const pending = await importIdentity(target.store, 'pending-foreign-publication');
+  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author: 'foreign-fixture', transactionId: `${pending.transactionId}-snapshot`, steps: [{ id: 'pending-result', inspect: async () => ({ state: 'pending' }), apply: async () => { await peerWrite(pending.transactionId, 'Pending foreign publication'); return null; }, compensate: retainForwardWrites }], onTransition: event => { if (event.transition === 'step_applied') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+  const retained = await readWorkspaceTransaction(target.workspace, `${pending.transactionId}-snapshot`); assert.equal(retained?.status, 'applying');
+  const missing = await importIdentity(target.store, 'missing-foreign-receipt'); await peerWrite(missing.transactionId, 'Foreign marker without a receipt');
+  assert.equal(await readWorkspaceTransaction(target.workspace, `${missing.transactionId}-snapshot`), undefined);
+  const [current] = await target.store.read(); const before = await snapshot(target.workspace);
+  assert.equal((await previousOwnership(target.store, current, ids))?.fields.body, undefined);
+  assert.deepEqual(await snapshot(target.workspace), before);
+  assert.deepEqual(await readWorkspaceTransaction(target.workspace, `${pending.transactionId}-snapshot`), retained);
+
 });
 
 test('supported abandonment retires an interrupted owned step and preserves a foreign item batch', async t => {
@@ -128,6 +159,30 @@ test('shared scanner and stronger memory supplements retain legacy refusals and 
     'Authorization: Basic synthetic-value', 'pwd=lowentropy', 'access token=lowentropy',
     'https://synthetic:lowentropy@service.test/path',
     'eyJ' + 'x'.repeat(400) + '.' + 'x'.repeat(400) + '.' + 'x'.repeat(8),
+    'eyJ' + 'x'.repeat(10) + '.' + 'x'.repeat(400) + '.' + 'x'.repeat(10),
   ]) assert.throws(() => privacy(value, true), error => error instanceof MemoryError && error.code === 'privacy');
-  for (const value of ['', 'token: accounting', 'password=$BUILD_PASSWORD', '_authToken=${BUILD_TOKEN}', 'Use a secret manager', 'https://service.test/path', 'resources/guide.md']) privacy(value);
+  for (const value of ['', 'token: accounting', 'password=$BUILD_PASSWORD', '_authToken=${BUILD_TOKEN}', 'Use a secret manager', 'https://service.test/path', 'eyJ' + 'x'.repeat(12) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(8), 'resources/guide.md', 'ghp_' + 'x'.repeat(15) + '_x', 'eyJ' + 'x'.repeat(10) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(8), 'EYJ' + 'x'.repeat(10) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(10)]) privacy(value);
+});
+
+test('legacy generic key prefixes remain refused across SDK provider floors and token boundaries', async t => {
+  const target = await tracker(t); const kept = await snapshot(target.workspace);
+  for (const value of ['sk-ant-' + 'x'.repeat(16), 'sk-' + 'x'.repeat(15) + '-'.repeat(5), 'sk-' + '-'.repeat(16)]) {
+    await assert.rejects(remember(value, { ...target.options, kind: 'reference', allowEmail: true }), error => error instanceof MemoryError && error.code === 'privacy' && !error.message.includes(value));
+    assert.deepEqual(await snapshot(target.workspace), kept);
+  }
+  await remember('eyJ' + 'x'.repeat(10) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(8), { ...target.options, kind: 'reference' });
+});
+
+test('shared quoted credentials span complete values and whitespace without bypassing SDK exclusions', async t => {
+  const target = await tracker(t); const kept = await snapshot(target.workspace);
+  for (const [open, close] of [['"', '"'], ["'", "'"], ['"', "'"], ["'", '"']] as const) for (const spacing of [' ', ' '.repeat(200)]) {
+    const value = `sshpass${spacing}-p${spacing}${open}${'x'.repeat(512)}${close}`;
+    assert.ok(scanMutationSecrets(value).some(finding => finding.rule === 'sshpass_inline_password'));
+    await assert.rejects(remember(value, { ...target.options, kind: 'reference' }), error => error instanceof MemoryError && error.code === 'privacy' && !error.message.includes(value));
+    assert.deepEqual(await snapshot(target.workspace), kept);
+  }
+  const phrase = 'passphrase = "' + 'x '.repeat(128) + '"';
+  await assert.rejects(remember(phrase, { ...target.options, kind: 'reference' }), error => error instanceof MemoryError && error.code === 'privacy');
+  assert.deepEqual(await snapshot(target.workspace), kept);
+  for (const value of ['"' + 'safe '.repeat(128) + '"', 'passphrase="${BUILD_PHRASE}"', 'quoted "reference" and \'another reference\'', ' "safe reference" '.repeat(2000), '"' + [192, 168, 50, 60].join('.') + '"']) privacy(value);
 });
