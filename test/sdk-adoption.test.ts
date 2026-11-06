@@ -118,12 +118,13 @@ test('supported abandonment retires an interrupted owned step and preserves a fo
 /** Read native history through the supported SDK stream reader. */
 async function importHistory(workspace: string, id: string) { return readHistoryEntries(getHistoryPath(workspace, id), id); }
 
-for (const encoding of ['raw', 'percent', 'escape', 'unicode', 'hex', 'nested', 'overlimit', 'invisible', 'malformed'] as const) test(`shared SDK secrets refuse ${encoding} content before any tracker write without echo`, async t => {
+for (const encoding of ['raw', 'percent', 'escape', 'unicode', 'hex', 'nested', 'overlimit', 'invisible', 'malformed', 'json-wrapped'] as const) test(`shared SDK secrets refuse ${encoding} content before any tracker write without echo`, async t => {
   const target = await tracker(t); const secret = 'npm_' + 'SyntheticFixture1234567890';
   let fixture = secret;
   if (['percent', 'nested', 'overlimit', 'malformed'].includes(encoding)) for (let depth = 0; depth < (encoding === 'nested' ? 4 : encoding === 'overlimit' ? 5 : 1); depth++) fixture = [...fixture].map(char => '%' + char.charCodeAt(0).toString(16)).join('');
   if (encoding === 'malformed') fixture += '%ff';
-  if (encoding === 'escape' || encoding === 'hex') fixture = [...secret].map(char => encoding === 'escape' ? '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0') : '\\x' + char.charCodeAt(0).toString(16)).join('');
+  if (encoding === 'escape' || encoding === 'hex' || encoding === 'json-wrapped') fixture = [...secret].map(char => encoding !== 'hex' ? '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0') : '\\x' + char.charCodeAt(0).toString(16)).join('');
+  if (encoding === 'json-wrapped') fixture = JSON.stringify({ hint: fixture });
   if (encoding === 'unicode') fixture = [...secret].map(char => String.fromCharCode(char.charCodeAt(0) + 0xfee0)).join('');
   if (encoding === 'invisible') fixture = secret.slice(0, 2) + '\u200b' + secret.slice(2);
   const kept = await snapshot(target.workspace);
