@@ -15,7 +15,7 @@ import { tracker, snapshot } from './helpers.ts';
 import { nativeHost } from './native-host-helpers.ts';
 
 // Each scanner must finish under an independent operating-system deadline.
-for (const [label, input] of [['URL', 'http://!:' + '!:'.repeat(50000)], ['base64 email', 'aB+/'.repeat(50000)], ['JWT header', 'eyJ-'.repeat(50000)]]) test(`privacy scans adversarial ${label} characters within a fixed time bound`, { timeout: 20000 }, async t => {
+for (const [label, input] of [['URL', 'http://!:' + '!:'.repeat(50000)], ['base64 email', 'aB+/'.repeat(50000)], ['JWT header', 'eyJ-'.repeat(50000)], ['escape run', '\\'.repeat(200000)], ['distinct quotes', Array.from({ length: 25000 }, (_, index) => '"a' + index + '" ').join('')], ['long distinct quotes', Array.from({ length: 2500 }, (_, index) => '"a' + index + 'x'.repeat(65) + '" ').join('')]]) test(`privacy scans adversarial ${label} characters within a fixed time bound`, { timeout: 20000 }, async t => {
   const child = spawn(process.execPath, [fileURLToPath(new URL('./privacy-process.ts', import.meta.url))]);
   t.after(() => { child.kill('SIGKILL'); });
   const elapsed = await new Promise<number>((resolve, reject) => {

@@ -4,10 +4,13 @@
 
 ### Added
 
+- Delegate memory credential detection to SDK mutation secret scanner ([pm-memory-sdk-secret-scan](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-secret-scan.toon))
+- Adopt public SDK transaction inspection and native hash preconditions ([pm-memory-sdk-transaction-reader](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-transaction-reader.toon))
 - Preserve guidance validity in portable harness round trips ([pm-memory-1363](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-1363.toon))
 
 ### Fixed
 
+- Refuse quoted JSON and YAML credential keys before persistence ([pm-memory-quoted-credential-keys](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-quoted-credential-keys.toon))
 - Pool-lane stop test assumes the failing batch wins the first worker slot ([pm-memory-x47g](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-x47g.toon))
 - Daily release never publishes: npm reads release-artifact/package.tgz as a GitHub repository ([pm-memory-ielg](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-ielg.toon))
 - Refuse stale merge receipts after intervening memory edits ([pm-memory-c3gv](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-c3gv.toon))

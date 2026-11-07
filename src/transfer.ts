@@ -384,9 +384,13 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       const original = document?.format === 'legacy' && document.harness === options.to && document.path === item.path ? document.original : source?.original;
       return { ...item, document, ...(original === undefined ? {} : { original }) };
     }));
+    if (memories.some(item => item.consent !== undefined && !isCanceled(item) && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
+    for (const item of memories.filter(item => !isCanceled(item) && !item.artifact)) {
+      for (const value of [item.title, item.slug, item.description, item.body, item.why, item.how, ...item.tags, ...item.links]) privacy(value, true);
+      if (item.document !== undefined) privacy(Buffer.from(item.document.original, 'base64').toString('utf8'), true);
+    }
     await ensureTrackerOrigin(store); const catalog = await originCatalog(store);
     const foreignReceipt = foreign.length === 0 ? {} : { skipped: foreign.map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };
-    if (memories.some(item => item.consent !== undefined && !isCanceled(item) && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
     const active = memories.filter(item => !isCanceled(item) && !item.artifact).sort((a, b) => a.slug.localeCompare(b.slug));
     const omitted_links: NonNullable<PortableExportResult['omitted_links']> = active.flatMap(item => item.relationships.flatMap(edge => {
         if (active.some(target => target.id === edge.id)) return [];
@@ -401,6 +405,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     });
     /** Publication and receipts have one lease-fenced path for both wire encodings. */
     const commit = async (outputs: Map<string, Buffer>, byte_preserved: number): Promise<PortableExportResult> => {
+      for (const bytes of outputs.values()) privacy(bytes.toString('utf8'), true);
       await store.fence(() => publish(resolve(path), outputs, options.onStep));
       const artifacts: NonNullable<PortableExportResult['lossy']> = outputs.has(POLICY_MANIFEST) ? memories.filter(item => item.artifact && !isCanceled(item)).map(item => ({ slug: item.slug, fields: ['slug', ...PORTABLE_FIELDS, 'relationships', 'artifact', ...(item.document === undefined ? [] : ['document' as const])], reason: 'Native index artifact is regenerated; its record is outside this policy inventory' })) : [];
       const losses = [...lossy, ...artifacts];
