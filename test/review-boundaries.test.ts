@@ -74,15 +74,18 @@ function causeAuditRule(): Rule.RuleModule {
       if (caught === undefined || node.type === 'CallExpression') return;
       const parent = context.sourceCode.getAncestors(node).at(-1);
       const conditional = parent !== undefined && parent.type === 'ConditionalExpression' && parent.alternate === node && parent.test.type === 'BinaryExpression' && parent.test.operator === 'instanceof' && parent.test.left.type === 'Identifier' && parent.test.left.name === caught && parent.test.right.type === 'Identifier' && parent.test.right.name === 'MemoryError' && parent.consequent.type === 'Identifier' && parent.consequent.name === caught;
-      const negatedForeign = (argument: Node): boolean => argument.type === 'BinaryExpression' && argument.operator === 'instanceof' && argument.left.type === 'Identifier' && argument.left.name === caught && argument.right.type === 'Identifier' && argument.right.name !== 'MemoryError';
+      // Only known disjoint classes prove that a MemoryError will take the rethrow branch.
+      // Error itself includes MemoryError, and an arbitrary constructor may do so too.
+      const negatedForeign = (argument: Node): boolean => argument.type === 'BinaryExpression' && argument.operator === 'instanceof' && argument.left.type === 'Identifier' && argument.left.name === caught && argument.right.type === 'Identifier' && ['SyntaxError', 'PmCliError'].includes(argument.right.name);
       const guardTest = (test: Node): boolean => test.type === 'BinaryExpression' && test.operator === 'instanceof' && test.left.type === 'Identifier' && test.left.name === caught && test.right.type === 'Identifier' && test.right.name === 'MemoryError'
         || test.type === 'LogicalExpression' && test.operator === '||' && (guardTest(test.left) || guardTest(test.right))
         || test.type === 'UnaryExpression' && test.operator === '!' && negatedForeign(test.argument);
       const rethrowsTyped = conditional || clause.body.body.some(statement => {
-        if (statement.type !== 'IfStatement') return false;
+        if (statement.type !== 'IfStatement' || statement.range![1] > node.range![0]) return false;
         if (!guardTest(statement.test)) return false;
         const consequent = statement.consequent;
-        const thrown = consequent.type === 'ThrowStatement' ? consequent.argument : consequent.type === 'BlockStatement' ? [...consequent.body].reverse().find(inner => inner.type === 'ThrowStatement') : undefined;
+        const rethrow = consequent.type === 'ThrowStatement' ? consequent : consequent.type === 'BlockStatement' && consequent.body.length === 1 ? consequent.body[0] : undefined;
+        const thrown = rethrow?.type === 'ThrowStatement' ? rethrow.argument : undefined;
         return thrown?.type === 'Identifier' && thrown.name === caught;
       });
       if (!rethrowsTyped) context.report({ node, message: 'Operational translation re-codes an existing typed error' });
@@ -104,11 +107,39 @@ function auditSource(filename: string, source: string) {
 let translations = 0;
 
 test('every operational catch translation preserves its original cause across package modules', () => {
-  for (const file of globSync('src/**/*.ts', { cwd: root })) {
+  for (const file of globSync(['src/**/*.ts', 'scripts/**/*.ts', 'index.ts', 'eslint.config.ts'], { cwd: root })) {
     const messages = auditSource(file, readFileSync(join(root, file), 'utf8'));
     assert.deepEqual(messages, [], file);
   }
   assert.ok(translations >= 16, 'Audit must inspect operational translations throughout the package');
+});
+
+test('the cause audit rejects misleading guards and accepts braced rethrows', () => {
+  for (const category of ["'transaction'", 'category', "`dynamic-${category}`"]) {
+    const wrap = `throw new MemoryError(${category}, 'Typed refusal', 'Remedy', { cause });`;
+    for (const body of [
+      `${wrap} if (cause instanceof MemoryError) throw cause;`,
+      `if (!(cause instanceof Error)) throw cause; ${wrap}`,
+      `if (!(cause instanceof UnknownError)) throw cause; ${wrap}`,
+      `if (cause instanceof MemoryError) { if (false) throw cause; } ${wrap}`,
+    ]) {
+      assert.ok(auditSource('synthetic-cause.ts', `try { operation(); } catch (cause) { ${body} }`).some(message => message.message === 'Operational translation re-codes an existing typed error'), body);
+    }
+    assert.deepEqual(auditSource('synthetic-cause.ts', `try { operation(); } catch (cause) { if (cause instanceof MemoryError) { throw cause; } ${wrap} }`), []);
+  }
+});
+
+test('removing any direct typed rethrow guard is detected by the package cause audit', () => {
+  let mutations = 0;
+  for (const file of globSync('src/**/*.ts', { cwd: root })) {
+    const source = readFileSync(join(root, file), 'utf8');
+    for (const match of source.matchAll(/if \((\w+) instanceof MemoryError\) throw \1;/g)) {
+      const mutated = source.slice(0, match.index) + source.slice(match.index + match[0].length);
+      assert.ok(auditSource(file, mutated).some(message => message.message === 'Operational translation re-codes an existing typed error'), `${file}:${match.index}`);
+      mutations++;
+    }
+  }
+  assert.ok(mutations >= 12, 'Every direct guard added in this review must have a negative control');
 });
 
 test('the cause audit reports variable categories, bare catches and typed re-coding, and accepts established exclusions', () => {
