@@ -136,7 +136,10 @@ function credentialViews(value: string): string[] {
 /** Apply literal assignment policy after decoding JSON strings, preserving explicit references. */
 function credentialLiteral(name: string, value: string): boolean {
   const normalized = credentialViews(value).at(-1)!;
-  if (/^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/.test(normalized.trim()) || /^<[^<>]*>$/.test(normalized.trim())) return false;
+  // Only recognizable placeholder shapes are exempt: letter-only words joined by separators.
+  // Bracketed digits, symbols or credential material fall through to the full policy below.
+  const trimmed = normalized.trim();
+  if (/^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/.test(trimmed) || /^<(?:redacted|[A-Za-z]+(?:[ _-][A-Za-z]+)+)>$/i.test(trimmed)) return false;
   return value.length >= 8 || normalized.length >= 8 || sharedCredential((name.toLowerCase() === '_authtoken' ? '_authToken' : name) + '=' + normalized);
 }
 /** Inspect quoted scalar keys and bounded JSON string wrappers without copying SDK provider grammars. */
@@ -227,6 +230,10 @@ function supplementalCredential(value: string): boolean {
   const privateKey = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/i.test(value);
   for (const [, name, separator, assigned] of value.matchAll(/\b(password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)) {
     if (!(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned))) return true;
+  }
+  // Bracketed or quoted wrappers on free-text keys get the same literal policy, so angle brackets cannot hide credential material.
+  for (const [, name, , wrapped] of value.matchAll(/\b(password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?<([^<>"']*)>["']?/gi)) {
+    if (credentialLiteral(name, '<' + wrapped + '>')) return true;
   }
   return quotedAssignmentCredential(value) || legacy.test(value) || privateKey || credentialJwt(value) || credentialUrl(value);
 }

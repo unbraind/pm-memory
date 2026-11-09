@@ -43,6 +43,10 @@ test('quoted credentials cover nested, escaped and normalized representations', 
     'Example: ' + JSON.stringify(plain), JSON.stringify(plain).slice(1, -1),
     JSON.stringify(plain).slice(1, -1) + '\\q', '{"token":"accounting"}', '{"_authToken":"x"}',
     '{"password":12345678}', '{"safe":true,"note":' + JSON.stringify(plain) + '}',
+    JSON.stringify({ password: '<' + secret + '>' }), "password: '<" + secret + ">'",
+    'password: <' + secret + '>', 'password=<' + secret + '>',
+    JSON.stringify({ api_key: '<hunter2>' }), JSON.stringify({ token: '<' + 'ghp_' + 'SyntheticFixture1234567890' + '>' }),
+    JSON.stringify({ password: '<redacted!123>' }), JSON.stringify({ secret: '<pass word2>' }),
   ];
   for (const fact of fixtures) {
     await assert.rejects(remember(fact, { ...target.options, kind: 'reference', allowEmail: true }), error => {
@@ -68,12 +72,15 @@ test('quoted safe references and short scalar controls remain readable and expor
     JSON.stringify({ password: [reference, '<redacted>'], note: [12, true, null] }),
     'Contact person@example.test', 'Example "bad' + '\\q' + '" and "password": "<redacted>"',
     'token: accounting; reference credentials through a secret manager',
+    JSON.stringify({ password: '<secret manager reference>' }), JSON.stringify({ api_key: '<BUILD-PASSWORD>' }),
+    'token: <accounting phrase>', 'password: <enter your password here>',
   ];
   for (const [index, fact] of fixtures.entries()) {
     const result = await remember(fact, { ...target.options, kind: 'reference', slug: 'safe-' + index, forceNew: true, allowEmail: true });
     assert.equal((await get(result.slug, target.options)).body, fact);
   }
   privacy('{"password":}'); privacy('"password": "abc'); privacy("'password': '<redacted>'");
+  privacy(JSON.stringify({ password: '<secret-manager-reference>' }));
   const output = join(target.root, 'export');
   await exportDir(output, { ...target.options, to: 'agents-md' });
   assert.ok(Object.values(await snapshot(output)).map(value => Buffer.from(value, 'base64').toString('utf8')).join('\n').includes('BUILD_PASSWORD'));
