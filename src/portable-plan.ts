@@ -26,7 +26,7 @@ export async function importIdentity(store: Store, input: string, candidate: str
     let occupied;
     try {
       occupied = await Promise.all([readItemTransaction(store.workspace, transactionId), readItemTransaction(store.workspace, `${transactionId}-nodes`), readWorkspaceTransaction(store.workspace, `${transactionId}-snapshot`)]);
-    } catch (cause) { throw new MemoryError('transaction', 'Portable transaction namespace is unavailable', 'Restore access to the retained transaction receipts and retry', { cause }); }
+    } catch (cause) { if (cause instanceof MemoryError) throw cause; throw new MemoryError('transaction', 'Portable transaction namespace is unavailable', 'Restore access to the retained transaction receipts and retry', { cause }); }
     if (!occupied.some(Boolean)) return { attempt: candidate, transactionId };
     candidate = randomUUID();
   }
@@ -142,7 +142,7 @@ export async function pendingImport(store: Store, _onStep?: PortableImportOption
     if (plan === null || !IMPORT_ID.test(plan.transactionId) || typeof plan.input !== 'string' || typeof plan.author !== 'string' || !validIntent(plan)) throw new Error();
     if (plan.forwardOnly !== undefined && plan.forwardOnly !== 1) throw new Error();
     if (plan.publication !== undefined && (plan.forwardOnly !== 1 || typeof plan.publication.id !== 'string' || typeof plan.publication.stepId !== 'string' || !IMPORT_ID.test(plan.publication.transactionId) || !validNativeProof(plan.publication.before) || !/^[a-f0-9]{64}$/.test(plan.publication.proposed) || !validOwnedTarget(plan.publication.target) || plan.publication.id !== plan.publication.target.id)) throw new Error();
-  } catch (cause) { throw new MemoryError('history', 'Invalid portable import intent', 'Preserve the owned intent and restore its verified copy', { cause }); }
+  } catch (cause) { if (cause instanceof MemoryError) throw cause; throw new MemoryError('history', 'Invalid portable import intent', 'Preserve the owned intent and restore its verified copy', { cause }); }
   intentTokens.set(plan, current.payload);
   if (plan.forwardOnly === 1) { await publishPending(store, plan, { onStep: _onStep, onTransition: _onTransition }); await retireOwnedTransaction(store, plan.transactionId, plan.author, 'attempt'); }
   await appendWorkspaceAuditEvent({ pmRoot: store.workspace, op: 'memory_import_replan', author: store.author, message: plan.forwardOnly === 1 ? 'Retired interrupted forward import; retain completed writes and replan current state' : 'Discarded legacy import intent without restoring values; replan current state', context: { transactionId: plan.transactionId, format: plan.forwardOnly === 1 ? 'forward-only' : 'legacy' }, lockTtlSeconds: 120, lockWaitMs: 10000 });

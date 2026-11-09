@@ -168,6 +168,7 @@ async function fileClaim(input: Claim, source: Evidence): Promise<ClaimResult> {
       if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return { ...claim, verdict: 'unknown', reason: 'Symlink escapes the declared root' };
       await stat(path); return { ...claim, verdict: 'verified' };
     } catch (error) {
+      if (error instanceof MemoryError) throw error;
       if (!['ENOENT', 'ENOTDIR'].includes(String((error as NodeJS.ErrnoException).code))) throw new MemoryError('verify', 'File evidence could not be read', 'Check workspace permissions before verification', { cause: error });
     }
   }

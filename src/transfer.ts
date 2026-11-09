@@ -333,7 +333,7 @@ async function publish(root: string, outputs: Map<string, Buffer>, onStep?: (ste
           const target = await destination(root, name);
           if (!(await lstat(target)).isFile() || !(await readFile(target)).equals(bytes)) throw new Error('Incomplete peer output');
         }
-      } catch (cause) { throw new MemoryError('conflict', 'A peer published different or incomplete export files', 'Choose a new empty export directory', { cause }); }
+      } catch (cause) { if (cause instanceof MemoryError) throw cause; throw new MemoryError('conflict', 'A peer published different or incomplete export files', 'Choose a new empty export directory', { cause }); }
     }
     await onStep?.('published');
   } finally { await rm(staging, { recursive: true, force: true }); }

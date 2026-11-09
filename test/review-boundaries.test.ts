@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { Linter } from 'eslint';
 import type { Rule } from 'eslint';
-import type { NewExpression, CallExpression } from 'estree';
+import type { NewExpression, CallExpression, Node } from 'estree';
 import parser from '@babel/eslint-parser';
 import { readItemTransaction, readWorkspaceTransaction } from '@unbrained/pm-cli/sdk';
 import { MemoryError } from '../src/core.ts';
@@ -46,39 +46,89 @@ test('default test and coverage discovery exclude every packed consumer and reta
   assert.ok(manifest.scripts['release:check'].includes('npm run test:install'));
 });
 
-test('every operational catch translation preserves its original cause across package modules', () => {
-  let translations = 0;
+/** Cause-audit rule: every catch translation into a typed package refusal must retain the caught error and must not re-code an existing typed error. */
+function causeAuditRule(): Rule.RuleModule {
+  return { create(context: Rule.RuleContext) {
+    const check = (node: NewExpression | CallExpression): void => {
+      if (node.callee.type !== 'Identifier') return;
+      let position: number;
+      if (node.type === 'NewExpression' && node.callee.name === 'MemoryError') {
+        const category = node.arguments[0];
+        // Established re-diagnosis categories re-wrap deliberately; content parsers omit raw syntax errors, which may contain refused input.
+        // A variable category is audited like any literal one: only the three exclusions above are exempt.
+        if (category?.type === 'Literal' && ['privacy', 'format', 'schema'].includes(String(category.value))) return;
+        position = 3;
+      } else if (node.type === 'CallExpression' && node.callee.name === 'refusal') position = 1;
+      else return;
+      const clause = context.sourceCode.getAncestors(node).reverse().find(parent => parent.type === 'CatchClause');
+      if (clause?.type !== 'CatchClause') return;
+      translations++;
+      const caught = clause.param?.type === 'Identifier' ? clause.param.name : undefined;
+      const options = node.arguments[position];
+      const retained = caught !== undefined && options?.type === 'ObjectExpression' && options.properties.some(property => property.type === 'Property' && property.key.type === 'Identifier' && property.key.name === 'cause' && property.value.type === 'Identifier' && property.value.name === caught);
+      if (!retained) context.report({ node, message: 'Operational translation loses the caught error' });
+      // Refusal helpers are the deliberate merge-domain re-diagnosis: malformed pending receipts fail closed as a
+      // merge conflict, with the original cause retained. Only direct typed constructions must additionally rethrow
+      // an existing typed error instead of re-coding it; the guard may be a conditional expression that selects the
+      // caught typed error, a direct `caught instanceof MemoryError` rethrow, or a negated foreign-type test.
+      if (caught === undefined || node.type === 'CallExpression') return;
+      const parent = context.sourceCode.getAncestors(node).at(-1);
+      const conditional = parent !== undefined && parent.type === 'ConditionalExpression' && parent.alternate === node && parent.test.type === 'BinaryExpression' && parent.test.operator === 'instanceof' && parent.test.left.type === 'Identifier' && parent.test.left.name === caught && parent.test.right.type === 'Identifier' && parent.test.right.name === 'MemoryError' && parent.consequent.type === 'Identifier' && parent.consequent.name === caught;
+      const negatedForeign = (argument: Node): boolean => argument.type === 'BinaryExpression' && argument.operator === 'instanceof' && argument.left.type === 'Identifier' && argument.left.name === caught && argument.right.type === 'Identifier' && argument.right.name !== 'MemoryError';
+      const guardTest = (test: Node): boolean => test.type === 'BinaryExpression' && test.operator === 'instanceof' && test.left.type === 'Identifier' && test.left.name === caught && test.right.type === 'Identifier' && test.right.name === 'MemoryError'
+        || test.type === 'LogicalExpression' && test.operator === '||' && (guardTest(test.left) || guardTest(test.right))
+        || test.type === 'UnaryExpression' && test.operator === '!' && negatedForeign(test.argument);
+      const rethrowsTyped = conditional || clause.body.body.some(statement => {
+        if (statement.type !== 'IfStatement') return false;
+        if (!guardTest(statement.test)) return false;
+        const consequent = statement.consequent;
+        const thrown = consequent.type === 'ThrowStatement' ? consequent.argument : consequent.type === 'BlockStatement' ? [...consequent.body].reverse().find(inner => inner.type === 'ThrowStatement') : undefined;
+        return thrown?.type === 'Identifier' && thrown.name === caught;
+      });
+      if (!rethrowsTyped) context.report({ node, message: 'Operational translation re-codes an existing typed error' });
+    };
+    return { NewExpression: check, CallExpression: check };
+  } };
+}
+/** Lint one source with the cause audit rule under the package's TypeScript configuration. */
+function auditSource(filename: string, source: string) {
   const linter = new Linter();
+  return linter.verify(source, [{
+    files: ['**/*.ts'],
+    languageOptions: { parser, parserOptions: { requireConfigFile: false, babelOptions: { plugins: ['@babel/plugin-syntax-typescript'] } } },
+    plugins: { audit: { rules: { cause: causeAuditRule() } } },
+    rules: { 'audit/cause': 'error' },
+  }], { filename });
+}
+
+let translations = 0;
+
+test('every operational catch translation preserves its original cause across package modules', () => {
   for (const file of globSync('src/**/*.ts', { cwd: root })) {
-    const messages = linter.verify(readFileSync(join(root, file), 'utf8'), [{
-      files: ['**/*.ts'],
-      languageOptions: { parser, parserOptions: { requireConfigFile: false, babelOptions: { plugins: ['@babel/plugin-syntax-typescript'] } } },
-      plugins: { audit: { rules: { cause: { create(context: Rule.RuleContext) {
-        const check = (node: NewExpression | CallExpression): void => {
-          if (node.callee.type !== 'Identifier') return;
-          let position: number;
-          if (node.type === 'NewExpression' && node.callee.name === 'MemoryError') {
-            const category = node.arguments[0];
-            // Content parsers omit raw syntax errors, which may contain refused input.
-            if (category?.type !== 'Literal' || ['privacy', 'format', 'schema'].includes(String(category.value))) return;
-            position = 3;
-          } else if (node.type === 'CallExpression' && node.callee.name === 'refusal') position = 1;
-          else return;
-          const clause = context.sourceCode.getAncestors(node).reverse().find(parent => parent.type === 'CatchClause');
-          if (clause?.type !== 'CatchClause') return;
-          translations++;
-          const caught = clause.param?.type === 'Identifier' ? clause.param.name : undefined;
-          const options = node.arguments[position];
-          const retained = caught !== undefined && options?.type === 'ObjectExpression' && options.properties.some(property => property.type === 'Property' && property.key.type === 'Identifier' && property.key.name === 'cause' && property.value.type === 'Identifier' && property.value.name === caught);
-          if (!retained) context.report({ node, message: 'Operational translation loses the caught error' });
-        };
-        return { NewExpression: check, CallExpression: check };
-      } } } } },
-      rules: { 'audit/cause': 'error' },
-    }], { filename: file });
+    const messages = auditSource(file, readFileSync(join(root, file), 'utf8'));
     assert.deepEqual(messages, [], file);
   }
   assert.ok(translations >= 16, 'Audit must inspect operational translations throughout the package');
+});
+
+test('the cause audit reports variable categories, bare catches and typed re-coding, and accepts established exclusions', () => {
+  const reported = (source: string): boolean => auditSource('synthetic-cause.ts', source).length > 0;
+  // Must-refuse corpus: every gap class reports.
+  assert.ok(reported("import { MemoryError } from './core.ts';\nfunction translate(value: string, cause: unknown) { try { JSON.parse(value); } catch (cause) { throw new MemoryError(value, 'Typed refusal', 'Remedy'); } }"), 'A variable category without cause retention must report');
+  assert.ok(reported("import { MemoryError } from './core.ts';\nfunction translate(value: string) { try { JSON.parse(value); } catch (cause) { throw new MemoryError(value, 'Typed refusal', 'Remedy', { cause }); } }"), 'A variable category without a typed rethrow guard must report');
+  assert.ok(reported("import { MemoryError } from './core.ts';\nfunction translate() { try { JSON.parse('{'); } catch (cause) { throw new MemoryError('transaction', 'Typed refusal', 'Remedy', { cause }); } }"), 'A literal category without a typed rethrow guard must report');
+  assert.ok(reported("import { MemoryError } from './core.ts';\nfunction translate() { try { JSON.parse('{'); } catch { throw new MemoryError('transaction', 'Typed refusal', 'Remedy'); } }"), 'A bare catch cannot retain the caught error and must report');
+  assert.ok(reported("import { MemoryError } from './core.ts';\nfunction refusal(source: string): MemoryError { throw new MemoryError('conflict', 'Typed refusal', 'Remedy'); }\nfunction translate(source: string) { try { JSON.parse('{'); } catch (cause) { throw refusal(source); } }"), 'A refusal translation without cause retention must report');
+  // Must-allow corpus: guarded, cause-retaining translations and the established re-diagnosis exclusions stay silent.
+  assert.equal(reported("import { MemoryError } from './core.ts';\nfunction refusal(source: string, cause: unknown): MemoryError { throw new MemoryError('conflict', 'Typed refusal', 'Remedy', { cause }); }\nfunction translate(source: string) { try { JSON.parse('{'); } catch (cause) { throw refusal(source, { cause }); } }"), false, 'A deliberate refusal re-diagnosis with cause retained must stay silent');
+  assert.equal(reported("import { MemoryError } from './core.ts';\nfunction translate(value: string) { try { JSON.parse(value); } catch (cause) { if (cause instanceof MemoryError) throw cause; throw new MemoryError(value, 'Typed refusal', 'Remedy', { cause }); } }"), false, 'A guarded variable-category translation with cause must stay silent');
+  assert.equal(reported("import { MemoryError } from './core.ts';\nfunction translate() { try { JSON.parse('{'); } catch (cause) { if (cause instanceof MemoryError) throw cause; throw new MemoryError('transaction', 'Typed refusal', 'Remedy', { cause }); } }"), false, 'A guarded literal-category translation with cause must stay silent');
+  assert.equal(reported("import { MemoryError } from './core.ts';\nfunction refusal(source: string, cause?: ErrorOptions): MemoryError { throw new MemoryError('conflict', 'Typed refusal', 'Remedy', cause); }\nfunction translate(source: string) { try { JSON.parse('{'); } catch (cause) { if (cause instanceof MemoryError) throw cause; throw refusal(source, { cause }); } }"), false, 'A guarded refusal translation with cause must stay silent');
+  assert.equal(reported("import { MemoryError } from './core.ts';\nfunction translate() { try { JSON.parse('{'); } catch (error) { const refusal = error instanceof MemoryError ? error : new MemoryError('sdk', 'Typed refusal', 'Remedy', { cause: error }); throw refusal; } }"), false, 'A conditional guard that selects the caught typed error must stay silent');
+  assert.equal(reported("import { MemoryError } from './core.ts';\nfunction translate() { try { JSON.parse('{'); } catch (error) { if (!(error instanceof SyntaxError) || error.message !== 'conflict') throw error; throw new MemoryError('conflict', 'Typed refusal', 'Remedy', { cause: error }); } }"), false, 'A negated foreign-type guard that rethrows the caught error must stay silent');
+  for (const category of ['privacy', 'format', 'schema']) {
+    assert.equal(reported(`import { MemoryError } from './core.ts';\nfunction translate() { try { JSON.parse('{'); } catch { throw new MemoryError('${category}', 'Established re-diagnosis', 'Remedy'); } }`), false, `The established ${category} exclusion must stay silent`);
+  }
 });
 
 test('domain causes preserve arbitrary thrown values without entering serialized diagnostics', () => {
