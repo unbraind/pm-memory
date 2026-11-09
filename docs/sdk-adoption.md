@@ -63,3 +63,14 @@ Credential checks run before export origin setup, including decoded retained ori
 The finding policy is exhaustively checked against the public `SecretGuardFinding["rule"]` union. Detector additions or removals fail typecheck until their category is reviewed; unknown findings from an unsupported newer runtime SDK refuse conservatively. The bounded peer range documents the reviewed compatibility floor without coupling routine host upgrades to a package release; widening it requires reviewing the public rule union and passing the real SDK compatibility fixtures. Known identity/path findings stay local, and credential grammars remain SDK-owned. Nested objects retain their enclosing credential key when inspecting scalar descendants. JSON inspection gives each member a unique inspection key before parsing, so every duplicate assignment and its original credential context survives, including nested object/array values. Free-text JSON string inspection also checks overlapping unescaped quote boundaries, so stray prose quotes cannot hide serialized declarations. Safe references and short-scalar policy remain unchanged.
 
 Unreadable transaction receipts surface a safe typed transaction refusal rather than being treated as missing ownership. Revision conflict fingerprints retain the current revision found by the SDK locked write and the original expected history value.
+
+JSON credential inspection tokenizes quoted strings at their known start and
+stops after an unterminated token; malformed input falls back to the existing
+free-text policy. Valid JSON still retains every duplicate member and its
+original enclosing credential key.
+
+Operational error translations retain the original typed failure as a
+non-enumerable `cause` for SDK diagnostics. CLI JSON and TOON output continue to
+use the safe domain message and remedy. Content-parser refusals omit raw syntax
+errors that may contain refused input. Packed npm/Bun consumers run explicitly
+under `test:install`, outside ordinary unit and coverage discovery.

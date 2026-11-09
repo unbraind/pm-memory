@@ -333,7 +333,7 @@ async function publish(root: string, outputs: Map<string, Buffer>, onStep?: (ste
           const target = await destination(root, name);
           if (!(await lstat(target)).isFile() || !(await readFile(target)).equals(bytes)) throw new Error('Incomplete peer output');
         }
-      } catch { throw new MemoryError('conflict', 'A peer published different or incomplete export files', 'Choose a new empty export directory'); }
+      } catch (cause) { throw new MemoryError('conflict', 'A peer published different or incomplete export files', 'Choose a new empty export directory', { cause }); }
     }
     await onStep?.('published');
   } finally { await rm(staging, { recursive: true, force: true }); }
@@ -395,7 +395,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       if (item.document !== undefined) fields.set('document.original', Buffer.from(item.document.original, 'base64').toString('utf8'));
       for (const [field, value] of fields) {
         try { privacy(value, true); }
-        catch (error) { const refusal = privacyRefusal(error); throw new MemoryError('privacy', `Export refused for record ${item.id}, field ${field}: ${refusal.message}`, refusal.remedy); }
+        catch (error) { const refusal = privacyRefusal(error); throw new MemoryError('privacy', `Export refused for record ${item.id}, field ${field}: ${refusal.message}`, refusal.remedy, { cause: refusal }); }
       }
     }
     await ensureTrackerOrigin(store); const catalog = await originCatalog(store);

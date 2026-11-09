@@ -5,8 +5,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
-import { acquireLockLease } from '@unbrained/pm-cli/sdk';
-import { remember } from '../index.ts';
+import { acquireLockLease, PmCliError } from '@unbrained/pm-cli/sdk';
+import { remember, MemoryError } from '../index.ts';
 import { tracker } from './helpers.ts';
 
 /** Start a package writer with Git unavailable and wait for its live lease. */
@@ -28,7 +28,12 @@ test('SDK process-start evidence recovers a reused PID while protecting a live o
   const environment = { ...process.env };
   t.after(() => { process.env = environment; });
   process.env.PM_LOCK_WAIT_MS = '0';
-  await assert.rejects(store.write(async () => assert.fail('live owner was reclaimed')), { code: 'conflict' });
+  await assert.rejects(store.write(async () => assert.fail('live owner was reclaimed')), error => {
+    assert.ok(error instanceof MemoryError && error.code === 'conflict');
+    assert.ok(error.cause instanceof PmCliError); assert.equal(error.cause.exitCode, 4);
+    assert.equal(Object.getOwnPropertyDescriptor(error, 'cause')?.enumerable, false);
+    return true;
+  });
   assert.equal(typeof payload.host_identity, 'string');
   assert.match(String(payload.process_start_identity), /^\d+$/);
   await writeFile(path, JSON.stringify({ ...payload, process_start_identity: String(BigInt(String(payload.process_start_identity)) + 1n) }));

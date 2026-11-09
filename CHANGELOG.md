@@ -4,8 +4,8 @@
 
 ### Added
 
-- Delegate memory credential detection to SDK mutation secret scanner ([pm-memory-sdk-secret-scan](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-secret-scan.toon))
 - Adopt public SDK transaction inspection and native hash preconditions ([pm-memory-sdk-transaction-reader](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-transaction-reader.toon))
+- Delegate memory credential detection to SDK mutation secret scanner ([pm-memory-sdk-secret-scan](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-secret-scan.toon))
 
 ### Fixed
 

@@ -42,6 +42,6 @@ export async function writerLock(workspace: string, author: string): Promise<Loc
     const age = owner === null ? Number.NaN : Date.now() - Date.parse(owner.created_at);
     const holder = owner === null ? 'unverifiable holder' : `PID ${owner.pid}`;
     throw new MemoryError('conflict', `Memory writer held by ${holder}; age ${Number.isFinite(age) ? `${Math.max(0, Math.floor(age / 1000))}s` : 'unknown'}`,
-      'Retry the same command after the holder finishes. Dead owners recorded on this host are recovered automatically on retry. For a foreign or legacy lock, stop all writers on every host, verify the recorded owner process is dead on its host, then remove only locks/memory-writer.lock under the tracker and retry. Never clear a live or unverified owner; PID reuse is recovered only with SDK process-start evidence.');
+      'Retry the same command after the holder finishes. Dead owners recorded on this host are recovered automatically on retry. For a foreign or legacy lock, stop all writers on every host, verify the recorded owner process is dead on its host, then remove only locks/memory-writer.lock under the tracker and retry. Never clear a live or unverified owner; PID reuse is recovered only with SDK process-start evidence.', { cause: error });
   }
 }

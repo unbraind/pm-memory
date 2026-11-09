@@ -48,7 +48,7 @@ export async function readTrackerOrigin(store: Store): Promise<string | undefine
     const handle = await open(join(store.workspace, TRACKER_ORIGIN_FILE), constants.O_RDONLY | constants.O_NOFOLLOW);
     try { if (!(await handle.stat()).isFile()) throw new Error(); value = JSON.parse(await handle.readFile('utf8')); } finally { await handle.close(); }
   }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw new MemoryError('origin_missing', 'Tracker origin metadata is unavailable', 'Restore the package-owned memory-origin.json; foreign metadata was not overwritten'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw new MemoryError('origin_missing', 'Tracker origin metadata is unavailable', 'Restore the package-owned memory-origin.json; foreign metadata was not overwritten', { cause: error }); }
   if (value === null || typeof value !== 'object' || Object.keys(value).sort().join(',') !== 'id,owner' || !('owner' in value) || value.owner !== 'pm-memory-origin:1' || !('id' in value) || typeof value.id !== 'string' || !UUID.test(value.id)) throw new MemoryError('origin_missing', 'Foreign tracker origin metadata retained', 'Restore the package-owned memory-origin.json before importing bound guidance');
   return value.id;
 }
@@ -66,7 +66,7 @@ export async function ensureTrackerOrigin(store: Store, onStep?: (step: string) 
     catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === 'EEXIST') { /* A competing successful publication wins truthfully. */ }
-      else if (code === 'ENOENT') throw new MemoryError('origin_missing', 'Tracker origin publication interrupted', 'Retry initialization; retain the tracker namespace and foreign files');
+      else if (code === 'ENOENT') throw new MemoryError('origin_missing', 'Tracker origin publication interrupted', 'Retry initialization; retain the tracker namespace and foreign files', { cause: error });
       else throw error;
     }
     await onStep?.('origin-published');
@@ -87,7 +87,7 @@ export function creator(id: string, entry: HistoryEntry, tracker: string | undef
     }
   } else { const creation = hashHistoryStream([entry]); origin = { tracker: tracker ?? creation, id, creation }; }
   return { id, metadata, origin: origin as PortableOrigin };
-  } catch { throw new MemoryError('origin_missing', 'Native creation history cannot be decoded', 'Restore verified creation history before importing; no missing origin was inferred'); }
+  } catch (cause) { throw new MemoryError('origin_missing', 'Native creation history cannot be decoded', 'Restore verified creation history before importing; no missing origin was inferred', { cause }); }
 }
 /** Require forward progress before trusting a bounded SDK history continuation. */
 export function originCursor(page: Pick<Awaited<ReturnType<typeof listMutationEvents>>, 'has_more' | 'next_cursor'>, previous?: string): string | undefined {

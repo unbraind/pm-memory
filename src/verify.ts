@@ -109,7 +109,7 @@ async function inventory(root: string, limit: number): Promise<{ files: string[]
     }
   } catch (error) {
     if (error instanceof MemoryError) throw error;
-    throw new MemoryError('verify', 'Directory evidence could not be read', 'Check source permissions and symlink loops before verification');
+    throw new MemoryError('verify', 'Directory evidence could not be read', 'Check source permissions and symlink loops before verification', { cause: error });
   }
   return { files, directories };
 }
@@ -143,7 +143,7 @@ async function evidence(input: string | readonly string[], workspace?: string): 
       if (!(await stat(root)).isDirectory()) throw new MemoryError('verify', 'Verification root is not a directory', 'Supply an existing source --root');
     } catch (error) {
       if (error instanceof MemoryError) throw error;
-      throw new MemoryError('verify', 'Verification root could not be read', 'Supply an existing source --root and check permissions or symlink loops');
+      throw new MemoryError('verify', 'Verification root could not be read', 'Supply an existing source --root and check permissions or symlink loops', { cause: error });
     }
     const listed = await inventory(root, 100000);
     files.push(listed.files); directories.push(listed.directories);
@@ -168,7 +168,7 @@ async function fileClaim(input: Claim, source: Evidence): Promise<ClaimResult> {
       if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return { ...claim, verdict: 'unknown', reason: 'Symlink escapes the declared root' };
       await stat(path); return { ...claim, verdict: 'verified' };
     } catch (error) {
-      if (!['ENOENT', 'ENOTDIR'].includes(String((error as NodeJS.ErrnoException).code))) throw new MemoryError('verify', 'File evidence could not be read', 'Check workspace permissions before verification');
+      if (!['ENOENT', 'ENOTDIR'].includes(String((error as NodeJS.ErrnoException).code))) throw new MemoryError('verify', 'File evidence could not be read', 'Check workspace permissions before verification', { cause: error });
     }
   }
   if (indexed !== undefined) return { ...claim, verdict: 'unknown', reason: 'Indexed path changed during verification' };
@@ -205,7 +205,7 @@ export async function searchClaims(claims: Claim[], source: Evidence, maxBytes =
       } finally { await handle.close(); }
     } catch (error) {
       if (error instanceof MemoryError) throw error;
-      throw new MemoryError('verify', 'Source evidence could not be read', 'Check source permissions and symlink loops before verification');
+      throw new MemoryError('verify', 'Source evidence could not be read', 'Check source permissions and symlink loops before verification', { cause: error });
     }
   }
   if (!complete) for (const needle of needles) if (source.matches.get(needle) !== true) source.matches.set(needle, undefined);

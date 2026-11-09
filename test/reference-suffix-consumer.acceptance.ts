@@ -29,9 +29,12 @@ if (process.argv[2] === 'setup') {
   await assert.rejects(remember(unsafe, { ...options, kind: 'reference' }), e => e instanceof MemoryError && e.code === 'privacy');
   assert.equal((await client.listAllComplete()).items.length, 0);
   await remember('password=' + '$' + '{X}(provided by the environment)', { ...options, kind: 'reference', slug: 'safe' });
+  const malformed = '"password": ' + String.fromCharCode(92, 34).repeat(50000);
+  await remember(malformed, { ...options, kind: 'reference', slug: 'malformed', forceNew: true });
+  assert.equal((await get('malformed', options)).body, malformed);
   await writeFile('input.md', unsafe);
 } else {
-  const item = (await client.listAllComplete()).items[0];
+  const item = await get('safe', options);
   await client.update(item.id, { body: unsafe });
   assert.equal((await get('safe', options)).body, unsafe);
 }

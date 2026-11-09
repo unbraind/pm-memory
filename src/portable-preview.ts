@@ -23,7 +23,7 @@ export async function hasPreviewPackages(workspace: string): Promise<boolean> {
 export async function copyPreviewFile(source: string, destination: string): Promise<boolean> {
   let file: Awaited<ReturnType<typeof open>>;
   try { file = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw new MemoryError('history', 'Preview source is not a readable regular file', 'Restore the verified tracker item or history file and retry'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw new MemoryError('history', 'Preview source is not a readable regular file', 'Restore the verified tracker item or history file and retry', { cause: error }); }
   try {
     if (!(await file.stat()).isFile()) throw new MemoryError('history', 'Preview source is not a regular file', 'Restore the verified tracker item or history file and retry');
     await mkdir(dirname(destination), { recursive: true });

@@ -13,10 +13,10 @@ import type { Memory } from './types.ts';
 /** A forward merge is authorized by immutable source and target history prefixes. */
 interface MergeReceipt { version: 2; id: string; target: string; target_id: string; body: string; changed_at: string; source_before: NativeProof; target_before: NativeProof; target_after: string; author?: string }
 /** Recovery always identifies the audited field requiring operator reconciliation. */
-function refusal(source: Memory): MemoryError {
+function refusal(source: Memory, options?: ErrorOptions): MemoryError {
   let target = 'unavailable target';
   try { const row = JSON.parse(source.merge) as { target?: unknown }; if (typeof row?.target === 'string') target = row.target; } catch { /* Keep malformed legacy receipts readable while refusing replay. */ }
-  return new MemoryError('conflict', `Pending memory merge ${source.slug} -> ${target} revisions changed`, `Inspect memory_merge on ${source.slug}; preserve intervening edits, then reconcile or clear it through an audited pm update before retrying`); }
+  return new MemoryError('conflict', `Pending memory merge ${source.slug} -> ${target} revisions changed`, `Inspect memory_merge on ${source.slug}; preserve intervening edits, then reconcile or clear it through an audited pm update before retrying`, options); }
 /** Parse only enough identity to detect overlapping pending actions before interpreting their proofs. */
 export function pendingMerge(source: Memory): { target: string; receipt: unknown } {
   try { const row = JSON.parse(source.merge) as { target?: unknown }; if (typeof row?.target === 'string') return { target: row.target, receipt: row }; } catch { /* Invalid persisted data remains readable, but cannot authorize mutation. */ }
@@ -76,7 +76,7 @@ export async function performMerge(store: Store, source: Memory, memories: reado
     target = memories.find(item => item.slug === pending.target && !isCanceled(item));
     receipt = pending.receipt as MergeReceipt;
     if (target === undefined || receipt.version !== 2 || typeof receipt.id !== 'string' || !/^[a-f0-9-]{36}$/.test(receipt.id) || receipt.target_id !== target.id || typeof receipt.body !== 'string' || (receipt.author !== undefined && (typeof receipt.author !== 'string' || receipt.author.trim() === '')) || !validNativeProof(receipt.source_before) || receipt.source_before.length < 1 || !validNativeProof(receipt.target_before) || typeof receipt.target_after !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.target_after)) throw refusal(source);
-    try { instant(receipt.changed_at); } catch { throw refusal(source); }
+    try { instant(receipt.changed_at); } catch (cause) { throw refusal(source, { cause }); }
   } else {
     if (!apply) return;
     target = memories.find(item => item.slug === selectedTarget && !isCanceled(item));
@@ -97,7 +97,7 @@ export async function performMerge(store: Store, source: Memory, memories: reado
     source = { ...source, merge: encoded };
   }
   let progress;
-  try { progress = await recover(store, source, target, receipt); } catch { throw refusal(source); }
+  try { progress = await recover(store, source, target, receipt); } catch (cause) { throw refusal(source, { cause }); }
   if (!apply) return;
   if (!progress.published) {
     await writeStep(store, source, target.id, progress.target.proof, revisionFields(receipt, progress.target.document!, source.id), `Memory merge ${receipt.id} publish`, new Map([[source.id, progress.source.proof]]));

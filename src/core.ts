@@ -12,8 +12,8 @@ export class MemoryError extends Error {
   /** Safe next action for callers. */
   readonly remedy: string;
   /** Bind a safe diagnostic and an explicit remedy. */
-  constructor(code: string, message: string, remedy: string) {
-    super(message); this.code = code; this.remedy = remedy;
+  constructor(code: string, message: string, remedy: string, options?: ErrorOptions) {
+    super(message, options); this.code = code; this.remedy = remedy;
   }
 }
 /** Validate nonblank string input without coercing structured data. */
@@ -154,12 +154,24 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
   try {
     // Give every JSON member a unique inspection key so duplicate assignments,
     // including object/array values, survive parsing with their original context.
-    const distinct = value.replace(/"(?:\\.|[^"\\])*"(\s*:)?/g, (token: string, separator: string | undefined) => {
-      if (separator === undefined) return token;
-      const name = JSON.parse(token.slice(0, -separator.length)) as string;
-      const key = String(names.size); names.set(key, name);
-      return JSON.stringify(key) + separator;
-    });
+    // Match only at the next quote; a failed token ends JSON inspection instead
+    // of retrying every escaped quote in the same unterminated suffix.
+    const token = /"(?:\\.|[^"\\])*"(\s*:)?/y; const parts: string[] = []; let kept = 0;
+    for (let cursor = value.indexOf('"'); cursor >= 0; cursor = value.indexOf('"', kept)) {
+      token.lastIndex = cursor;
+      const found = token.exec(value);
+      if (found === null) throw new SyntaxError('Unterminated JSON string');
+      parts.push(value.slice(kept, cursor));
+      if (found[1] === undefined) parts.push(found[0]);
+      else {
+        const name = JSON.parse(found[0].slice(0, -found[1].length)) as string;
+        const key = String(names.size); names.set(key, name);
+        parts.push(JSON.stringify(key) + found[1]);
+      }
+      kept = token.lastIndex;
+    }
+    parts.push(value.slice(kept));
+    const distinct = parts.join('');
     parsed = JSON.parse(distinct); valid = true;
   } catch { /* Free text and YAML use the same scalar policy below. */ }
   if (valid) {

@@ -47,6 +47,9 @@ test('export refusals preserve each real privacy cause and remedy for the exact 
       assert.ok(error instanceof MemoryError && error.code === 'privacy', message);
       assert.equal(error.message, `Export refused for record ${result.id}, field body: ${message}`);
       assert.equal(error.remedy, remedy);
+      assert.ok(error.cause instanceof MemoryError && error.cause.code === 'privacy');
+      assert.equal(error.cause.message, message); assert.equal(error.cause.remedy, remedy);
+      assert.equal(Object.getOwnPropertyDescriptor(error, 'cause')?.enumerable, false);
       assert.ok(!JSON.stringify({ message: error.message, remedy: error.remedy }).includes(body), 'Refusal must not echo the refused content');
       return true;
     });

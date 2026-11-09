@@ -913,7 +913,14 @@ test('orchestrator cache faults retain filesystem remedies in recall and consoli
         await assert.rejects(run(), (error: unknown) => {
           assert.ok(error instanceof Error && 'code' in error && error.code === 'cache' && 'remedy' in error);
           assert.match(String(error.remedy), /permissions.*file types.*free disk space/);
-          assert.doesNotMatch(error.message, /model|synthetic-private-detail/); return true;
+          assert.doesNotMatch(error.message, /model|synthetic-private-detail/);
+          if (code === 'NON_ERROR') assert.equal(error.cause, 'synthetic-private-detail');
+          else {
+            assert.ok(error.cause instanceof Error); assert.equal(error.cause.message, 'synthetic-private-detail');
+            if (code !== 'UNKNOWN') assert.ok('code' in error.cause && error.cause.code === code);
+          }
+          assert.equal(Object.getOwnPropertyDescriptor(error, 'cause')?.enumerable, false);
+          return true;
         });
       }
       for (const result of [await hybridScored(memories, 'query', { workspace, provider, semantic: 'auto' }), await semanticProposals(memories, { workspace, provider, semantic: 'auto' })]) {
