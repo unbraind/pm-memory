@@ -17,6 +17,7 @@ test('export refuses encoded legacy originals even when the current body is safe
   await assert.rejects(exportDir(output, { ...target.options, to: 'agents-md' }), error => {
     assert.ok(error instanceof MemoryError && error.code === 'privacy');
     assert.equal(error.message.includes(secret), false);
+    assert.ok(error.message.includes(`record ${result.id}, field document.original:`));
     return true;
   });
   await assert.rejects(access(output), { code: 'ENOENT' });

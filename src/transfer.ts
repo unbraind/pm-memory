@@ -386,8 +386,16 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     }));
     if (memories.some(item => item.consent !== undefined && !isCanceled(item) && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
     for (const item of memories.filter(item => !isCanceled(item) && !item.artifact)) {
-      for (const value of [item.title, item.slug, item.description, item.body, item.why, item.how, ...item.tags, ...item.links]) privacy(value, true);
-      if (item.document !== undefined) privacy(Buffer.from(item.document.original, 'base64').toString('utf8'), true);
+      const fields = new Map<string, string>([
+        ['title', item.title], ['slug', item.slug], ['description', item.description], ['body', item.body], ['why', item.why], ['how', item.how],
+        ...item.tags.map((value, index): [string, string] => [`tags[${index}]`, value]),
+        ...item.links.map((value, index): [string, string] => [`links[${index}]`, value]),
+      ]);
+      if (item.document !== undefined) fields.set('document.original', Buffer.from(item.document.original, 'base64').toString('utf8'));
+      for (const [field, value] of fields) {
+        try { privacy(value, true); }
+        catch { throw new MemoryError('privacy', `Export refused for record ${item.id}, field ${field}: Credential-shaped memory refused`, 'Remove credentials and reference a secret manager instead'); }
+      }
     }
     await ensureTrackerOrigin(store); const catalog = await originCatalog(store);
     const foreignReceipt = foreign.length === 0 ? {} : { skipped: foreign.map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };

@@ -4,13 +4,13 @@ description: "Adopt public SDK transaction readers, host-bound item batches and 
 type: Feature
 status: in_progress
 priority: 1
-tags[9]: "gh:unbraind/pm-cli#1576","gh:unbraind/pm-cli#1597","gh:unbraind/pm-cli#1598","gh:unbraind/pm-cli#1620",sdk-adoption,"upstream:pm-cli#1576","upstream:pm-cli#1597","upstream:pm-cli#1598","upstream:pm-cli#1620"
+tags[10]: "gh:unbraind/pm-cli#1576","gh:unbraind/pm-cli#1597","gh:unbraind/pm-cli#1598","gh:unbraind/pm-cli#1620","gh:unbraind/pm-memory#51",sdk-adoption,"upstream:pm-cli#1576","upstream:pm-cli#1597","upstream:pm-cli#1598","upstream:pm-cli#1620"
 created_at: "2026-10-27T06:21:15.119Z"
-updated_at: "2026-11-06T21:21:07.810Z"
+updated_at: "2026-11-09T09:44:26.439Z"
 author: codex-agent
 acceptance_criteria: "Replace owned SDK journal reads with public transaction inspection without weakening crash recovery, CAS, foreign preservation or replay tests"
 parent: pm-memory-0kwy
-comments[22]{created_at,author,text}:
+comments[25]{created_at,author,text}:
   "2026-10-27T08:53:47.062Z",codex-agent,"Additional verified SDK adapter limit: previewItemMutations accepts only pmRoot, transactionId, author and mutations; no include/exclude path or authoritative-item projection option exists. Its owned snapshot includes extensions, so installed dependency links can refuse normal imports. The package now projects SDK-certified item documents, relevant exact history streams and guarded SDK schema/settings into a private disposable tracker before invoking the same SDK validator. PmClient still has no host-bound preview method (related upstream issue 1598); that issue covers the public host-context surface, while this managed-directory scoping constraint is a separate observed symptom. Adopt a public scoped preview when available; do not remove validation or copy installed code."
   "2026-10-27T09:39:43.693Z",codex-agent,"Capability precision: runWorkspaceTransactionGc(dryRun: true) provides status/age sweep decisions, but not the ownership payload or step results needed for recovery, abandonment or replanning. It is not a substitute for the missing full transaction receipt reader tracked by 1597. No GC of foreign or SDK journals was added."
   "2026-10-29T02:15:08.111Z",codex-agent,"Portable import review confirms the remaining native read-to-write gap: the installed public update options have no expectedItemHash precondition (upstream 1576), and commitWorkspaceTransaction serializes transactions without excluding ordinary SDK/CLI writes (upstream 1620, verified on SDK 2026.10.25 and 2026.10.28). Future adoption must replace best-effort final hash/history rereads with the public native precondition when available. Existing receipt-payload reader/abandon/replan and scoped staged-document preview needs remain tracked by upstream 1597/1598. Current compensation cancels creations, preserves incoming/outgoing references, checks the real SDK proposal for unowned field side effects, and restores only still-owned field values; it does not claim native-writer isolation. Evidence and reverts remain on pm-memory-1363 and PR 15."
@@ -33,6 +33,9 @@ comments[22]{created_at,author,text}:
   "2026-11-06T18:59:52.287Z",codex-sol,"The partial ownership receipt control passes through the linked runner (1/1), using fingerprints from a real SDK-backed exported tracker. It rejects null, primitive and array-shaped fields, including an array carrying matching named hashes. Removing only validOwnedFields Array.isArray guard makes the new assertion fail; restoration passes 1/1. The focused three-case coverage probe passes 3/3 and exercises the previously uncovered line-166 refusal branch. Full-source coverage still requires fresh CI."
   "2026-11-06T21:08:07.008Z",codex-sol,"Round 5 requests surfaced transaction-reader failures and actual locked current revisions in conflict receipts. Fixing both with safe typed refusal and real revision fingerprints, with regression/revert controls. The out-of-scope review notice is incorrect: public transaction adoption is the original G1 objective, tracked by this active Feature and companion pm-cli-website-tdwu, explicitly combined with G7 in one PR."
   "2026-11-06T21:17:58.888Z",codex-sol,"Round-5 linked transaction controls pass 4/4, including genuine SDK-valid foreign envelopes and unreadable transport refusals without native mutations. Function-only reverts fail the reader refusal case and both locked revision fingerprint cases (1 and 2 failures); restoring the functions passes the five-case joint probe. Missing/noncommitted receipts still prove no ownership; malformed/unreadable receipts now surface a safe typed transaction error. Original expected-history fingerprints are retained and current fingerprints use the real SDK locked revision."
+  "2026-11-09T09:35:56.299Z",codex-agent,"Review round 6: verify malformed ownership target cases through SDK-readable journals using the original completed result key, and separately require malformed journal transaction refusals. Recheck the whole transaction adoption diff for equivalent gaps."
+  "2026-11-09T09:42:41.631Z",codex-agent,"Behavioral fixture revert proof in a disposable worktree: changing only the completed result key back to foreign while retaining the strict SDK-reader assertion fails the ownership regression (1 failure), proving target fixtures must reach package validation. Restoration passes 1/1. Malformed journal cases independently require SDK-reader rejection and a typed transaction refusal; SDK-readable malformed/foreign target receipts must instead produce import conflicts and retain the entire native tracker snapshot."
+  "2026-11-09T09:44:24.068Z",codex-agent,"Final round-6 transaction gates: node --test --test-concurrency=2 test/portable-ownership.test.ts test/sdk-adoption.test.ts test/portable-document.test.ts passes 70/70, no skips. Thread PRRT_kwDOVPw2oc60wKt1 is fixed by SDK-readable target fixtures and strict import-conflict/no-write assertions. The whole transaction adoption diff was checked for the same receipt-validation and swallowed-error classes; existing public-reader and recovery ownership regressions remain passing. No SDK/CLI bug or missing capability was identified."
 files[7]{path,scope}:
   src/portable-ownership.ts,project
   src/portable-plan.ts,project
@@ -41,7 +44,7 @@ files[7]{path,scope}:
   test/portable-document.test.ts,project
   test/portable-ownership.test.ts,project
   test/sdk-adoption.test.ts,project
-tests[6]:
+tests[7]:
   - command: "node --test --test-concurrency=2 --test-name-pattern=\"locked SDK|public reader|public receipt|supported abandonment\" test/sdk-adoption.test.ts"
     scope: project
     timeout_seconds: 300
@@ -85,6 +88,14 @@ tests[6]:
     provenance:
       author: codex-sol
       created_at: "2026-11-06T21:11:46.593Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: node --test --test-concurrency=2 test/portable-ownership.test.ts test/sdk-adoption.test.ts test/portable-document.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T09:40:39.718Z"
       source_kind: local_mutation
       source_ref: adopt-sdk-transaction-readers-and-secret-scan
 docs[1]{path,scope}:

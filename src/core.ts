@@ -139,7 +139,18 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
     return quotedAssignmentCredential(text, depth + 1);
   };
   let parsed: unknown; let valid = false;
-  try { parsed = JSON.parse(value); valid = true; } catch { /* Free text and YAML use the same scalar policy below. */ }
+  const names = new Map<string, string>();
+  try {
+    // Give every JSON member a unique inspection key so duplicate assignments,
+    // including object/array values, survive parsing with their original context.
+    const distinct = value.replace(/"(?:\\.|[^"\\])*"(\s*:)?/g, (token: string, separator: string | undefined) => {
+      if (separator === undefined) return token;
+      const name = JSON.parse(token.slice(0, -separator.length)) as string;
+      const key = String(names.size); names.set(key, name);
+      return JSON.stringify(key) + separator;
+    });
+    parsed = JSON.parse(distinct); valid = true;
+  } catch { /* Free text and YAML use the same scalar policy below. */ }
   if (valid) {
     const pending: { name?: string; value: unknown }[] = [{ value: parsed }];
     while (pending.length > 0) {
@@ -151,7 +162,10 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
       } else if (Array.isArray(row.value)) {
         for (const child of row.value) pending.push({ name: row.name, value: child });
       } else if (row.value !== null && typeof row.value === 'object') {
-        for (const [name, child] of Object.entries(row.value)) pending.push({ name: /^(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)$/i.test(name) ? name : row.name, value: child });
+        for (const [key, child] of Object.entries(row.value)) {
+          const name = names.get(key)!;
+          pending.push({ name: /^(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)$/i.test(name) ? name : row.name, value: child });
+        }
       }
     }
     return false;
@@ -162,15 +176,16 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
     else if (literal.startsWith("'")) literal = literal.slice(1, literal.endsWith("'") ? -1 : undefined).replace(/''/g, "'");
     if (credentialLiteral(match[2], literal)) return true;
   }
-  // Successful JSON string tokens never overlap; stop after one incomplete token.
+  // Inspect each adjacent unescaped quote pair, including a previous closing quote
+  // as the next opening quote. Each span is scanned once, even after stray prose quotes.
   const token = /"(?:\\.|[^"\\])*"/y; const remainder: string[] = []; let kept = 0;
   for (let cursor = 0; cursor < value.length; cursor++) {
     if (value[cursor] !== '"') continue;
     token.lastIndex = cursor; const match = token.exec(value); if (match === null) break;
     let decoded: string;
-    try { decoded = JSON.parse(match[0]) as string; } catch { cursor = token.lastIndex - 1; continue; }
+    try { decoded = JSON.parse(match[0]) as string; } catch { cursor = token.lastIndex - 2; continue; }
     if (nested(decoded)) return true;
-    remainder.push(value.slice(kept, cursor)); kept = token.lastIndex; cursor = token.lastIndex - 1;
+    remainder.push(value.slice(kept, cursor)); kept = token.lastIndex; cursor = token.lastIndex - 2;
   }
   remainder.push(value.slice(kept));
   const unresolved = remainder.join('');
