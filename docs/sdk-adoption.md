@@ -51,10 +51,12 @@ whitespace and long spans still receive the complete projection. It
 retains both quote styles and mixed delimiters, so quoted SSH passwords with long values and
 passphrases cannot bypass the host rules. Credential grammars and finding exclusions
 still belong to the SDK adapter; no sshpass/password grammar is copied. The adversarial-input deadline controls remain unchanged, including distinct spans longer than 64 characters; CI certifies the complete gate.
-Standalone environment-reference masking replaces the assignment key, separator, optional opening quote and reference with neutral text. An adjacent literal suffix instead retains the original assignment key and separator while removing the reference, so both scanners inspect that literal in context. Parenthesized explanatory suffixes remain accepted.
+Standalone environment-reference masking replaces the assignment key, separator, optional opening quote and reference with neutral text. An adjacent literal suffix instead retains the original assignment key and separator while removing the reference, so both scanners inspect that literal in context. Parenthesized explanatory suffixes remain accepted when they contain multiple space-separated words using letters and prose punctuation, close within a 200-character inspection span, and end at a value boundary. Unrecognized parenthesized suffixes and literal continuations after explanatory prose refuse directly, including whitespace-bearing values that standalone scanners might miss. The generic literal-assignment supplement includes unquoted passphrase aliases, with the same eight-character floor as other aliases.
 
 New admission rules run before schema/item writes. Native history and older
 persisted records remain readable; emitted content still passes export policy.
+CLI privacy refusals supply a redacted recovery command and argument list so the
+host cannot echo refused content through its default JSON or text recovery bundle.
 
 Credential checks run before export origin setup, including decoded retained original documents. Refusals identify the native record id and field (including `document.original`) without echoing content, retain the underlying refusal category, message and remedy instead of replacing them with a generic cause, and rethrow failures that are not privacy refusals so defects never masquerade as policy. Checks also run on exact output bytes before publication. Existing records remain readable; credential-bearing legacy content cannot be emitted. Export retains its existing email-consent behavior. JSON string wrappers have a four-level inspection budget; malformed escaped credential declarations refuse safely without echoing their content.
 

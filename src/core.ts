@@ -41,14 +41,20 @@ export function digest(value: string): string { return createHash('sha256').upda
 /** Refuse credentials, private keys and unapproved email addresses before persistence. */
 export function privacy(value: string, allowEmail = false): void {
   for (const view of credentialViews(value)) {
+    let literalSuffix = false;
     // Environment references carry no literal value. The SDK's npm/password rules
     // deliberately flag these forms, so mask whole reference assignments only at a value boundary.
     const literals = view.replace(/(\b(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\b\s*[=:]\s*["']?)\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/gi, (match: string, prefix: string, offset: number) => {
-      const following = view[offset + match.length];
-      return following === undefined || /[\s"'`;,)}\](]/.test(following) ? 'environment reference ' : prefix;
+      const end = offset + match.length;
+      // A reference may carry bounded explanatory prose, but an arbitrary suffix
+      // must retain the assignment key. Check its closing boundary in the full view.
+      const explanation = view[end] === '(' ? /^\([A-Za-z]+(?: [A-Za-z,.'-]+)+\)/.exec(view.slice(end, end + 200)) : null;
+      const following = view[end + (explanation?.[0].length ?? 0)];
+      const boundary = following === undefined || /[\s"'`;,)}\]]/.test(following);
+      if (view[end] === '(' && !boundary) literalSuffix = true;
+      return boundary ? 'environment reference ' : prefix;
     });
-    const shared = sharedCredential(literals);
-    if (shared || supplementalCredential(literals)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
+    if (literalSuffix || sharedCredential(literals) || supplementalCredential(literals)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
   }
   if (!allowEmail && value.includes('@') && /\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}\b/i.test(value)) throw new MemoryError('privacy', 'Email address refused', 'Remove addresses or explicitly use --allow-email');
 }
@@ -207,7 +213,7 @@ function supplementalCredential(value: string): boolean {
   const legacy = /\b(?:sk|pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\b(?:gh[pousr]_[a-z0-9]{16,19}|github_pat_[a-z0-9_]{16,19})\b|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
   // Shared findings already returned above; this fallback retains mixed-case and long markers.
   const privateKey = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/i.test(value);
-  for (const [, name, separator, assigned] of value.matchAll(/\b(password|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)) {
+  for (const [, name, separator, assigned] of value.matchAll(/\b(password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)) {
     if (!(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned))) return true;
   }
   return quotedAssignmentCredential(value) || legacy.test(value) || privateKey || credentialJwt(value) || credentialUrl(value);
