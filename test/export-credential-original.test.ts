@@ -41,8 +41,8 @@ test('export refusals preserve each real privacy cause and remedy for the exact 
     const target = await tracker(t);
     const result = await remember('Safe current guidance', { ...target.options, kind: 'reference', slug: 'cause' });
     await target.client.update(result.id, { body });
-    assert.equal((await get(result.slug, target.options)).body, body);
-    const before = await snapshot(target.workspace); const output = join(target.root, 'export');
+    assert.equal(body, (await get(result.slug, target.options)).body);
+    const output = join(target.root, 'export'); const before = await snapshot(target.workspace);
     await assert.rejects(exportDir(output, { ...target.options, to: 'agents-md' }), error => {
       assert.ok(error instanceof MemoryError && error.code === 'privacy', message);
       assert.equal(error.message, `Export refused for record ${result.id}, field body: ${message}`);

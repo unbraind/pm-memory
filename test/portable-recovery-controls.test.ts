@@ -122,7 +122,7 @@ test('a mismatched attempt marker returns the foreign result while retries prese
   const intentFile = join(target.workspace, 'runtime', 'memory-policy-import.json');
   const intent = await readFile(intentFile, 'utf8');
   // A foreign coordinator marker occupies the exact attempt slot under the same author and step identity.
-  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author: plan.author, transactionId: plan.transactionId, recoveryData: { owner: 'another-package' }, steps: [{ id: 'attempt', inspect: async () => ({ state: 'pending' }), apply: async () => null, compensate: retainForwardWrites }], onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author: plan.author, transactionId: plan.transactionId, recoveryData: { owner: 'another-package' }, steps: [{ id: 'attempt', inspect: async () => ({ state: 'pending' as const }), apply: async () => ({ retained: true }) as WorkspaceTransactionJsonValue, compensate: retainForwardWrites }], onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
   const journalFile = join(target.workspace, 'transactions', 'sdk', `${plan.transactionId}.json`);
   const journal = await readFile(journalFile, 'utf8');
   const kept = await snapshot(target.workspace);
