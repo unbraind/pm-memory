@@ -48,7 +48,7 @@
     "bench": "node scripts/bench.ts"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": "2026.11.5"
+    "@unbrained/pm-cli": ">=2026.11.5 <2027"
   },
   "devDependencies": {
     "@babel/eslint-parser": "8.0.7",

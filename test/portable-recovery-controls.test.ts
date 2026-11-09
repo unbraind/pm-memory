@@ -116,6 +116,25 @@ test('a foreign intent replacing a proven interrupted publication is retained wi
   assert.equal((await target.client.listAllComplete({ includeBody: true })).items[0].body, 'Alpha B');
 });
 
+test('a mismatched attempt marker returns the foreign result while retries preserve the intent and journal', async t => {
+  const { target, plan } = await capturedPublication(t);
+  await target.store.write(async () => { await savePlan(target.store, plan); });
+  const intentFile = join(target.workspace, 'runtime', 'memory-policy-import.json');
+  const intent = await readFile(intentFile, 'utf8');
+  // A foreign coordinator marker occupies the exact attempt slot under the same author and step identity.
+  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author: plan.author, transactionId: plan.transactionId, recoveryData: { owner: 'another-package' }, steps: [{ id: 'attempt', inspect: async () => ({ state: 'pending' }), apply: async () => null, compensate: retainForwardWrites }], onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+  const journalFile = join(target.workspace, 'transactions', 'sdk', `${plan.transactionId}.json`);
+  const journal = await readFile(journalFile, 'utf8');
+  const kept = await snapshot(target.workspace);
+  for (const retry of [1, 2]) {
+    const result = await recoverInput(target.store, 'current-input', { ...target.options, from: 'agents-md' });
+    assert.deepEqual(result, { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [{ slug: 'pending-import', reason: 'Foreign pending import record retained' }] }, `retry ${retry} must report the retained foreign attempt marker`);
+    assert.equal(await readFile(intentFile, 'utf8'), intent, `retry ${retry} must preserve the owned intent`);
+    assert.equal(await readFile(journalFile, 'utf8'), journal, `retry ${retry} must preserve the foreign journal`);
+  }
+  assert.deepEqual(await snapshot(target.workspace), kept);
+});
+
 test('unsealed and sealed birth captures derive only the requested SDK creation and preserve an earlier independent document', async t => {
   const { target: source } = await capturedPublication(t); const fresh = await tracker(t); const input = join(source.root, 'input');
   await assert.rejects(importDir(input, { ...fresh.options, from: 'agents-md', onStep: step => { if (step === 'intent') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);

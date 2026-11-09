@@ -22,8 +22,15 @@ test('public SDK finding policy preserves reviewed identity exclusions and crede
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { peerDependencies: Record<string, string>; devDependencies: Record<string, string> };
   const lock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8')) as { packages: Record<string, { version: string }> };
   const reviewed = lock.packages['node_modules/@unbrained/pm-cli'].version;
-  assert.equal(manifest.peerDependencies['@unbrained/pm-cli'], reviewed, 'Supported SDK must match the reviewed detector inventory');
+  // A bounded peer range keeps routine host upgrades decoupled from package releases; its floor is the reviewed inventory.
+  const bound = /^>=(\d+)\.(\d+)\.(\d+) <(\d+)$/.exec(manifest.peerDependencies['@unbrained/pm-cli']);
+  assert.ok(bound, 'Peer support must be a bounded range above the reviewed inventory');
+  const floor = bound.slice(1, 4).map(Number); const upper = Number(bound[4]);
+  assert.deepEqual(floor, reviewed.split('.').map(Number), 'Peer floor must match the reviewed detector inventory');
+  assert.equal(upper, floor[0] + 1, 'Peer support must stay bounded before the next major');
   assert.equal(manifest.devDependencies['@unbrained/pm-cli'], reviewed);
+  const extension = JSON.parse(await readFile(new URL('../manifest.json', import.meta.url), 'utf8')) as { pm_min_version: string };
+  assert.equal(extension.pm_min_version, reviewed, 'Extension loading must require the reviewed host floor before the SDK transaction readers are used');
   const target = await tracker(t);
   const ip = [192, 168, 50, 60].join('.');
   const identity = '/' + ['home', 'fixture', 'guide'].join('/') + '\nssh fixture@' + ip;

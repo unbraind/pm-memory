@@ -52,6 +52,11 @@ export function privacy(value: string, allowEmail = false): void {
   }
   if (!allowEmail && value.includes('@') && /\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}\b/i.test(value)) throw new MemoryError('privacy', 'Email address refused', 'Remove addresses or explicitly use --allow-email');
 }
+/** Return the preserved privacy refusal, rethrowing any failure that is not one so defects never masquerade as policy. */
+export function privacyRefusal(error: unknown): MemoryError {
+  if (!(error instanceof MemoryError) || error.code !== 'privacy') throw error;
+  return error;
+}
 /** Review SDK rule additions through its public literal union; unknown runtime findings refuse conservatively. */
 const SDK_FINDING_POLICY = {
   private_key: true, github_token: true, npm_token: true, aws_access_key: true, google_api_key: true,

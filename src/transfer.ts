@@ -8,7 +8,7 @@ import type { Stats } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
-import { digest, MemoryError, privacy } from './core.ts';
+import { digest, MemoryError, privacy, privacyRefusal } from './core.ts';
 import { metadata, Store } from './store.ts';
 import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, policyPayload, policyParts, ownedMemories, readImportSnapshot, closeSkips, appendImportSkips, parsePolicy, guidanceOrigin } from './portable.ts';
 import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship, LegacyPortableSource } from './portable.ts';
@@ -104,12 +104,13 @@ function sourcePrivacy(input: readonly { path: string; bytes: Buffer }[], allowE
     const content = source.bytes.toString('utf8');
     try { privacy(content, allowEmail); }
     catch (error) {
+      const failure = privacyRefusal(error);
       const before = offenses.length;
       for (const [index, line] of content.split(/\r?\n/).entries()) {
         try { privacy(line, allowEmail); }
-        catch (error) { offenses.push(`${source.path}:line ${index + 1} (${(error as MemoryError).message})`); }
+        catch (lineError) { offenses.push(`${source.path}:line ${index + 1} (${privacyRefusal(lineError).message})`); }
       }
-      if (offenses.length === before) offenses.push(`${source.path}:multiline (${(error as MemoryError).message})`);
+      if (offenses.length === before) offenses.push(`${source.path}:multiline (${failure.message})`);
     }
   }
   if (offenses.length > 0) throw new MemoryError('privacy', `Import refused: ${offenses.join('; ')}`, 'Edit each listed file to remove credentials or addresses; --allow-email permits email addresses only');
@@ -394,7 +395,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       if (item.document !== undefined) fields.set('document.original', Buffer.from(item.document.original, 'base64').toString('utf8'));
       for (const [field, value] of fields) {
         try { privacy(value, true); }
-        catch { throw new MemoryError('privacy', `Export refused for record ${item.id}, field ${field}: Credential-shaped memory refused`, 'Remove credentials and reference a secret manager instead'); }
+        catch (error) { const refusal = privacyRefusal(error); throw new MemoryError('privacy', `Export refused for record ${item.id}, field ${field}: ${refusal.message}`, refusal.remedy); }
       }
     }
     await ensureTrackerOrigin(store); const catalog = await originCatalog(store);
