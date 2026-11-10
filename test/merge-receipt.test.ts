@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { rm } from 'node:fs/promises';
+import fs, { rm } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+import { getHistoryPath } from '@unbrained/pm-cli/sdk';
 import { randomUUID } from 'node:crypto';
 import { test, before, after } from 'node:test';
 import { consolidate, remember, MemoryError } from '../index.ts';
@@ -220,4 +222,46 @@ for (const host of [false, true]) test(`merge provenance retains native environm
   assert.equal(source.status, 'canceled');
   assert.match(String(destination.body), /Unique retained rationale/);
   assert.equal(destination.dependencies!.find(edge => edge.id === source.id)!.author, 'merge-environment-agent');
+});
+
+/** Clone a real interrupted publication and certify its endpoint observations for recovery. */
+async function recoveryFixture(t: Parameters<typeof tracker>[0]) {
+  const base = mergeBases.get('publish')!; const target = await clonedTracker(t, base);
+  const memories = await target.store.read(); const source = memories.find(item => item.id === base.source.id)!;
+  const observed = await observeTargets(target.store, (await target.client.listAllComplete({ includeBody: true })).items);
+  return { target, source, preview: () => target.store.write(() => performMerge(target.store, source, memories, observed, false)) };
+}
+
+test('merge recovery preserves the native generation error code and specific remedy', async t => {
+  const { target, source, preview } = await recoveryFixture(t);
+  await target.client.run('update', { id: source.id, options: { memoryWhy: 'Audited intervening native rationale' } });
+  const before = await snapshot(target.workspace);
+  await assert.rejects(preview(), error => {
+    assert.ok(error instanceof MemoryError && error.code === 'conflict');
+    assert.equal(error.message, 'Pending memory merge history moved');
+    assert.equal(error.remedy, 'Preserve the native generation and reconcile the recorded memory_merge through an audited pm update');
+    assert.equal(error.cause, undefined, 'The native typed failure must be rethrown, not wrapped');
+    return true;
+  });
+  assert.deepEqual(await snapshot(target.workspace), before);
+});
+
+test('merge recovery wraps unknown IO failures in a safe conflict refusal with their cause', async t => {
+  const { target, source, preview } = await recoveryFixture(t);
+  const before = await snapshot(target.workspace); const failure = new Error('Synthetic merge history read failure');
+  const original = fs.readFile; let failures = 0;
+  const hook = t.mock.method(fs, 'readFile', (async (...args: Parameters<typeof original>) => {
+    if (args[0] === getHistoryPath(target.workspace, source.id)) { failures++; throw failure; }
+    return original(...args);
+  }) as typeof original);
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(preview(), error => {
+      assert.ok(error instanceof MemoryError && error.code === 'conflict');
+      assert.match(error.message, /revisions changed/); assert.match(error.remedy, /Inspect memory_merge/);
+      assert.equal(error.cause, failure); assert.equal(error.message.includes(failure.message), false);
+      return true;
+    });
+  } finally { hook.mock.restore(); syncBuiltinESMExports(); }
+  assert.equal(failures, 1); assert.deepEqual(await snapshot(target.workspace), before);
 });

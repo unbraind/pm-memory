@@ -97,7 +97,7 @@ export async function performMerge(store: Store, source: Memory, memories: reado
     source = { ...source, merge: encoded };
   }
   let progress;
-  try { progress = await recover(store, source, target, receipt); } catch (cause) { throw refusal(source, { cause }); }
+  try { progress = await recover(store, source, target, receipt); } catch (cause) { throw cause instanceof MemoryError ? cause : refusal(source, { cause }); }
   if (!apply) return;
   if (!progress.published) {
     await writeStep(store, source, target.id, progress.target.proof, revisionFields(receipt, progress.target.document!, source.id), `Memory merge ${receipt.id} publish`, new Map([[source.id, progress.source.proof]]));

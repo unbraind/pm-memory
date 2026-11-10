@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, writeFile, readFile, readlink, symlink, rm, chmod } from 'node:fs/promises';
+import fs, { mkdir, writeFile, readFile, readlink, symlink, rm, chmod } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
-import { WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
+import { WorkspaceTransactionInterruptedError, locateItem, readSettings, resolveItemTypeRegistry } from '@unbrained/pm-cli/sdk';
 import { remember, importDir, MemoryError } from '../index.ts';
 import { policyBody } from '../src/portable.ts';
 import { copyPreviewFile, hasPreviewPackages } from '../src/portable-preview.ts';
-import { tracker, exportedPolicy } from './helpers.ts';
+import { tracker, exportedPolicy, snapshot } from './helpers.ts';
 
 /** One native edit with unknown native edges and an installed foreign dependency link. */
 async function projectionScenario(t: Parameters<typeof tracker>[0]) {
@@ -128,4 +129,32 @@ test('projection copies exact owned bytes while refusing nonregular native sourc
     finally { await chmod(packages, 0o700); }
   }
   assert.equal(await hasPreviewPackages(target.workspace), false);
+});
+
+
+test('real SDK projection preserves a typed source-copy refusal and retries without losing native work', async t => {
+  const { target, alpha, path } = await projectionScenario(t);
+  const settings = await readSettings(target.workspace);
+  const located = await locateItem(target.workspace, alpha.id, settings.id_prefix, settings.item_format, resolveItemTypeRegistry(settings).type_to_folder);
+  assert.ok(located);
+  const before = await snapshot(target.workspace);
+  const failure = new MemoryError('privacy', 'Synthetic preview source policy refusal', 'Retain the native source and retry after its policy is restored');
+  let copying = false; let failures = 0;
+  const original = fs.open;
+  const hook = t.mock.method(fs, 'open', (async (...args: Parameters<typeof original>) => {
+    if (copying && args[0] === located.itemPath) { failures++; throw failure; }
+    return original(...args);
+  }) as typeof original);
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(importDir(path, { ...target.options, from: 'agents-md', onStep: step => { if (step === `preview-located:${alpha.id}`) copying = true; } }), error => {
+      assert.equal(error, failure); assert.equal(failure.code, 'privacy');
+      assert.equal(failure.remedy, 'Retain the native source and retry after its policy is restored');
+      return true;
+    });
+  } finally { hook.mock.restore(); syncBuiltinESMExports(); }
+  assert.equal(failures, 1, 'The failure must occur while copying the SDK-located source');
+  assert.deepEqual(await snapshot(target.workspace), before, 'A refused projection retains native bytes and history');
+  const retry = await importDir(path, { ...target.options, from: 'agents-md' });
+  assert.equal(retry.updated, 1);
 });

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { globSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { Linter } from 'eslint';
 import type { Rule } from 'eslint';
@@ -47,7 +48,7 @@ test('default test and coverage discovery exclude every packed consumer and reta
 });
 
 /** Cause-audit rule: every catch translation into a typed package refusal must retain the caught error and must not re-code an existing typed error. */
-function causeAuditRule(): Rule.RuleModule {
+function causeAuditRule(onTranslation: () => void): Rule.RuleModule {
   return { create(context: Rule.RuleContext) {
     const check = (node: NewExpression | CallExpression): void => {
       if (node.callee.type !== 'Identifier') return;
@@ -62,14 +63,14 @@ function causeAuditRule(): Rule.RuleModule {
       else return;
       const clause = context.sourceCode.getAncestors(node).reverse().find(parent => parent.type === 'CatchClause');
       if (clause?.type !== 'CatchClause') return;
-      translations++;
+      onTranslation();
       const caught = clause.param?.type === 'Identifier' ? clause.param.name : undefined;
       const options = node.arguments[position];
       const retained = caught !== undefined && options?.type === 'ObjectExpression' && options.properties.some(property => property.type === 'Property' && property.key.type === 'Identifier' && property.key.name === 'cause' && property.value.type === 'Identifier' && property.value.name === caught);
       if (!retained) context.report({ node, message: 'Operational translation loses the caught error' });
-      // Refusal helpers are the deliberate merge-domain re-diagnosis: malformed pending receipts fail closed as a
-      // merge conflict, with the original cause retained. Only direct typed constructions must additionally rethrow
-      // an existing typed error instead of re-coding it; the guard may be a conditional expression that selects the
+      // Malformed receipt parsers re-diagnose invalid persisted input; helper calls are audited for cause retention.
+      // Recovery error identity is exercised against real native generations in merge-receipt.test.ts. Direct typed
+      // constructions must additionally rethrow an existing typed error; the guard may be a conditional selecting the
       // caught typed error, a direct `caught instanceof MemoryError` rethrow, or a negated foreign-type test.
       if (caught === undefined || node.type === 'CallExpression') return;
       const parent = context.sourceCode.getAncestors(node).at(-1);
@@ -94,22 +95,34 @@ function causeAuditRule(): Rule.RuleModule {
   } };
 }
 /** Lint one source with the cause audit rule under the package's TypeScript configuration. */
-function auditSource(filename: string, source: string) {
+function inspectSource(filename: string, source: string) {
+  let translations = 0;
   const linter = new Linter();
-  return linter.verify(source, [{
+  const messages = linter.verify(source, [{
     files: ['**/*.ts'],
     languageOptions: { parser, parserOptions: { requireConfigFile: false, babelOptions: { plugins: ['@babel/plugin-syntax-typescript'] } } },
-    plugins: { audit: { rules: { cause: causeAuditRule() } } },
+    plugins: { audit: { rules: { cause: causeAuditRule(() => { translations++; }) } } },
     rules: { 'audit/cause': 'error' },
   }], { filename });
+  return { messages, translations };
 }
 
-let translations = 0;
+/** Read diagnostics without sharing a counter between synthetic audit runs. */
+function auditSource(filename: string, source: string) { return inspectSource(filename, source).messages; }
+
+/** Require each explicitly listed root entry before auditing the discovered corpus. */
+function auditFiles(directory: string): string[] {
+  const files = [...globSync(['src/**/*.ts', 'scripts/**/*.ts', 'index.ts', 'eslint.config.ts'], { cwd: directory })];
+  for (const required of ['index.ts', 'eslint.config.ts']) assert.ok(files.includes(required), `Cause audit missing required root file: ${required}`);
+  return files;
+}
 
 test('every operational catch translation preserves its original cause across package modules', () => {
-  for (const file of globSync(['src/**/*.ts', 'scripts/**/*.ts', 'index.ts', 'eslint.config.ts'], { cwd: root })) {
-    const messages = auditSource(file, readFileSync(join(root, file), 'utf8'));
-    assert.deepEqual(messages, [], file);
+  let translations = 0;
+  for (const file of auditFiles(root)) {
+    const result = inspectSource(file, readFileSync(join(root, file), 'utf8'));
+    assert.deepEqual(result.messages, [], file);
+    translations += result.translations;
   }
   assert.ok(translations >= 16, 'Audit must inspect operational translations throughout the package');
 });
@@ -210,4 +223,26 @@ test('origin and preview operational failures retain their filesystem or parsing
   const source = join(target.root, 'preview-link'); await symlink(origin, source);
   await assert.rejects(copyPreviewFile(source, join(target.root, 'output')), error => error instanceof MemoryError && error.cause instanceof Error && 'code' in error.cause && error.cause.code === 'ELOOP');
   assert.equal(await readFile(origin, 'utf8'), 'not-json');
+});
+
+
+test('cause audit counts belong to each invocation regardless of earlier synthetic runs', () => {
+  const source = "try { operation(); } catch (cause) { if (cause instanceof MemoryError) throw cause; throw new MemoryError('transaction', 'Typed failure', 'Retry', { cause }); }";
+  assert.equal(inspectSource('synthetic-cause.ts', source).translations, 1);
+  assert.equal(inspectSource('synthetic-empty.ts', 'export const safe = true;').translations, 0);
+  assert.equal(inspectSource('synthetic-cause.ts', source + '\n' + source).translations, 2);
+  assert.equal(inspectSource('synthetic-cause.ts', source).translations, 1);
+});
+
+test('cause audit discovery refuses either missing required root file', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'memory-audit-roots-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const required = ['index.ts', 'eslint.config.ts'];
+  for (const file of required) await writeFile(join(directory, file), 'export const safe = true;');
+  assert.deepEqual(new Set(auditFiles(directory)), new Set(required));
+  for (const missing of required) {
+    await rm(join(directory, missing));
+    assert.throws(() => auditFiles(directory), error => error instanceof Error && error.message === `Cause audit missing required root file: ${missing}`);
+    await writeFile(join(directory, missing), 'export const safe = true;');
+  }
 });
