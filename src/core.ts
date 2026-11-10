@@ -231,8 +231,8 @@ function supplementalCredential(value: string): boolean {
   for (const [, name, separator, assigned] of value.matchAll(/\b(password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)) {
     if (!(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned))) return true;
   }
-  // Bracketed or quoted wrappers on free-text keys get the same literal policy, so angle brackets cannot hide credential material.
-  for (const [, name, , wrapped] of value.matchAll(/\b(password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?<([^<>"']*)>["']?/gi)) {
+  // Bracket wrappers keep their full interior, including quotes. A quote is surrounding syntax, never a reason to stop before the closing bracket, and a quoted key uses the same wrapper.
+  for (const [, name, , wrapped] of value.matchAll(/\b(password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b["']?\s*(=|:)\s*["']?<([^<>]*)>["']?/gi)) {
     if (credentialLiteral(name, '<' + wrapped + '>')) return true;
   }
   return quotedAssignmentCredential(value) || legacy.test(value) || privateKey || credentialJwt(value) || credentialUrl(value);

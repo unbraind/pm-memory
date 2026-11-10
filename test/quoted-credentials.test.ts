@@ -45,6 +45,7 @@ test('quoted credentials cover nested, escaped and normalized representations', 
     '{"password":12345678}', '{"safe":true,"note":' + JSON.stringify(plain) + '}',
     JSON.stringify({ password: '<' + secret + '>' }), "password: '<" + secret + ">'",
     'password: <' + secret + '>', 'password=<' + secret + '>',
+    "password: <Pass'word123!>", 'password: <Pass"word123!>', "password=\"<Pass'word123!>\"", "'password': '<Pass'word123!>'",
     JSON.stringify({ api_key: '<hunter2>' }), JSON.stringify({ token: '<' + 'ghp_' + 'SyntheticFixture1234567890' + '>' }),
     JSON.stringify({ password: '<redacted!123>' }), JSON.stringify({ secret: '<pass word2>' }),
   ];
@@ -84,6 +85,19 @@ test('quoted safe references and short scalar controls remain readable and expor
   const output = join(target.root, 'export');
   await exportDir(output, { ...target.options, to: 'agents-md' });
   assert.ok(Object.values(await snapshot(output)).map(value => Buffer.from(value, 'base64').toString('utf8')).join('\n').includes('BUILD_PASSWORD'));
+});
+
+test('quotes inside bracket wrappers refuse for every quote style and assignment form', () => {
+  const body = 'Pass' + 'word123!';
+  const forms = (wrapped: string) => [
+    'password: ' + wrapped, 'password=' + wrapped, 'password: "' + wrapped + '"', "password: '" + wrapped + "'",
+    "'password': '" + wrapped + "'", '"api_key": "' + wrapped + '"', 'token: ' + wrapped,
+  ];
+  for (const quote of ["'", '"']) for (const at of [0, 4, body.length]) {
+    const literal = body.slice(0, at) + quote + body.slice(at);
+    for (const fact of forms('<' + literal + '>')) assert.throws(() => privacy(fact, true), error => error instanceof MemoryError && error.code === 'privacy' && !error.message.includes(literal), fact);
+  }
+  for (const safe of ['password: <redacted>', 'password: "<redacted>"', "'password': '<secret-manager-reference>'", 'password: <enter your password here>', 'token: <accounting phrase>', 'note: use <angle brackets> and a "quote"']) privacy(safe, true);
 });
 
 test('quoted secret imports refuse before tracker mutation', async t => {
