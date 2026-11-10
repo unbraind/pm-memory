@@ -345,7 +345,11 @@ test('preparation boundaries serialize a competing import and retain its complet
   await importDir(source.path, { ...probe.options, from: 'agents-md', onStep: step => { steps.push(preparationBoundary(step)); } });
   for (const boundary of new Set(steps)) {
     const target = await tracker(t); let peer: ReturnType<typeof importDir> | undefined;
-    const first = await importDir(source.path, { ...target.options, from: 'agents-md', onStep: step => { if (preparationBoundary(step) === boundary) peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' }); } });
+    const first = await importDir(source.path, { ...target.options, from: 'agents-md', onStep: step => { if (peer === undefined && preparationBoundary(step) === boundary) {
+      peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' });
+      // Observe rejection in the same turn, even when the first import still holds the lease.
+      void peer.catch(() => undefined);
+    } } }).finally(async () => { await peer?.catch(() => undefined); });
     assert.ok(peer); const second = await peer;
     assert.equal(first.imported + second.imported, 1);
     await assertRecovered(target);

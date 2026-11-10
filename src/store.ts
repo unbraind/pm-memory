@@ -1,6 +1,6 @@
 import { statusRegistry, canceledStatus } from './lifecycle.ts';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { certifyCompleteListResult, getHistoryPath, PmClient, readHistoryEntries, readSettings, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
+import { certifyCompleteListResult, getHistoryPath, PmClient, readHistoryEntries, readSettings, runWithActiveExtensions, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { LockLease, PmActionName, PmClientRunArgs } from '@unbrained/pm-cli/sdk';
 import type { SchemaFieldDefinition } from '@unbrained/pm-cli/sdk/authoring';
 import type { Memory, MemoryOptions } from './types.ts';
@@ -91,17 +91,23 @@ export class Store {
   }
   /** Register the custom Knowledge type and compatible metadata through native schema writes. */
   async register(onStep?: (step: string) => void | Promise<void>): Promise<void> {
-    const settings = await readSettings(this.workspace);
-    if (!settings.item_types.definitions.some(type => type.name === 'Knowledge')) await this.client.schemaAddType('Knowledge', { folder: 'knowledge', description: 'Durable agent knowledge', defaultStatus: (await statusRegistry(this.workspace)).open_status });
-    await onStep?.('schema-type');
-    const fields = (await this.client.schemaListFields()).fields;
-    for (const field of MEMORY_FIELDS) {
-      const found = fields.find(entry => entry.key === field.name);
-      if (found !== undefined && found.type !== field.type) throw new MemoryError('schema', 'Incompatible memory field definition', 'Restore the registered memory field type before retrying');
-      if (found === undefined) await this.client.schemaAddField(field.name, { type: field.type, description: 'Typed agent memory metadata' });
-      await onStep?.(`schema-field:${field.name}`);
-    }
-    await ensureTrackerOrigin(this, onStep);
+    // Standalone registration shares one SDK activation across the native schema commands.
+    // Host clients keep their existing policy context; every dispatch still uses its lease fence.
+    const register = async () => {
+      const settings = await readSettings(this.workspace);
+      if (!settings.item_types.definitions.some(type => type.name === 'Knowledge')) await this.client.schemaAddType('Knowledge', { folder: 'knowledge', description: 'Durable agent knowledge', defaultStatus: (await statusRegistry(this.workspace)).open_status });
+      await onStep?.('schema-type');
+      const fields = (await this.client.schemaListFields()).fields;
+      for (const field of MEMORY_FIELDS) {
+        const found = fields.find(entry => entry.key === field.name);
+        if (found !== undefined && found.type !== field.type) throw new MemoryError('schema', 'Incompatible memory field definition', 'Restore the registered memory field type before retrying');
+        if (found === undefined) await this.client.schemaAddField(field.name, { type: field.type, description: 'Typed agent memory metadata' });
+        await onStep?.(`schema-field:${field.name}`);
+      }
+      await ensureTrackerOrigin(this, onStep);
+    };
+    if (this.hostClient === undefined) await runWithActiveExtensions({ path: this.workspace, noExtensions: true }, register);
+    else await register();
   }
   /** Read a certified full corpus and refuse duplicated or invalid memory identities. */
   async read(observed?: Readonly<MemoryCorpus>, only?: ReadonlySet<string>): Promise<Memory[]> {
