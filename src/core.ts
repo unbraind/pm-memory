@@ -38,13 +38,17 @@ export function slug(value: string): string {
 }
 /** Content-address a new key without leaking the fact into item identifiers. */
 export function digest(value: string): string { return createHash('sha256').update(value).digest('hex'); }
+/** Whole credential names share compound-prefix recognition without matching suffixes of ordinary setting names. */
+const CREDENTIAL_KEY = String.raw`(?<![A-Za-z0-9_])(?<![A-Za-z0-9]-)(?:(?:[A-Za-z0-9]+[_-])*(?:password|passphrase|passwd|pwd|secret|token|api[_ -]?key|access[_ -]?(?:token|key)|auth[_ -]?token|private[_ -]?key|client[_ -]?secret|secret[_ -]?(?:access[_ -]?)?key)|_authToken)(?![A-Za-z0-9_-])`;
+/** Reuse the shared grammar for complete decoded JSON member names. */
+const CREDENTIAL_NAME = new RegExp(String.raw`^${CREDENTIAL_KEY}$`, 'i');
 /** Refuse credentials, private keys and unapproved email addresses before persistence. */
 export function privacy(value: string, allowEmail = false): void {
   for (const view of credentialViews(value)) {
     let literalSuffix = false;
     // Environment references carry no literal value. The SDK's npm/password rules
     // deliberately flag these forms, so mask whole reference assignments only at a value boundary.
-    const literals = view.replace(/(\b(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\b\s*[=:]\s*["']?)\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/gi, (match: string, prefix: string, offset: number) => {
+    const literals = view.replace(new RegExp(String.raw`(${CREDENTIAL_KEY}\s*[=:]\s*["']?)\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)`, 'gi'), (match: string, prefix: string, offset: number) => {
       const end = offset + match.length;
       // A reference may carry bounded explanatory prose, but an arbitrary suffix
       // must retain the assignment key. Check its closing boundary in the full view.
@@ -139,12 +143,12 @@ function credentialLiteral(name: string, value: string): boolean {
   // Only recognizable placeholder shapes are exempt: letter-only words joined by separators.
   // Bracketed digits, symbols or credential material fall through to the full policy below.
   const trimmed = normalized.trim();
-  if (/^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/.test(trimmed) || /^<(?:redacted|[A-Za-z]+(?:[ _-][A-Za-z]+)+)>$/i.test(trimmed)) return false;
+  if (trimmed === '[scrubbed]' || /^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/.test(trimmed) || /^<(?:redacted|[A-Za-z]+(?:[ _-][A-Za-z]+)+)>$/i.test(trimmed)) return false;
   return value.length >= 8 || normalized.length >= 8 || sharedCredential((name.toLowerCase() === '_authtoken' ? '_authToken' : name) + '=' + normalized);
 }
 /** Inspect quoted scalar keys and bounded JSON string wrappers without copying SDK provider grammars. */
 function quotedAssignmentCredential(value: string, depth = 0): boolean {
-  const signal = /["'](?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\\*["']\s*[=:]/i;
+  const signal = new RegExp(String.raw`["']${CREDENTIAL_KEY}\\*["']\s*[=:]`, 'i');
   if (!signal.test(value)) return false;
   /** Decode only credential-bearing string copies, within the finite wrapper budget. */
   const nested = (text: string): boolean => {
@@ -190,13 +194,13 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
       } else if (row.value !== null && typeof row.value === 'object') {
         for (const [key, child] of Object.entries(row.value)) {
           const name = names.get(key)!;
-          pending.push({ name: /^(?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)$/i.test(name) ? name : row.name, value: child });
+          pending.push({ name: CREDENTIAL_NAME.test(name) ? name : row.name, value: child });
         }
       }
     }
     return false;
   }
-  for (const match of value.matchAll(/(["'])(password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\1\s*[=:]\s*("(?:\\.|[^"\\])*(?:"|$)|'(?:''|\\.|[^'\\])*(?:'|$)|[^\s"'\x60<>]+)/gi)) {
+  for (const match of value.matchAll(new RegExp(String.raw`(["'])(${CREDENTIAL_KEY})\1\s*[=:]\s*("(?:\\.|[^"\\])*(?:"|$)|'(?:''|\\.|[^'\\])*(?:'|$)|[^\s"'\x60<>]+)`, 'gi'))) {
     let literal = match[3];
     if (literal.startsWith('"')) { try { literal = JSON.parse(literal) as string; } catch { literal = literal.slice(1, literal.endsWith('"') ? -1 : undefined); } }
     else if (literal.startsWith("'")) literal = literal.slice(1, literal.endsWith("'") ? -1 : undefined).replace(/''/g, "'");
@@ -215,7 +219,7 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
   }
   remainder.push(value.slice(kept));
   const unresolved = remainder.join('');
-  if (/\\["'](?:password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token|_authToken)\\+["']\s*[=:]/i.test(unresolved)) {
+  if (new RegExp(String.raw`\\["']${CREDENTIAL_KEY}\\+["']\s*[=:]`, 'i').test(unresolved)) {
     let decoded: string;
     try { decoded = JSON.parse('"' + unresolved.replace(/\\'/g, "'").replace(/[\u0000-\u001f]/g, char => JSON.stringify(char).slice(1, -1)) + '"') as string; }
     catch { throw new MemoryError('privacy', 'Escaped credential declaration refused', 'Use plain text with an environment or secret-manager reference'); }
@@ -228,12 +232,12 @@ function supplementalCredential(value: string): boolean {
   const legacy = /\b(?:sk|pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\b(?:gh[pousr]_[a-z0-9]{16,19}|github_pat_[a-z0-9_]{16,19})\b|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
   // Shared findings already returned above; this fallback retains mixed-case and long markers.
   const privateKey = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/i.test(value);
-  for (const [, name, separator, assigned] of value.matchAll(/\b(password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b\s*(=|:)\s*["']?([^\s"'`<>]{8,})/gi)) {
+  for (const [, name, separator, assigned] of value.matchAll(new RegExp(String.raw`(${CREDENTIAL_KEY})\s*(=|:)\s*["']?([^\s"'\x60<>]{8,})`, 'gi'))) {
     if (assigned === '[scrubbed]') continue; // A scrubbed marker contains no literal credential.
     if (!(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned))) return true;
   }
   // Bracket wrappers keep their full interior, including quotes. A quote is surrounding syntax, never a reason to stop before the closing bracket, and a quoted key uses the same wrapper.
-  for (const [, name, , wrapped] of value.matchAll(/\b(password|passphrase|passwd|pwd|api[_ -]?key|access[_ -]?token|auth[_ -]?token|secret|token)\b["']?\s*(=|:)\s*["']?<([^<>]*)>["']?/gi)) {
+  for (const [, name, , wrapped] of value.matchAll(new RegExp(String.raw`(${CREDENTIAL_KEY})["']?\s*(=|:)\s*["']?<([^<>]*)>["']?`, 'gi'))) {
     if (credentialLiteral(name, '<' + wrapped + '>')) return true;
   }
   return quotedAssignmentCredential(value) || legacy.test(value) || privateKey || credentialJwt(value) || credentialUrl(value);
