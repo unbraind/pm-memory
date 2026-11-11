@@ -1,0 +1,22 @@
+id: pm-memory-preparation-boundary-barriers
+title: Make portable preparation contention tests independent of writer wait timing
+description: "Run 43009567827 job 130485472749 fails as an unhandled competing-import rejection when the first import holds its writer lease beyond 30 seconds. Use explicit boundaries, immediate rejection observation and retry after release; do not relax the production lock. Separate from overlapping PR 51."
+type: Issue
+status: in_progress
+priority: 2
+tags[2]: release,tests
+created_at: "2026-11-11T22:00:04.895Z"
+updated_at: "2026-11-11T22:19:28.775Z"
+author: codex-release-repair-1111
+comments[4]{created_at,author,text}:
+  "2026-11-11T22:00:08.145Z",codex-release-repair-1111,"PR 51 overlaps both test/portable.test.ts and src/writer-lock.ts. It guards duplicate peer starts and observes rejection but still lets a competing import exhaust its deadline while the first runs. This repair keeps production source byte-identical: hold the first import at each exact boundary, use a zero-wait real competing attempt to assert contention, then release and retry to prove completed work is retained. The validated boundary precedes lock acquisition, so the peer completes first there. Every promise is observed immediately and drained in finally."
+  "2026-11-11T22:03:20.197Z",codex-release-repair-1111,"Controlled slowness proof in a disposable copy holds the first import at read until the real peer settles, with a zero-wait budget and no sleeps. Original scheduling fails with MemoryError conflict; fixed scheduling passes. An empty registered-schema fixture now avoids repeating schema writes during each boundary case, while removing only its unused namespace before cloning preserves all origin-publication callbacks. Every discovered boundary remains asserted."
+  "2026-11-11T22:15:13.645Z",codex-release-repair-1111,"Twenty consecutive complete boundary runs passed. The full portable plus SDK-lock linked run hit the pm runner default 120-second timeout, without a complete test receipt; this is not a passing gate. Rerun uses an explicit 1200-second linked-run timeout within the requested 20-minute cap."
+  "2026-11-11T22:19:27.969Z",codex-release-repair-1111,"Final validation: 20 consecutive complete preparation-boundary runs passed, one test per run, zero failures/skips. Full portable plus SDK-lock gate passed 26/26 in 175 seconds with explicit --timeout 1200 after the initial default-timeout receipt. Lint and typecheck pass. Controlled-slowness behavioral revert yields failureType unhandledRejection with MemoryError conflict; fixed scheduling passes the identical barrier. Production writer-lock source remains byte-identical to main. Keep this separate from PR 51 and preserve its overlap during integration. Full release certification belongs to CI per the scoped task budget."
+files[1]{path,scope}:
+  test/portable.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --test --test-concurrency=2 test/portable.test.ts test/sdk-lock-protocol.test.ts,project,codex-release-repair-1111,"2026-11-11T22:11:34.065Z",local_mutation,fix/deterministic-preparation-boundary-test
+docs[1]{path,scope}:
+  docs/portable-guidance-validation.md,project
+body: ""

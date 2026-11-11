@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { WorkspaceTransactionInterruptedError, getHistoryPath, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import { remember, renew, get, guidanceState, exportDir, importDir, parsePolicy, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest, PortableGuidance } from '../index.ts';
+import { TRACKER_ORIGIN_FILE } from '../src/portable-origin.ts';
 import { policyRecord, policyBody, importPolicy } from '../src/portable.ts';
-import { tracker, snapshot, installExtension, gitlessCli } from './helpers.ts';
+import { tracker, clonedTracker, snapshot, installExtension, gitlessCli } from './helpers.ts';
 
 const from = '2026-10-01T00:00:00.000Z';
 const until = '2026-11-01T00:00:00.000Z';
@@ -343,12 +344,40 @@ test('conflicting historical evidence refuses export and unrelated removed metad
 test('preparation boundaries serialize a competing import and retain its completed work', async t => {
   const source = await fixture(t); const probe = await tracker(t); const steps: string[] = [];
   await importDir(source.path, { ...probe.options, from: 'agents-md', onStep: step => { steps.push(preparationBoundary(step)); } });
+  // Reuse an empty registered schema; every boundary still fires on each independent tracker.
+  const template = await tracker(t); await template.store.register();
+  // No item uses this empty template namespace; each clone must exercise origin publication too.
+  await rm(join(template.workspace, TRACKER_ORIGIN_FILE));
+  // Contention is an immediate typed result, independent of runner speed or the 30s production ceiling.
+  const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = '0';
+  t.after(() => { if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; });
   for (const boundary of new Set(steps)) {
-    const target = await tracker(t); let peer: ReturnType<typeof importDir> | undefined;
-    const first = await importDir(source.path, { ...target.options, from: 'agents-md', onStep: step => { if (preparationBoundary(step) === boundary) peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' }); } });
-    assert.ok(peer); const second = await peer;
-    assert.equal(first.imported + second.imported, 1);
-    await assertRecovered(target);
+    const target = await clonedTracker(t, template);
+    const reached = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
+    let paused = false;
+    const first = importDir(source.path, { ...target.options, from: 'agents-md', onStep: async step => {
+      if (!paused && preparationBoundary(step) === boundary) { paused = true; reached.resolve(); await resume.promise; }
+    } });
+    // A failure before the selected boundary is still awaited, never left as an unhandled rejection.
+    void first.catch(() => undefined);
+    let peer: ReturnType<typeof importDir> | undefined;
+    try {
+      const state = await Promise.race([reached.promise.then(() => 'paused'), first.then(() => 'finished', () => 'failed')]);
+      assert.equal(state, 'paused', `First import must reach ${boundary}`);
+      peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' });
+      // Attach both outcomes in the same turn while the first import remains blocked on the barrier.
+      const attempt = await peer.then(result => ({ result, error: undefined }), (error: unknown) => ({ result: undefined, error }));
+      if (boundary === 'validated') assert.ok(attempt.result, 'Validation precedes the writer lease, so the peer finishes first');
+      else assert.ok(attempt.error instanceof MemoryError && attempt.error.code === 'conflict', `Writer must serialize ${boundary}`);
+      resume.resolve();
+      const firstResult = await first;
+      const second = attempt.result ?? await importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' });
+      assert.equal(firstResult.imported + second.imported, 1);
+      await assertRecovered(target);
+    } finally {
+      resume.resolve();
+      await Promise.allSettled(peer === undefined ? [first] : [first, peer]);
+    }
   }
 });
 

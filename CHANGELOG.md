@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Make portable preparation contention tests independent of writer wait timing ([pm-memory-preparation-boundary-barriers](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-preparation-boundary-barriers.toon))
+
 ## 2026.11.7 - 2026-11-07
 
 ### Added
