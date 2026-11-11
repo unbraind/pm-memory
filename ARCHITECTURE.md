@@ -76,7 +76,7 @@ Export resolves every wiki reference against emitted facts and their actual re-i
 
 ## Writer lock recovery evidence
 
-The reviewed SDK floor is `@unbrained/pm-cli` 2026.11.5, with support bounded below the next major version. Raising the floor or the bound requires a detector-inventory compatibility review. The package delegates
+The reviewed SDK floor is `@unbrained/pm-cli` 2026.11.11, with support bounded below the next major version. Raising the floor or the bound requires a detector-inventory compatibility review. The package delegates
 acquisition, bounded waiting, host/process-start identity, recovery receipts,
 cleanup gates and release to `acquireLockLease`. It never creates cleanup gates
 or unlinks native locks. Its read-only diagnostic adapter reports PID and age

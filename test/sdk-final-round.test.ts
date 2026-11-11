@@ -1,21 +1,22 @@
 import assert from 'node:assert/strict';
-import fs, { mkdir, readFile, writeFile } from 'node:fs/promises';
+import fs, { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
-import { getItemPath } from '@unbrained/pm-cli/sdk';
+import { getItemPath, commitItemMutations } from '@unbrained/pm-cli/sdk';
 import { exportDir, get, importDir, MemoryError, observe, recall, remember, verify } from '../index.ts';
 import { digest } from '../src/core.ts';
 import { memoryVectors, type EmbeddingProvider } from '../src/embeddings.ts';
-import { previousOwnership } from '../src/portable-ownership.ts';
+import { previousOwnership, recordedCreation } from '../src/portable-ownership.ts';
+import { ensureTrackerOrigin, readTrackerOrigin, TRACKER_ORIGIN_FILE } from '../src/portable-origin.ts';
 import { importIdentity, pendingImport } from '../src/portable-plan.ts';
 import { tracker, snapshot } from './helpers.ts';
 
 /** Inject one filesystem boundary while retaining real SDK trackers and dispatch. */
-function ioFault(t: TestContext, method: 'readFile' | 'mkdir' | 'realpath', path: string, error: MemoryError): () => void {
+function ioFault(t: TestContext, method: 'readFile' | 'mkdir' | 'realpath' | 'open' | 'link', path: string, error: MemoryError, argument = 0): () => void {
   const original = fs[method];
   const hook = t.mock.method(fs, method, (async (...args: unknown[]) => {
-    if (String(args[0]) === path) throw error;
+    if (String(args[argument]) === path) throw error;
     const result: unknown = Reflect.apply(original, fs, args);
     return result;
   }) as typeof original);
@@ -110,4 +111,43 @@ test('typed file evidence failures and peer export failures retain their identit
     } }), error => error === failure);
   } finally { restoreRead(); }
   assert.equal(await readFile(join(output, 'foreign.md'), 'utf8'), 'Public peer output');
+});
+
+
+test('origin reads preserve typed filesystem refusals before namespace publication', async t => {
+  const target = await tracker(t); const before = await snapshot(target.workspace);
+  const failure = new MemoryError('privacy', 'Synthetic origin read policy refusal', 'Restore source access and retry');
+  const restore = ioFault(t, 'open', join(target.workspace, TRACKER_ORIGIN_FILE), failure);
+  try { await assert.rejects(readTrackerOrigin(target.store), error => error === failure); }
+  finally { restore(); }
+  assert.deepEqual(await snapshot(target.workspace), before);
+  assert.equal(await readTrackerOrigin(target.store), undefined);
+});
+
+test('origin publication preserves typed link refusals and removes only its staging file', async t => {
+  const target = await tracker(t); const failure = new MemoryError('conflict', 'Synthetic origin link policy refusal', 'Retain the namespace and retry');
+  const restore = ioFault(t, 'link', join(target.workspace, TRACKER_ORIGIN_FILE), failure, 1);
+  try { await assert.rejects(ensureTrackerOrigin(target.store), error => error === failure); }
+  finally { restore(); }
+  assert.equal(await readTrackerOrigin(target.store), undefined);
+  assert.deepEqual((await readdir(join(target.workspace, 'runtime'))).filter(name => name.startsWith('memory-origin-')), []);
+  const origin = await ensureTrackerOrigin(target.store);
+  assert.equal(await readTrackerOrigin(target.store), origin);
+});
+
+test('recorded creation propagates unreadable publication receipts without granting or discarding ownership', async t => {
+  const target = await tracker(t); await target.store.register();
+  const transaction = 'memory-policy-' + 'a'.repeat(40); const id = 'memory-test-unsealed-birth';
+  await commitItemMutations({ pmRoot: target.workspace, author: 'memory-test', transactionId: transaction + '-nodes', mutations: [{ op: 'create', id, options: { type: 'Knowledge', title: 'Unsealed legacy creation', memorySlug: 'legacy-birth', memoryKind: 'reference', message: `bulk-item-transaction ${transaction}-nodes ${id} create` } }] });
+  assert.equal(await recordedCreation(target.store, id), false);
+  const directory = join(target.workspace, 'transactions', 'sdk'); await mkdir(directory, { recursive: true });
+  const receipt = join(directory, transaction + '-snapshot.json'); await writeFile(receipt, 'unreadable synthetic receipt');
+  const before = await snapshot(target.workspace);
+  await assert.rejects(recordedCreation(target.store, id), error => {
+    assert.ok(error instanceof MemoryError && error.code === 'transaction');
+    assert.equal(error.message, 'Native transaction receipt could not be verified');
+    assert.equal(error.remedy, 'Preserve the receipt and restore SDK-readable transaction evidence before retrying');
+    assert.ok(error.cause instanceof Error); return true;
+  });
+  assert.deepEqual(await snapshot(target.workspace), before);
 });

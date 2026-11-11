@@ -37,17 +37,17 @@ After publication, choose your usual package manager:
 ```sh
 pm package install pm-memory
 
-npm install --save-dev @unbrained/pm-cli@2026.11.5 pm-memory
+npm install --save-dev @unbrained/pm-cli@2026.11.11 pm-memory
 npx pm package install pm-memory
 
-bun add --dev @unbrained/pm-cli@2026.11.5 pm-memory
+bun add --dev @unbrained/pm-cli@2026.11.11 pm-memory
 bunx --bun pm package install pm-memory
 
 npx --package=@unbrained/pm-cli pm package install pm-memory
 bunx --bun --package @unbrained/pm-cli pm package install pm-memory
 ```
 
-Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The supported peer floor and pinned development host are 2026.11.5, and the peer range is bounded below the next major. Raising the floor or the upper bound requires reviewing the SDK detector inventory and passing the compatibility fixtures. Node 22.18 or later is required.
+Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The supported peer floor and pinned development host are 2026.11.11, and the peer range is bounded below the next major. Raising the floor or the upper bound requires reviewing the SDK detector inventory and passing the compatibility fixtures. Node 22.18 or later is required.
 
 
 ## Consent-scoped recall views
@@ -581,7 +581,7 @@ These measurements cover the shipped ranker on the synthetic fixture; they are n
 
 Remember, renew, recall (including local semantic recall), get, index, import, export, verify, consolidation, observe and utility work in an initialized plain-directory tracker. They do not require a Git executable. Verification searches source trees independently of repository metadata; optional network checks still require explicit `--network`. Git-based release/changelog tooling needs repository history. Regression tests exercise semantic recall in a real non-git tracker with ancestor Git discovery blocked and a PATH containing no Git executable.
 
-Writer ownership and recovery use the SDK lease protocol (minimum host 2026.11.5).
+Writer ownership and recovery use the SDK lease protocol (minimum host 2026.11.11).
 Native mutations and file export fence publication against successor takeover;
 a stale writer refuses with `lock_lost`. Live or unverifiable owners remain
 protected, and contention waits are capped at 30 seconds. These paths also work

@@ -292,7 +292,7 @@ export async function recordedCreation(store: Store, id: string): Promise<boolea
       if (await committedReceipt(store, match[1], id) !== undefined) return true;
     }
     return false;
-  } catch { return false; }
+  } catch (error) { if (error instanceof MemoryError) { throw error; } return false; }
 }
 
 /** Read only committed package receipts linked by immutable SDK history markers. */
