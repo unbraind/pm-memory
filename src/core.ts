@@ -42,23 +42,23 @@ export function digest(value: string): string { return createHash('sha256').upda
 const CREDENTIAL_KEY = String.raw`(?<![A-Za-z0-9_])(?<![A-Za-z0-9]-)(?:(?:[A-Za-z0-9]+[_-])*(?:password|passphrase|passwd|pwd|secret|token|api[_ -]?key|access[_ -]?(?:token|key)|auth[_ -]?token|private[_ -]?key|client[_ -]?secret|secret[_ -]?(?:access[_ -]?)?key)|_authToken)(?![A-Za-z0-9_-])`;
 /** Reuse the shared grammar for complete decoded JSON member names. */
 const CREDENTIAL_NAME = new RegExp(String.raw`^${CREDENTIAL_KEY}$`, 'i');
-/** Refuse credentials, private keys and unapproved email addresses before persistence. */
+/** Bound complete-value scanner work; oversized values refuse instead of being partially inspected. */
+function privacySize(value: string): void {
+  if (Buffer.byteLength(value) > 1024 * 1024) throw new MemoryError('privacy', 'Memory privacy scan size limit exceeded', 'Use at most 1 MiB per inspected value and simplify excessively long dotted or hyphenated identifiers');
+  let work = 0;
+  for (const [identifier] of value.matchAll(/[A-Za-z0-9_.-]+/g)) {
+    let separators = 0;
+    for (const character of identifier) if (character === '.' || character === '-') separators++;
+    work += identifier.length * separators;
+    if (work > 2_000_000) throw new MemoryError('privacy', 'Memory privacy scan size limit exceeded', 'Use at most 1 MiB per inspected value and simplify excessively long dotted or hyphenated identifiers');
+  }
+}
+/** Refuse the union of complete SDK credential findings and complete local-policy matches before persistence. */
 export function privacy(value: string, allowEmail = false): void {
+  privacySize(value);
   for (const view of credentialViews(value)) {
-    let literalSuffix = false;
-    // Environment references carry no literal value. The SDK's npm/password rules
-    // deliberately flag these forms, so mask whole reference assignments only at a value boundary.
-    const literals = view.replace(new RegExp(String.raw`(${CREDENTIAL_KEY}\s*[=:]\s*["']?)\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)`, 'gi'), (match: string, prefix: string, offset: number) => {
-      const end = offset + match.length;
-      // A reference may carry bounded explanatory prose, but an arbitrary suffix
-      // must retain the assignment key. Check its closing boundary in the full view.
-      const explanation = view[end] === '(' ? /^\([A-Za-z]+(?: [A-Za-z,.'-]+)+\)/.exec(view.slice(end, end + 200)) : null;
-      const following = view[end + (explanation?.[0].length ?? 0)];
-      const boundary = following === undefined || /[\s"'`;,)}\]]/.test(following);
-      if (view[end] === '(' && !boundary) literalSuffix = true;
-      return boundary ? 'environment reference ' : prefix;
-    });
-    if (literalSuffix || sharedCredential(literals) || supplementalCredential(literals)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
+    privacySize(view);
+    if (sharedSecret(view) || supplementalCredential(view)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
   }
   if (!allowEmail && value.includes('@') && /\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}\b/i.test(value)) throw new MemoryError('privacy', 'Email address refused', 'Remove addresses or explicitly use --allow-email');
 }
@@ -80,51 +80,6 @@ const SDK_FINDINGS = new Map<string, boolean>(Object.entries(SDK_FINDING_POLICY)
 function sharedSecret(value: string): boolean {
   return scanMutationSecrets(value).some(finding => SDK_FINDINGS.get(finding.rule) !== false);
 }
-/** Project complete quoted spans with bounded bodies and normalized prefix whitespace, retaining SDK-owned credential grammars. */
-function* quotedCredentialViews(value: string): Generator<string, void, unknown> {
-  if (!/["']/.test(value)) return;
-  const quotes: { index: number; mark: string; context: string }[] = [];
-  let context = ''; let cursor = 0;
-  for (const match of value.matchAll(/\s+|["']/g)) {
-    context = (context + value.slice(cursor, match.index)).slice(-64);
-    const mark = match[0];
-    if (mark === '"' || mark === "'") quotes.push({ index: match.index, mark, context });
-    context = mark === '"' || mark === "'" ? '' : (context + ' ').slice(-64);
-    cursor = match.index + mark.length;
-  }
-  const next = new Map<string, number>(); let nextAny: number | undefined;
-  const seen = new Set<string>();
-  for (const quote of quotes.reverse()) {
-    const ends = new Set([nextAny, next.get(quote.mark)]);
-    next.set(quote.mark, quote.index); nextAny = quote.index;
-    for (const end of ends) {
-      if (end === undefined) continue;
-      // Short contiguous spans already fit a raw window, including their prefix.
-      // Prefixes restart at quotes, which terminate the SDK's quoted-rule preambles.
-      const start = quote.index - quote.context.length;
-      if (end - start + 1 <= 64 && value.slice(start, quote.index) === quote.context) continue;
-      // Eight body characters retain the pinned SDK's quoted six/eight-character floors.
-      // Contiguous provider tokens are already inspected in the raw windows.
-      const candidate = (quote.context.length < 64 ? '' : '0') + quote.context + quote.mark + value.slice(quote.index + 1, Math.min(end, quote.index + 9)) + value[end];
-      if (seen.has(candidate)) continue;
-      seen.add(candidate); yield candidate;
-    }
-  }
-}
-/** Bound the SDK's private-host matcher; complete quoted views preserve rules whose closing delimiter can lie beyond a window. */
-function sharedCredential(value: string): boolean {
-  for (const view of new Set([value, value.replace(/\s+/g, ' ')])) {
-    let previous: string | undefined;
-    for (let offset = 0; offset < view.length; offset += 64) {
-      const window = (offset === 0 ? '' : '0' + view[offset - 1]) + view.slice(offset, offset + 128);
-      if (window === previous) continue;
-      previous = window;
-      if (sharedSecret(window)) return true;
-    }
-  }
-  for (const candidate of quotedCredentialViews(value)) if (sharedSecret(candidate)) return true;
-  return false;
-}
 /** Bounded transport decoding supplements the SDK, which normalizes paths but scans credential rules literally. */
 function credentialViews(value: string): string[] {
   const views = [value];
@@ -144,7 +99,7 @@ function credentialLiteral(name: string, value: string): boolean {
   // Bracketed digits, symbols or credential material fall through to the full policy below.
   const trimmed = normalized.trim();
   if (trimmed === '[scrubbed]' || /^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/.test(trimmed) || /^<(?:redacted|[A-Za-z]+(?:[ _-][A-Za-z]+)+)>$/i.test(trimmed)) return false;
-  return value.length >= 8 || normalized.length >= 8 || sharedCredential((name.toLowerCase() === '_authtoken' ? '_authToken' : name) + '=' + normalized);
+  return value.length >= 8 || normalized.length >= 8 || sharedSecret((name.toLowerCase() === '_authtoken' ? '_authToken' : name) + '=' + normalized);
 }
 /** Inspect quoted scalar keys and bounded JSON string wrappers without copying SDK provider grammars. */
 function quotedAssignmentCredential(value: string, depth = 0): boolean {
@@ -227,14 +182,34 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
   }
   return false;
 }
+/** The full local reference spelling, including the existing optional explanatory annotation. */
+const REFERENCE_VALUE = String.raw`\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)(?:\([A-Za-z]+(?: [A-Za-z,.'-]+)+\))?`;
+/** Classify an entire local reference value, never a scanned prefix. */
+const COMPLETE_REFERENCE = new RegExp(String.raw`^${REFERENCE_VALUE}$`);
+/** Retain the existing refusal of unknown parenthesized continuations using complete source matches. */
+function referenceSuffixCredential(value: string): boolean {
+  const references = new RegExp(String.raw`${CREDENTIAL_KEY}\s*[=:]\s*["']?\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)`, 'gi');
+  const explanation = /\([A-Za-z]+(?: [A-Za-z,.'-]+)+\)/y;
+  for (const match of value.matchAll(references)) {
+    const end = match.index + match[0].length;
+    if (value[end] !== '(') continue;
+    explanation.lastIndex = end;
+    const annotation = explanation.exec(value);
+    if (annotation === null || annotation[0].length > 200) return true;
+    const following = value[end + annotation[0].length];
+    if (following !== undefined && !/[\s"'`;,)}\]]/.test(following)) return true;
+  }
+  return false;
+}
 /** Stronger memory policy: shorter/legacy keys, generic literal assignments, auth headers, URL passwords and short JWT signatures. */
 function supplementalCredential(value: string): boolean {
   const legacy = /\b(?:sk|pk|rk)-(?:proj-)?[a-z0-9_-]{16,}|\b(?:gh[pousr]_[a-z0-9]{16,19}|github_pat_[a-z0-9_]{16,19})\b|\bauthorization\s*:\s*(?:bearer|basic)\s+\S+/i;
   // Shared findings already returned above; this fallback retains mixed-case and long markers.
   const privateKey = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/i.test(value);
-  for (const [, name, separator, assigned] of value.matchAll(new RegExp(String.raw`(${CREDENTIAL_KEY})\s*(=|:)\s*["']?([^\s"'\x60<>]{8,})`, 'gi'))) {
-    if (assigned === '[scrubbed]') continue; // A scrubbed marker contains no literal credential.
-    if (!(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned))) return true;
+  if (referenceSuffixCredential(value)) return true;
+  for (const [, name, separator, assigned] of value.matchAll(new RegExp(String.raw`(${CREDENTIAL_KEY})\s*(=|:)\s*["']?(${REFERENCE_VALUE}(?=$|[\s"'\x60;,)}\]])|[^\s"'\x60<>]{8,})`, 'gi'))) {
+    if (assigned === '[scrubbed]' || COMPLETE_REFERENCE.test(assigned)) continue;
+    if (!(name.toLowerCase() === 'token' && separator === ':' && /^[a-z]{8,19}[.,;:]?$/.test(assigned)) && credentialLiteral(name, assigned)) return true;
   }
   // Bracket wrappers keep their full interior, including quotes. A quote is surrounding syntax, never a reason to stop before the closing bracket, and a quoted key uses the same wrapper.
   for (const [, name, , wrapped] of value.matchAll(new RegExp(String.raw`(${CREDENTIAL_KEY})["']?\s*(=|:)\s*["']?<([^<>]*)>["']?`, 'gi'))) {
@@ -242,7 +217,7 @@ function supplementalCredential(value: string): boolean {
   }
   return quotedAssignmentCredential(value) || legacy.test(value) || privateKey || credentialJwt(value) || credentialUrl(value);
 }
-/** Cover arbitrarily long JWT segments across SDK windows with a linear scan, retaining the stronger eight-character signature floor. */
+/** Scan complete JWT segments linearly while retaining the stronger eight-character signature floor. */
 function credentialJwt(value: string): boolean {
   const tail = /([a-z0-9_-]{10,})\.([a-z0-9_-]{8,})\b/iy;
   for (const match of value.matchAll(/\beyJ[a-z0-9_-]*/gi)) {

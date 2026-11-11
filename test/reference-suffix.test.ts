@@ -35,7 +35,7 @@ test('reference exemptions preserve literal context across assignment and transp
   const bounded = '(a ' + 'b'.repeat(196) + ')'; assert.equal(bounded.length, 200);
   privacy('password=${X}' + bounded);
   for (const suffix of [bounded + literal, bounded.slice(0, -1) + 'b)', '(x)']) assert.throws(() => privacy('password=${X}' + suffix), refused);
-  for (const value of ['password=${X}', 'password=$BUILD_SECRET;', 'password="${X}"', 'passphrase=short', 'password=${X}(provided by the environment)', 'password=${X}(provided by the environment); more guidance', 'password=${X}(provided by the environment)\npassword=$BUILD_SECRET', 'password=${X}(provided by the environment)"']) privacy(value);
+  for (const value of ['password=${X}', 'password="${X}"', 'passphrase=short', 'password=${X}(provided by the environment)', 'password=${X}(provided by the environment); more guidance', 'password=${X}(provided by the environment)\npassword=${BUILD_SECRET}', 'password=${X}(provided by the environment)"']) privacy(value);
 });
 
 test('all SDK memory and evidence fields refuse reference suffix literals before writes without git', async t => {

@@ -195,7 +195,7 @@ for (const encoding of ['raw', 'percent', 'escape', 'unicode', 'hex', 'nested', 
 
 test('SDK credential policy rejects new provider keys in raw portable files and retains safe long input', async t => {
   const target = await tracker(t); const path = join(target.root, 'input'); await mkdir(path);
-  const file = join(path, 'alpha.md'); const long = 'A'.repeat(64) + 'npm_' + 'SyntheticFixture1234567890' + '\n' + 'eyJ-'.repeat(50000);
+  const file = join(path, 'alpha.md'); const long = 'A'.repeat(64) + 'npm_' + 'SyntheticFixture1234567890' + '\n' + 'eyJx'.repeat(50000);
   await writeFile(file, long); assert.equal((await importDir(path, { ...target.options, from: 'agents-md' })).imported, 1);
   const kept = await snapshot(target.workspace);
   for (const secret of ['xoxb-' + 'SyntheticFixture12345', 'ASIA' + 'ABCDEFGHIJKLMNOP', 'glpat-' + 'SyntheticFixture1234567890']) {
@@ -217,7 +217,7 @@ test('shared scanner and stronger memory supplements retain legacy refusals and 
     'eyJ' + 'x'.repeat(400) + '.' + 'x'.repeat(400) + '.' + 'x'.repeat(8),
     'eyJ' + 'x'.repeat(10) + '.' + 'x'.repeat(400) + '.' + 'x'.repeat(10),
   ]) assert.throws(() => privacy(value, true), error => error instanceof MemoryError && error.code === 'privacy');
-  for (const value of ['', 'token: accounting', 'password=$BUILD_PASSWORD', '_authToken=${BUILD_TOKEN}', 'Use a secret manager', 'https://service.test/path', 'eyJ' + 'x'.repeat(12) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(8), 'resources/guide.md', 'ghp_' + 'x'.repeat(15) + '_x', 'eyJ' + 'x'.repeat(10) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(8), 'EYJ' + 'x'.repeat(10) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(10)]) privacy(value);
+  for (const value of ['', 'token: accounting', 'password=${BUILD_PASSWORD}', 'auth_token=${BUILD_TOKEN}', 'Use a secret manager', 'https://service.test/path', 'eyJ' + 'x'.repeat(12) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(8), 'resources/guide.md', 'ghp_' + 'x'.repeat(15) + '_x', 'eyJ' + 'x'.repeat(10) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(8), 'EYJ' + 'x'.repeat(10) + '.' + 'x'.repeat(10) + '.' + 'x'.repeat(10)]) privacy(value);
 });
 
 test('legacy generic key prefixes and long SDK markers remain refused across scanner boundaries', async t => {

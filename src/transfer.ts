@@ -105,12 +105,7 @@ function sourcePrivacy(input: readonly { path: string; bytes: Buffer }[], allowE
     try { privacy(content, allowEmail); }
     catch (error) {
       const failure = privacyRefusal(error);
-      const before = offenses.length;
-      for (const [index, line] of content.split(/\r?\n/).entries()) {
-        try { privacy(line, allowEmail); }
-        catch (lineError) { offenses.push(`${source.path}:line ${index + 1} (${privacyRefusal(lineError).message})`); }
-      }
-      if (offenses.length === before) offenses.push(`${source.path}:multiline (${failure.message})`);
+      offenses.push(`${source.path}:${content.includes('\n') ? 'multiline' : 'line 1'} (${failure.message})`);
     }
   }
   if (offenses.length > 0) throw new MemoryError('privacy', `Import refused: ${offenses.join('; ')}`, 'Edit each listed file to remove credentials or addresses; --allow-email permits email addresses only');

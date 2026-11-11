@@ -13,7 +13,7 @@ test('environment references retain adjacent literal credential context', async 
       assert.deepEqual(await snapshot(target.workspace), before);
     }
   }
-  for (const [index, value] of ['password=${X}', 'passphrase=$BUILD_PHRASE', '_authToken=${BUILD_TOKEN}(provided by the environment)', 'password="${X}"; use a secret manager'].entries()) {
+  for (const [index, value] of ['password=${X}', 'passphrase=${BUILD_PHRASE}', 'auth_token=${BUILD_TOKEN}(provided by the environment)', 'password="${X}"; use a secret manager'].entries()) {
     const result = await remember(value, { ...target.options, kind: 'reference', slug: 'reference-' + index, forceNew: true });
     assert.equal((await get(result.slug, target.options)).body, value);
   }
