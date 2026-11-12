@@ -107,3 +107,30 @@ ceiling and a split-and-simplify remedy. Companions use that budget while decode
 original documents and emitted body files retain complete per-value inspection
 and the 1 MiB limit. The regression inventory contains 220 benign 4 KiB files and
 round-trips through both supported export harnesses.
+
+Publication intents remain durable until their receipt is committed or a named
+check proves that no publication is needed:
+
+| Clearing point | Required evidence |
+| --- | --- |
+| `publishPending` and `writeForward` clear `plan.publication` | The SDK committed the exact reconstructed ownership result, or the complete native hash, history length and history digest still equal the saved pre-write generation. |
+| `writeForward` replaces an earlier publication | `publishPending` first settles that publication; an unresolved receipt prevents the next write. |
+| `commitPortableBatch` completes after a post-write conflict | Any retained publication is settled before returning to whole-plan retirement. |
+| `pendingImport` retires a forward plan | Its publication has settled and its marked attempt coordinator, whose step only records the input identity, has retired. |
+| `pendingImport` retires a legacy plan | Known SDK coordinators are absent or committed, or every expected native generation is unchanged. Interrupted coordinators with changed native data retain the intent. |
+| `removeIntent`, called after recovery or completed import | No publication remains, and the lease still owns the exact observed intent payload. |
+| `retireOwnedTransaction` retires a marked SDK coordinator | Exact package marker, author and single-step ownership are required. Snapshot callers first prove their publication resolved; the attempt coordinator only records the input identity. Unmarked, committed and already abandoned journals are left intact, and SDK audit history is retained. |
+| `performMerge` clears `memoryMerge` | Complete immutable source and target history proves publication and source cancellation; the final native guard certifies both revisions while clearing the receipt. |
+
+Unmarked snapshot journals resume under the legacy author and single-step
+identity checks, in addition to the exact native publication proof. Marked
+journals also require the package recovery marker. A foreign, unrelated or
+unverifiable receipt preserves the intent. Recovery appends no inverse native
+write, and replaying a committed receipt cannot duplicate the item mutation.
+The public `commitWorkspaceTransaction` contract returns only committed results;
+an interruption throws before either caller can clear its publication intent.
+
+Export checks non-artifact records before choosing output. Retained artifacts
+are checked only after all legacy fallbacks have been ruled out, before origin
+initialization and companion publication. Policy output omits artifact records,
+including when a native body edit selects that output late in the export.

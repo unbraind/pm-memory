@@ -10,3 +10,7 @@ export function causeDiagnostics(value: unknown): string {
   }
   return messages.join('\n');
 }
+/** Preserve enumerable refusal fields while also inspecting non-enumerable nested Error messages. */
+export function refusalDiagnostics(error: Error & { remedy?: string }): string {
+  return JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause }) + causeDiagnostics(error.cause);
+}

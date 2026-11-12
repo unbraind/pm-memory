@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, writeFile, mkdir, chmod, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { commitWorkspaceTransaction, WorkspaceTransactionInterruptedError, deleteItem, getHistoryPath, readSettings, locateItem, resolveItemTypeRegistry, serializeItemDocument, createHistoryEntry, appendHistoryEntry } from '@unbrained/pm-cli/sdk';
+import { commitWorkspaceTransaction, readWorkspaceTransaction, WorkspaceTransactionInterruptedError, deleteItem, getHistoryPath, readSettings, locateItem, resolveItemTypeRegistry, serializeItemDocument, createHistoryEntry, appendHistoryEntry } from '@unbrained/pm-cli/sdk';
 import type { WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import { importDir, exportDir, remember, MemoryError } from '../index.ts';
 import { digest } from '../src/core.ts';
@@ -20,6 +20,24 @@ async function fixtureIntent(workspace: string, value: unknown): Promise<string>
   await writeFile(file, JSON.stringify({ owner: 'pm-memory-policy-plan:1', payload, checksum: digest(payload) }));
   return file;
 }
+
+test('legacy no-write coordinators retire only with a complete unchanged native generation', async t => {
+  const { target, plan, mutation, before } = await capturedPublication(t);
+  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, transactionId: plan.transactionId, author: plan.author, steps: [{ id: 'attempt', inspect: async () => ({ state: 'pending' }), apply: async () => ({ input: plan.input }), compensate: retainForwardWrites }], onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+  delete plan.forwardOnly; delete plan.expected[0].document;
+  await target.store.write(() => savePlan(target.store, plan));
+  const file = join(target.workspace, 'runtime', 'memory-policy-import.json'); const bytes = await readFile(file);
+  await assert.rejects(pendingImport(target.store), error => error instanceof MemoryError && error.code === 'history');
+  assert.deepEqual(await readFile(file), bytes);
+  await target.store.write(async () => {
+    Object.assign(plan.expected[0], { document: before.document });
+    await savePlan(target.store, plan);
+  });
+  assert.equal(await pendingImport(target.store), undefined);
+  await assert.rejects(readFile(file), { code: 'ENOENT' });
+  assert.deepEqual(await nativeState(target.store, mutation.id), before);
+  assert.equal((await readWorkspaceTransaction(target.workspace, plan.transactionId))?.recoveryData, undefined);
+});
 
 /** Build a genuine SDK graph shared by admission and post-no-op dependency controls. */
 async function linkedFixture(t: Parameters<typeof tracker>[0], cyclic = false) {

@@ -49,7 +49,7 @@ export interface ExpectedTarget {
   history: string;
 }
 export { observeTargets } from './native-revision.ts';
-import { observeTargets, documentHash, nativeState } from './native-revision.ts';
+import { observeTargets, documentHash, nativeState, sameNativeProof } from './native-revision.ts';
 /** Reuse frozen documents and history heads; timestamps never select or refresh a base. */
 export async function expectedTargets(store: Store, targets: readonly Pick<ExpectedTarget, 'id' | 'slug' | 'origin'>[], observed?: Awaited<ReturnType<typeof observeTargets>>): Promise<ExpectedTarget[]> {
   return Promise.all(targets.map(async target => {
@@ -117,7 +117,11 @@ async function readIntent(store: Store, strict = true): Promise<{ payload: strin
 }
 /** Remove only the exact slot observed by this live package lease. */
 async function removeIntent(store: Store, plan: ImportPlan): Promise<boolean> {
-  return store.fence(async () => { const current = await readIntent(store, false); if (current === 'foreign' || current?.payload !== intentTokens.get(plan)) return current === undefined; await rm(intentPath(store)); return true; });
+  return store.fence(async () => {
+    const current = await readIntent(store, false); if (current === 'foreign' || current?.payload !== intentTokens.get(plan)) return current === undefined;
+    if (plan.publication !== undefined) throw new MemoryError('history', 'Pending native publication retained', 'Commit its publication receipt before retiring the import intent');
+    await rm(intentPath(store)); return true;
+  });
 }
 /** Foreign private records are left byte-for-byte intact with an explicit reason. */
 export function foreignIntentResult(): PortableImportResult { return { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [{ slug: 'pending-import', reason: 'Foreign pending import record retained' }] }; }
@@ -132,6 +136,15 @@ function validIntent(plan: ImportPlan): boolean {
   });
   return batch(plan.mutations) && (plan.nodes === undefined || batch(plan.nodes));
 }
+/** Legacy plans need settled coordinators or unchanged native generations before their frozen requests are discarded. */
+async function assertLegacyIntentSettled(store: Store, plan: ImportPlan): Promise<void> {
+  const journals = await Promise.all(['', '-nodes', '-snapshot'].map(suffix => readWorkspaceTransaction(store.workspace, plan.transactionId + suffix)));
+  if (journals.every(journal => journal === undefined || journal.status === 'committed')) return;
+  const schema = await trackerSchema(store.workspace);
+  for (const expected of plan.expected) if (!sameNativeProof((await nativeState(store, expected.id)).proof, { hash: documentHash(expected.document ?? null, schema), length: expected.length, history: expected.history, version: expected.version })) {
+    throw new MemoryError('history', 'Interrupted legacy publication retained', 'Preserve its intent and journals until their completed native writes have committed receipts');
+  }
+}
 /** Legacy plans are retired without executing frozen mutations or restoring historical values. */
 export async function pendingImport(store: Store, _onStep?: PortableImportOptions['onStep'], _onTransition?: PortableImportOptions['onTransition']): Promise<undefined | 'foreign'> {
   if (store.leases.getStore() === undefined) return store.write(() => pendingImport(store, _onStep, _onTransition));
@@ -145,6 +158,7 @@ export async function pendingImport(store: Store, _onStep?: PortableImportOption
   } catch (cause) { if (cause instanceof MemoryError) throw cause; throw new MemoryError('history', 'Invalid portable import intent', 'Preserve the owned intent and restore its verified copy', { cause }); }
   intentTokens.set(plan, current.payload);
   if (plan.forwardOnly === 1) { await publishPending(store, plan, { onStep: _onStep, onTransition: _onTransition }); await retireOwnedTransaction(store, plan.transactionId, plan.author, 'attempt'); }
+  else await assertLegacyIntentSettled(store, plan);
   await appendWorkspaceAuditEvent({ pmRoot: store.workspace, op: 'memory_import_replan', author: store.author, message: plan.forwardOnly === 1 ? 'Retired interrupted forward import; retain completed writes and replan current state' : 'Discarded legacy import intent without restoring values; replan current state', context: { transactionId: plan.transactionId, format: plan.forwardOnly === 1 ? 'forward-only' : 'legacy' }, lockTtlSeconds: 120, lockWaitMs: 10000 });
   await _onStep?.('retire-audit');
   const removed = await removeIntent(store, plan); await _onStep?.('retired-intent');

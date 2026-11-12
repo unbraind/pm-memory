@@ -144,7 +144,7 @@ test('matching-field foreign and legacy workspace transactions retain their reco
   }
 });
 
-test('proven native publication leaves unmarked or foreign coordinator receipts untouched', async t => {
+test('proven native publication commits unmarked receipts and preserves foreign coordinators', async t => {
   for (const mode of ['legacy', 'foreign', 'missing'] as const) {
     const { target, plan, mutation, before } = await capturedPublication(t);
     const identity = await importIdentity(target.store, 'legacy-publication'); const stepId = 'legacy-step';
@@ -165,6 +165,11 @@ test('proven native publication leaves unmarked or foreign coordinator receipts 
         const receipt = await readWorkspaceTransaction(target.workspace, transactionId);
         assert.equal(receipt?.status, 'committed');
         assert.deepEqual(receipt?.recoveryData, { owner: 'pm-memory-forward-transaction:1', transactionId, author: plan.author, stepId });
+      } else if (mode === 'legacy') {
+        const receipt = await readWorkspaceTransaction(target.workspace, transactionId);
+        assert.equal(receipt?.status, 'committed'); assert.equal(receipt.recoveryData, undefined);
+        assert.ok(receipt.completedStepIds.includes(stepId));
+        assert.notDeepEqual(receipt, journal);
       } else assert.deepEqual(await readWorkspaceTransaction(target.workspace, transactionId), journal);
       assert.deepEqual(await nativeState(target.store, mutation.id), native);
     });

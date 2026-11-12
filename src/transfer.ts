@@ -380,6 +380,19 @@ async function policyOutputs(store: Store, active: readonly Memory[], to: Exclud
   outputs.set(to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md', Buffer.from(`<!-- pm-memory-policy:v1; keep ${POLICY_MANIFEST} -->\n${index}\n`));
   return outputs;
 }
+/** Inspect every represented field and decoded original of a record selected for publication. */
+function exportPrivacy(item: Memory): void {
+  const fields = new Map<string, string>([
+    ['title', item.title], ['slug', item.slug], ['description', item.description], ['body', item.body], ['why', item.why], ['how', item.how],
+    ...item.tags.map((value, index): [string, string] => [`tags[${index}]`, value]),
+    ...item.links.map((value, index): [string, string] => [`links[${index}]`, value]),
+  ]);
+  if (item.document !== undefined) fields.set('document.original', Buffer.from(item.document.original, 'base64').toString('utf8'));
+  for (const [field, value] of fields) {
+    try { privacy(value, true); }
+    catch (error) { const refusal = privacyRefusal(error); throw new MemoryError('privacy', `Export refused for record ${item.id}, field ${field}: ${refusal.message}`, refusal.remedy, { cause: refusal }); }
+  }
+}
 /** Export exact imported bytes when semantically unchanged, with conflict-safe native generation otherwise. */
 export async function exportDir(path: string, options: MemoryOptions & { to: Exclude<Harness, 'cursor'>; onStep?: (step: string) => void | Promise<void> }): Promise<PortableExportResult> {
   harness(options.to, true);
@@ -401,19 +414,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     }));
     const usePolicy = memories.length === 0 || memories.some(item => item.validity !== undefined || item.source === 'native:item' || item.source === 'portable:policy-v1');
     if (memories.some(item => item.consent !== undefined && !isCanceled(item) && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
-    for (const item of memories.filter(item => !isCanceled(item) && (!item.artifact || !usePolicy))) {
-      const fields = new Map<string, string>([
-        ['title', item.title], ['slug', item.slug], ['description', item.description], ['body', item.body], ['why', item.why], ['how', item.how],
-        ...item.tags.map((value, index): [string, string] => [`tags[${index}]`, value]),
-        ...item.links.map((value, index): [string, string] => [`links[${index}]`, value]),
-      ]);
-      if (item.document !== undefined) fields.set('document.original', Buffer.from(item.document.original, 'base64').toString('utf8'));
-      for (const [field, value] of fields) {
-        try { privacy(value, true); }
-        catch (error) { const refusal = privacyRefusal(error); throw new MemoryError('privacy', `Export refused for record ${item.id}, field ${field}: ${refusal.message}`, refusal.remedy, { cause: refusal }); }
-      }
-    }
-    await ensureTrackerOrigin(store); const catalog = await originCatalog(store);
+    for (const item of memories.filter(item => !isCanceled(item) && !item.artifact)) exportPrivacy(item);
     const foreignReceipt = foreign.length === 0 ? {} : { skipped: foreign.map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })) };
     const active = memories.filter(item => !isCanceled(item) && !item.artifact).sort((a, b) => a.slug.localeCompare(b.slug));
     const omitted_links: NonNullable<PortableExportResult['omitted_links']> = active.flatMap(item => item.relationships.flatMap(edge => {
@@ -443,15 +444,15 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       const losses = [...lossy, ...artifacts];
       return { exported: outputs.size, byte_preserved, ...foreignReceipt, ...(losses.length === 0 ? {} : { lossy: losses }), ...(omitted_links.length === 0 ? {} : { omitted_links }) };
     };
-    if (usePolicy) {
-      return commit(await policyOutputs(store, active, options.to, catalog), 0);
-    }
+    /** Initialize origin metadata only after the selected inventory passes its privacy checks. */
+    const policy = async () => { await ensureTrackerOrigin(store); return commit(await policyOutputs(store, active, options.to, await originCatalog(store)), 0); };
+    if (usePolicy) return policy();
     const originals = new Map(memories.filter(item => !isCanceled(item)).map(item => [item.id, item.path !== '' && !item.edited && !nativeGraphEdits.has(item.id) && item.source === `${options.to}:relative-file` ? sourceDocument(safePath(item.path), Buffer.from(item.original, 'base64'), options.to) : undefined]));
     const decodedKeys = [...originals.values()].flatMap(source => source === undefined ? [] : [source.slug]);
     if (new Set(decodedKeys).size !== decodedKeys.length) throw new MemoryError('conflict', 'Export names collide: normalized duplicate slugs', 'Rename the conflicting legacy source names before exporting');
     const indexName = options.to === 'claude-code' ? 'MEMORY.md' : 'AGENTS.md';
     const names = new Set([indexName.toLowerCase()]);
-    const records: LegacyOriginRecord[] = [];
+    const selected: { item: Memory; name: string; decoded: Source }[] = [];
     const outputs = new Map<string, Buffer>(); const emitted: { item: Memory; name: string }[] = []; const preserved = new Set<string>();
     for (const item of memories) {
       if (isCanceled(item)) continue;
@@ -461,25 +462,29 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       const unprovenGraph = source !== undefined && unreceipted.has(item.id) && (item.relationships.length > 0 || source.links.length > 0);
       if (source !== undefined && !unprovenGraph && sameContent(item, source)) {
         name = safePath(item.path); bytes = Buffer.from(item.original, 'base64'); preserved.add(name);
-      } else if (!item.artifact) return commit(await policyOutputs(store, active, options.to, catalog), 0);
+      } else if (!item.artifact) return policy();
       else continue;
-      if (name.toLowerCase() === LEGACY_ORIGINS) return commit(await policyOutputs(store, active, options.to, catalog), 0);
+      if (name.toLowerCase() === LEGACY_ORIGINS) return policy();
       const folded = name.toLowerCase();
       const originalIndex = name === indexName && item.path === name && !item.edited;
       if (outputs.has(name) || (names.has(folded) && !originalIndex)) throw new MemoryError('conflict', 'Export names collide', 'Rename the conflicting memory slug or source path, including reserved index names');
       names.add(folded);
       outputs.set(name, bytes);
       const decoded = sourceDocument(name, bytes, options.to);
-      records.push({ file: name, guidance: await policyRecord(store, item, memories, catalog), decoded: portableFields({ ...decoded, pinned: false, tags: [] }, decoded.body), links: decoded.links, artifact: item.artifact });
+      selected.push({ item, name, decoded });
       if (!item.artifact) emitted.push({ item, name });
     }
     const original = outputs.get(indexName);
     const losslessIndex = original !== undefined && (options.to === 'claude-code'
       ? currentIndex(original, emitted.map(row => row.name))
       : emitted.every(row => row.name === indexName || original.includes(outputs.get(row.name)!)));
-    if (!losslessIndex) return commit(await policyOutputs(store, active, options.to, catalog), 0);
+    if (!losslessIndex) return policy();
     const targets = new Map(emitted.map(({ item, name }) => [item.id, sourceDocument(name, outputs.get(name)!, options.to)]));
-    for (const bytes of outputs.values()) if (!exportedReferences(bytes, memories, targets).equals(bytes)) return commit(await policyOutputs(store, active, options.to, catalog), 0);
+    for (const bytes of outputs.values()) if (!exportedReferences(bytes, memories, targets).equals(bytes)) return policy();
+    for (const { item } of selected) if (item.artifact) exportPrivacy(item);
+    await ensureTrackerOrigin(store); const catalog = await originCatalog(store);
+    const records: LegacyOriginRecord[] = [];
+    for (const { item, name, decoded } of selected) records.push({ file: name, guidance: await policyRecord(store, item, memories, catalog), decoded: portableFields({ ...decoded, pinned: false, tags: [] }, decoded.body), links: decoded.links, artifact: item.artifact });
     const payload = JSON.stringify(records);
     const companion: LegacyOriginManifest = { version: 1, format: 'pm-memory-origins', harness: options.to, payload, checksum: digest(payload) };
     outputs.set(LEGACY_ORIGINS, Buffer.from(JSON.stringify(companion, null, 2) + '\n'));

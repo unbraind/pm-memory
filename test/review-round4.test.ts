@@ -78,6 +78,11 @@ test('retained artifact originals refuse secrets before publication while clean 
   });
   await assert.rejects(access(dirname(output)), { code: 'ENOENT' });
   assert.deepEqual(await snapshot(target.workspace), before);
+  const fact = (await target.store.read()).find(item => !item.artifact)!;
+  await target.client.update(fact.id, { body: 'Native body edit selects policy output' });
+  const fallback = join(target.root, 'fallback'); await exportDir(fallback, { ...target.options, to: 'claude-code' });
+  assert.ok((await readdir(fallback)).includes(POLICY_MANIFEST));
+  assert.equal((await readFile(join(fallback, POLICY_MANIFEST), 'utf8')).includes(Buffer.from(JSON.stringify({ password: literal })).toString('base64')), false);
   await remember('Native guidance selects policy output', { ...target.options, kind: 'reference', slug: 'native' });
   const policy = join(target.root, 'policy'); await exportDir(policy, { ...target.options, to: 'claude-code' });
   assert.ok((await readdir(policy)).includes(POLICY_MANIFEST));

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { WorkspaceTransactionInterruptedError } from '@unbrained/pm-cli/sdk';
-import { importDir, POLICY_MANIFEST } from '../index.ts';
+import { importDir, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import { policyBody } from '../src/portable.ts';
 import { nativeState } from '../src/native-revision.ts';
 import { savePlan } from '../src/portable-plan.ts';
@@ -22,12 +22,21 @@ for (const mode of ['own', 'foreign', 'legacy', 'prefix', 'payload'] as const) t
   assert.equal(applied.proof.version, before.proof.version, 'all SDK writes collide in modification time');
   plan.publication = { id: mutation.id, transactionId: plan.transactionId, stepId: 'publication-proof', before: mode === 'prefix' ? { ...before.proof, history: '0'.repeat(64) } : before.proof, proposed: mode === 'payload' ? '0'.repeat(64) : applied.proof.hash!, target: plan.ownership![0], ...(mode === 'legacy' ? {} : { message }) };
   const publication = plan.publication; let transitions = 0; const recoverySteps: string[] = [];
-  await target.store.write(async () => { await savePlan(target.store, plan); await publishPending(target.store, plan, { onTransition: () => { transitions++; }, onStep: step => { recoverySteps.push(step); } }); });
+  await target.store.write(async () => {
+    await savePlan(target.store, plan);
+    const publish = () => publishPending(target.store, plan, { onTransition: () => { transitions++; }, onStep: step => { recoverySteps.push(step); } });
+    if (mode === 'own') await publish();
+    else await assert.rejects(publish, error => error instanceof MemoryError && error.code === 'history');
+  });
   assert.equal(transitions > 0, mode === 'own', 'matching bytes and timestamp cannot authorize a foreign or unproven history step');
   assert.deepEqual(await nativeState(target.store, mutation.id), applied);
-  assert.equal(plan.publication, undefined); assert.ok(recoverySteps.includes('recover-recorded'));
+  assert.deepEqual(plan.publication, mode === 'own' ? undefined : publication); assert.equal(recoverySteps.includes('recover-recorded'), mode === 'own');
   plan.publication = publication;
-  await target.store.write(async () => { await savePlan(target.store, plan); await publishPending(target.store, plan); });
+  await target.store.write(async () => {
+    await savePlan(target.store, plan);
+    if (mode === 'own') await publishPending(target.store, plan);
+    else await assert.rejects(publishPending(target.store, plan), error => error instanceof MemoryError && error.code === 'history');
+  });
   assert.deepEqual(await nativeState(target.store, mutation.id), applied);
 });
 

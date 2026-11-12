@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { remember, get, importDir, exportDir, MemoryError } from '../index.ts';
 import { tracker, snapshot } from './helpers.ts';
 import { privacy } from '../src/core.ts';
-import { causeDiagnostics } from './privacy-diagnostics.ts';
+import { causeDiagnostics, refusalDiagnostics } from './privacy-diagnostics.ts';
 import { itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 
 const secret = 'SyntheticOnly123!';
@@ -13,8 +13,7 @@ const reference = '${BUILD_PASSWORD}';
 /** Keep both the diagnostic and remediation free of credential content. */
 function credentialRefusal(error: unknown): boolean {
   assert.ok(error instanceof MemoryError && error.code === 'privacy');
-  // JSON.stringify drops Error.cause, so the cause chain is checked separately.
-  assert.equal((JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause }) + causeDiagnostics(error.cause)).includes(secret), false);
+  assert.equal(refusalDiagnostics(error).includes(secret), false);
   return true;
 }
 

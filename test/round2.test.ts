@@ -81,6 +81,10 @@ test('compact recall retains a huge top result at 200 tokens, shows scores and d
   const empty = recallPacket([], [], 'anything', 200); assert.equal(empty.omitted, 0);
 });
 
+test('the multi-file remedy requires editing each listed file', () => {
+  assert.match(MULTI_FILE_REMEDY, /edit each listed file/i);
+});
+
 test('privacy preflight reports every offending relative file, whole-document location and matched class without echoing values or writing', async t => {
   const { root, options } = await tracker(t); const source = join(root, 'source'); await mkdir(source);
   await writeFile(join(source, 'email.md'), '---\nname: email-note\ndescription: person@example.test\n---\nBody\n');
