@@ -19,11 +19,11 @@ async function manifest(path: string): Promise<PortablePolicyManifest> { return 
 /** Persist a harness-side manifest edit. */
 async function save(path: string, value: unknown): Promise<void> { await writeFile(join(path, POLICY_MANIFEST), JSON.stringify(value)); }
 /** Create a real bounded source and its portable directory. */
-async function fixture(t: Parameters<typeof tracker>[0], to: 'agents-md' | 'claude-code' = 'agents-md') {
+async function fixture(t: Parameters<typeof tracker>[0], to: 'agents-md' | 'claude-code' = 'agents-md', evidence: readonly [string, string] = ['Public review alpha', 'Public review beta']) {
   const source = await tracker(t);
   await remember('Run the public checks', { ...source.options, slug: 'policy', kind: 'project', pin: true, tags: ['public'], why: 'Reproducibility', how: 'Check before delivery' });
-  await renew('policy', { ...source.options, from, until, evidence: 'Public review alpha' });
-  await renew('policy', { ...source.options, from, until, evidence: 'Public review beta' });
+  await renew('policy', { ...source.options, from, until, evidence: evidence[0] });
+  await renew('policy', { ...source.options, from, until, evidence: evidence[1] });
   const path = join(source.root, 'portable'); await exportDir(path, { ...source.options, to });
   return { ...source, path, to };
 }
@@ -37,10 +37,13 @@ async function twoPolicies(t: Parameters<typeof tracker>[0]) {
   const valid = await manifest(source.path); const row = valid.guidance.find(row => row.slug === 'second')!;
   return { source, valid, row };
 }
-/** Check that recovery retained the one policy and its latest evidence revision. */
+/** Require the recovered policy to retain the exact ordered evidence of both fixture renewals. */
 async function assertRecovered(target: Awaited<ReturnType<typeof tracker>>) {
   assert.equal((await target.store.read()).length, 1);
-  assert.equal((await get('policy', target.options)).validity!.revision, 2);
+  const item = await get('policy', target.options);
+  assert.equal(item.validity!.revision, 2);
+  assert.equal(item.validity!.evidence, 'Public review beta');
+  assert.deepEqual((await policyRecord(target.store, item)).renewals.map(row => row.evidence), ['Public review alpha', 'Public review beta']);
 }
 /** Interrupt a selected public boundary once. */
 function crashAt(boundary: string) {
@@ -379,6 +382,20 @@ test('preparation boundaries serialize a competing import and retain its complet
       await Promise.allSettled(peer === undefined ? [first] : [first, peer]);
     }
   }
+});
+
+test('recovery assertions reject swapped or dropped distinct renewal evidence', async t => {
+  await assertRecovered(await fixture(t));
+  for (const [name, evidence] of [
+    ['swapped', ['Public review beta', 'Public review alpha']],
+    ['dropped alpha', ['Public review beta', 'Public review beta']],
+  ] as const) await t.test(name, async child => {
+    const source = await fixture(child, 'agents-md', evidence);
+    const item = await get('policy', source.options);
+    assert.equal(item.validity!.revision, 2, 'Counterexamples retain the revision checked by the old assertion');
+    assert.equal((await policyRecord(source.store, item)).renewals.length, 2);
+    await assert.rejects(assertRecovered(source), assert.AssertionError);
+  });
 });
 
 test('malformed foreign Knowledge metadata cannot abort or be adopted by a portable import', async t => {
