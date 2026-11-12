@@ -113,6 +113,7 @@ function sourcePrivacy(input: readonly { path: string; bytes: Buffer }[], allowE
       offenses.push(`${source.path}:${content.includes('\n') ? 'multiline' : 'line 1'} (${failure.message})`);
     }
   }
+  if (offenses.length > 1) remedies.add('Edit each listed file before retrying');
   if (offenses.length > 0) throw new MemoryError('privacy', `Import refused: ${offenses.join('; ')}`, [...remedies].join('; '));
 }
 /** Validate an immutable legacy snapshot before reading any target state. */
