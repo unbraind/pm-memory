@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { remember, get, importDir, exportDir, MemoryError } from '../index.ts';
 import { tracker, snapshot } from './helpers.ts';
 import { privacy } from '../src/core.ts';
+import { causeDiagnostics } from './privacy-diagnostics.ts';
 import { itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 
 const secret = 'SyntheticOnly123!';
@@ -12,8 +13,8 @@ const reference = '${BUILD_PASSWORD}';
 /** Keep both the diagnostic and remediation free of credential content. */
 function credentialRefusal(error: unknown): boolean {
   assert.ok(error instanceof MemoryError && error.code === 'privacy');
-  assert.equal(JSON.stringify(error).includes(secret), false);
-  assert.equal(error.message.includes(secret), false);
+  // JSON.stringify drops Error.cause, so the cause chain is checked separately.
+  assert.equal((JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause }) + causeDiagnostics(error.cause)).includes(secret), false);
   return true;
 }
 
@@ -90,6 +91,7 @@ test('export privacy refusals identify safe native record and field without disc
       assert.ok(error instanceof MemoryError && error.code === 'privacy', `Expected privacy refusal for ${field}; received ${error instanceof MemoryError ? error.code : 'unexpected error'}`);
       credentialRefusal(error);
       assert.equal(error.message.includes(value), false);
+      assert.equal(causeDiagnostics(error.cause).includes(value), false);
       assert.ok(error instanceof MemoryError && error.message.includes(`record ${saved.id}, field ${field}:`));
       return true;
     });

@@ -101,6 +101,9 @@ function sourceReceipt(target: OwnedTarget, source: Source, scope: readonly (key
 function legacyOrigin(value: Awaited<ReturnType<typeof creationMetadata>>, source: Source, from: Harness): boolean {
   return value?.memory_source === `${from}:relative-file` && value.memory_path === source.path;
 }
+/** Guidance a source refusal adds only when it lists more than one offending file. @internal */
+export const MULTI_FILE_REMEDY = 'Edit each listed file before retrying';
+
 /** Redact credential-bearing diagnostic components without changing source admission or ordinary paths. */
 function diagnosticPath(path: string): string {
   const result = path.split('/').map(component => {
@@ -123,7 +126,7 @@ function sourcePrivacy(input: readonly { path: string; bytes: Buffer }[], allowE
       offenses.push(`${diagnosticPath(source.path)}:${content.includes('\n') ? 'multiline' : 'line 1'} (${failure.message})`);
     }
   }
-  if (offenses.length > 1) remedies.add('Edit each listed file before retrying');
+  if (offenses.length > 1) remedies.add(MULTI_FILE_REMEDY);
   if (offenses.length > 0) throw new MemoryError('privacy', `Import refused: ${offenses.join('; ')}`, [...remedies].join('; '));
 }
 /** Validate an immutable legacy snapshot before reading any target state. */
