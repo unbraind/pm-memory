@@ -3,12 +3,17 @@ title: Make portable preparation contention tests independent of writer wait tim
 description: "Run 43009567827 job 130485472749 fails as an unhandled competing-import rejection when the first import holds its writer lease beyond 30 seconds. Use explicit boundaries, immediate rejection observation and retry after release; do not relax the production lock. Separate from overlapping PR 51."
 type: Issue
 pm_format_version: 2
-status: in_progress
+status: closed
 priority: 2
 tags[3]: "gh:unbraind/pm-memory#61",release,tests
 created_at: "2026-11-11T22:00:04.895Z"
-updated_at: "2026-11-12T07:15:45.236Z"
+updated_at: "2026-11-12T15:02:34.696Z"
+closed_at: "2026-11-12T15:02:34.486Z"
+completed_at: "2026-11-12T15:02:34.486Z"
 author: codex-release-repair-1111
+resolution: Implemented and merged in #61 (b51ee00).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #61 as b51ee00; checks successful at head 0d27de6: CodeQL, codeql, release gate (22, npm), release gate (26, bun), release gate (26, npm), test (22), test (26)."
 comments[10]{created_at,author,text}:
   "2026-11-11T22:00:08.145Z",codex-release-repair-1111,"PR 51 overlaps both test/portable.test.ts and src/writer-lock.ts. It guards duplicate peer starts and observes rejection but still lets a competing import exhaust its deadline while the first runs. This repair keeps production source byte-identical: hold the first import at each exact boundary, use a zero-wait real competing attempt to assert contention, then release and retry to prove completed work is retained. The validated boundary precedes lock acquisition, so the peer completes first there. Every promise is observed immediately and drained in finally."
   "2026-11-11T22:03:20.197Z",codex-release-repair-1111,"Controlled slowness proof in a disposable copy holds the first import at read until the real peer settles, with a zero-wait budget and no sleeps. Original scheduling fails with MemoryError conflict; fixed scheduling passes. An empty registered-schema fixture now avoids repeating schema writes during each boundary case, while removing only its unused namespace before cloning preserves all origin-publication callbacks. Every discovered boundary remains asserted."
@@ -26,4 +31,5 @@ tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
   node --test --test-concurrency=2 test/portable.test.ts test/sdk-lock-protocol.test.ts,project,1200,codex-release-repair-1111,"2026-11-11T22:11:34.065Z",local_mutation,fix/deterministic-preparation-boundary-test,codex-agent,"2026-11-12T07:11:03.632Z"
 docs[1]{path,scope}:
   docs/portable-guidance-validation.md,project
+close_reason: "Delivered by #61 \"test: make portable preparation contention deterministic\" (merged as b51ee00). Checks successful at the PR head 0d27de6: CodeQL, codeql, release gate (22, npm), release gate (26, bun), release gate (26, npm), test (22), test (26)."
 body: ""
