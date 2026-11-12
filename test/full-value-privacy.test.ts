@@ -6,6 +6,7 @@ import { scanMutationSecrets } from '@unbrained/pm-cli/sdk';
 import { MemoryError, remember, get, importDir, exportDir } from '../index.ts';
 import { privacy } from '../src/core.ts';
 import { tracker, snapshot } from './helpers.ts';
+import { causeDiagnostics } from './privacy-diagnostics.ts';
 
 const secret = 'SyntheticOnly123!';
 const xml = '<password>' + secret.repeat(20) + '</password>';
@@ -17,7 +18,7 @@ const paths = ['remember', 'import agents-md', 'import claude-code', 'export age
 function refusal(error: unknown): boolean {
   assert.ok(error instanceof MemoryError && error.code === 'privacy');
   assert.match(error.message, /Credential-shaped memory refused/);
-  assert.equal(JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause }).includes(secret), false);
+  assert.equal((JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause }) + causeDiagnostics(error.cause)).includes(secret), false);
   return true;
 }
 

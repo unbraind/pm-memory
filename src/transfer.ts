@@ -101,6 +101,16 @@ function sourceReceipt(target: OwnedTarget, source: Source, scope: readonly (key
 function legacyOrigin(value: Awaited<ReturnType<typeof creationMetadata>>, source: Source, from: Harness): boolean {
   return value?.memory_source === `${from}:relative-file` && value.memory_path === source.path;
 }
+/** Redact credential-bearing diagnostic components without changing source admission or ordinary paths. */
+function diagnosticPath(path: string): string {
+  const result = path.split('/').map(component => {
+    try { privacy(component, true); return component; }
+    catch (error) { privacyRefusal(error); return '[redacted]'; }
+  }).join('/');
+  // Joining individually safe components can reconstruct a credential value.
+  try { privacy(result, true); return result; }
+  catch (error) { privacyRefusal(error); return '[redacted]'; }
+}
 /** Validate all represented raw bytes, including unknown frontmatter, before target writes. */
 function sourcePrivacy(input: readonly { path: string; bytes: Buffer }[], allowEmail?: boolean): void {
   const offenses: string[] = []; const remedies = new Set<string>();
@@ -110,7 +120,7 @@ function sourcePrivacy(input: readonly { path: string; bytes: Buffer }[], allowE
     catch (error) {
       const failure = privacyRefusal(error);
       remedies.add(failure.remedy);
-      offenses.push(`${source.path}:${content.includes('\n') ? 'multiline' : 'line 1'} (${failure.message})`);
+      offenses.push(`${diagnosticPath(source.path)}:${content.includes('\n') ? 'multiline' : 'line 1'} (${failure.message})`);
     }
   }
   if (offenses.length > 1) remedies.add('Edit each listed file before retrying');
@@ -386,8 +396,9 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       const original = document?.format === 'legacy' && document.harness === options.to && document.path === item.path ? document.original : source?.original;
       return { ...item, document, ...(original === undefined ? {} : { original }) };
     }));
+    const usePolicy = memories.length === 0 || memories.some(item => item.validity !== undefined || item.source === 'native:item' || item.source === 'portable:policy-v1');
     if (memories.some(item => item.consent !== undefined && !isCanceled(item) && !item.artifact)) throw new MemoryError('consent', 'Portable harness formats cannot preserve source consent', 'Use memory view with an explicit purpose and fields; retain its manifest for withdrawal checks');
-    for (const item of memories.filter(item => !isCanceled(item) && !item.artifact)) {
+    for (const item of memories.filter(item => !isCanceled(item) && (!item.artifact || !usePolicy))) {
       const fields = new Map<string, string>([
         ['title', item.title], ['slug', item.slug], ['description', item.description], ['body', item.body], ['why', item.why], ['how', item.how],
         ...item.tags.map((value, index): [string, string] => [`tags[${index}]`, value]),
@@ -429,7 +440,7 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
       const losses = [...lossy, ...artifacts];
       return { exported: outputs.size, byte_preserved, ...foreignReceipt, ...(losses.length === 0 ? {} : { lossy: losses }), ...(omitted_links.length === 0 ? {} : { omitted_links }) };
     };
-    if (memories.length === 0 || memories.some(item => item.validity !== undefined || item.source === 'native:item' || item.source === 'portable:policy-v1')) {
+    if (usePolicy) {
       return commit(await policyOutputs(store, active, options.to, catalog), 0);
     }
     const originals = new Map(memories.filter(item => !isCanceled(item)).map(item => [item.id, item.path !== '' && !item.edited && !nativeGraphEdits.has(item.id) && item.source === `${options.to}:relative-file` ? sourceDocument(safePath(item.path), Buffer.from(item.original, 'base64'), options.to) : undefined]));

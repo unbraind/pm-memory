@@ -229,7 +229,6 @@ function referenceSuffixCredential(value: string): boolean {
   const references = new RegExp(String.raw`(${CREDENTIAL_KEY})\s*[=:]\s*((?:\\*["'])?)(\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*))`, 'gi');
   const explanation = /\([A-Za-z]+(?: [A-Za-z,.'-]+)+\)/y;
   const scalar = /[^\s"'`<>;,)}\]]+/y;
-  const terminator = /\s*(?:[,}:\]]|$)/y;
   const boundaries = new Map<string, Int32Array>();
   let serialized: boolean | undefined;
   for (let match; (match = references.exec(value)) !== null;) {
@@ -260,8 +259,9 @@ function referenceSuffixCredential(value: string): boolean {
       continue;
     }
     // A serialized field terminator carries no adjacent literal.
-    terminator.lastIndex = end + 1;
-    if (end === beforeEscapes && terminator.test(value)) {
+    let terminator = end + 1;
+    while (terminator < value.length && /\s/.test(value[terminator])) terminator++;
+    if (end === beforeEscapes && (terminator === value.length || ',}:]'.includes(value[terminator]))) {
       if (serialized === undefined) { try { JSON.parse(value); serialized = true; } catch { serialized = false; } }
       if (serialized) continue;
     }

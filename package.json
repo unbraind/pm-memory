@@ -19,7 +19,8 @@
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
-    "ARCHITECTURE.md"
+    "ARCHITECTURE.md",
+    "docs/sdk-adoption.md"
   ],
   "scripts": {
     "build": "tsc",
@@ -104,7 +105,8 @@
     "docs": [
       "README.md",
       "CHANGELOG.md",
-      "ARCHITECTURE.md"
+      "ARCHITECTURE.md",
+      "docs/sdk-adoption.md"
     ],
     "examples": [
       "README.md"

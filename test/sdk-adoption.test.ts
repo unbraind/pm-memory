@@ -15,6 +15,7 @@ import { capturedPublication, applyCaptured } from './portable-publication-helpe
 import { nativeHost } from './native-host-helpers.ts';
 import { tracker, snapshot, readImportPlan } from './helpers.ts';
 import { privacy, digest } from '../src/core.ts';
+import { causeDiagnostics } from './privacy-diagnostics.ts';
 
 for (const host of [false, true]) test(`locked SDK revision refuses a concurrent foreign-field edit (${host ? 'host' : 'directory'})`, async t => {
   const { target, mutation } = await capturedPublication(t); let injected = false; let currentRevision = ''; let expectedHistory = '';
@@ -185,7 +186,7 @@ for (const encoding of ['raw', 'percent', 'escape', 'unicode', 'hex', 'nested', 
   const kept = await snapshot(target.workspace);
   for (const allowEmail of [false, true]) await assert.rejects(remember(fixture, { ...target.options, allowEmail, kind: 'reference' }), error => {
     assert.ok(error instanceof MemoryError); assert.equal(error.code, 'privacy');
-    assert.ok(!JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause }).includes(secret));
+    assert.ok(!(JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause }) + causeDiagnostics(error.cause)).includes(secret));
     assert.ok(!error.message.includes(fixture)); return true;
   });
   assert.deepEqual(await snapshot(target.workspace), kept);

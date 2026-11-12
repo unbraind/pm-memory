@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { remember, importDir, MemoryError } from '../index.ts';
 import { privacy } from '../src/core.ts';
 import { tracker, snapshot, exportedPolicy } from './helpers.ts';
+import { causeDiagnostics } from './privacy-diagnostics.ts';
 
 const literal = 'Zq8vN3kLmP0wXy7Ab';
 const keys = ['db_password', 'DB_PASSWORD', 'client_secret', 'GITHUB_TOKEN', 'aws_secret_access_key', 'stripe_api_key'];
@@ -22,9 +23,14 @@ const forms: Readonly<Record<string, (key: string) => string>> = {
 /** Refusals retain a safe domain diagnostic without returning credential text. */
 function refusal(error: unknown): boolean {
   assert.ok(error instanceof MemoryError && error.code === 'privacy');
-  assert.equal(JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause }).includes(literal), false);
+  assert.equal((JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause }) + causeDiagnostics(error.cause)).includes(literal), false);
   return true;
 }
+
+test('compound refusal diagnostics accept safe nested causes', () => {
+  const cause = new Error('Safe wrapper', { cause: new Error('Safe nested detail') });
+  assert.equal(refusal(new MemoryError('privacy', 'Safe refusal', 'Safe remedy', { cause })), true);
+});
 
 for (const key of keys) for (const [form, render] of Object.entries(forms)) test(`compound credential ${key} refuses ${form} before writes`, async t => {
   const body = render(key); assert.throws(() => privacy(body), refusal);

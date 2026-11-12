@@ -5,16 +5,22 @@ import { join } from 'node:path';
 import { remember, get, importDir, exportDir, MemoryError } from '../index.ts';
 import { privacy } from '../src/core.ts';
 import { tracker, snapshot } from './helpers.ts';
+import { causeDiagnostics } from './privacy-diagnostics.ts';
 
 const secret = 'SyntheticOnly123!';
 const reference = '$' + '{BUILD_PASSWORD}';
 /** Assert the shared typed refusal never echoes the supplied literal. */
 function refused(error: unknown): boolean {
   assert.ok(error instanceof MemoryError && error.code === 'privacy');
-  const diagnostic = JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause });
+  const diagnostic = JSON.stringify({ message: error.message, remedy: error.remedy, cause: error.cause }) + causeDiagnostics(error.cause);
   assert.equal(diagnostic.includes(secret), false, 'Refusal must not expose literal content');
   return true;
 }
+
+test('quoted refusal diagnostics accept safe nested causes', () => {
+  const cause = new Error('Safe wrapper', { cause: new Error('Safe nested detail') });
+  assert.equal(refused(new MemoryError('privacy', 'Safe refusal', 'Safe remedy', { cause })), true);
+});
 
 test('quoted credential keys refuse before any durable memory write', async t => {
   const target = await tracker(t); const before = await snapshot(target.workspace);

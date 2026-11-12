@@ -8,13 +8,14 @@ import { remember, get, renew, observe, importDir, exportDir, MemoryError } from
 import { privacy } from '../src/core.ts';
 import { runCommand } from '../src/commands.ts';
 import { tracker, snapshot, withoutGit } from './helpers.ts';
+import { causeDiagnostics } from './privacy-diagnostics.ts';
 
 const literal = 'SyntheticOnly123!';
 const unsafe = 'password=${X}(' + literal + ')';
 /** Check the domain refusal and its complete public diagnostic without echoing content. */
 function refused(error: unknown): boolean {
   assert.ok(error instanceof MemoryError && error.code === 'privacy');
-  assert.equal([error.message, error.remedy, String(error.cause)].some(value => value.includes(literal)), false);
+  assert.equal([error.message, error.remedy, causeDiagnostics(error.cause)].some(value => value.includes(literal)), false);
   return true;
 }
 
