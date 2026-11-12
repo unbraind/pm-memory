@@ -92,3 +92,18 @@ non-enumerable `cause` for SDK diagnostics. CLI JSON and TOON output continue to
 use the safe domain message and remedy. Content-parser refusals omit raw syntax
 errors that may contain refused input. Packed npm/Bun consumers run explicitly
 under `test:install`, outside ordinary unit and coverage discovery.
+
+Quoted JSON tokens, free-text scalars and nested wrappers share precomputed
+quote boundaries. Each backwards pass visits every character once, including
+escaped quotes and YAML doubled single quotes; malformed suffixes cannot restart
+an unbounded regex search. The 2,318-case compatibility digest is captured from
+the prior matcher, and the 100k escaped-quote regression rejects use of the old
+backtracking matcher independently of wall-clock timing.
+
+Imports and exports have a separate 16 MiB total wire-inventory limit, including
+policy and legacy-origin companions. Oversized inventories refuse with a remedy
+to split the batch. Aggregate identifier work also has a separate 32,000,000
+ceiling and a split-and-simplify remedy. Companions use that budget while decoded metadata,
+original documents and emitted body files retain complete per-value inspection
+and the 1 MiB limit. The regression inventory contains 220 benign 4 KiB files and
+round-trips through both supported export harnesses.

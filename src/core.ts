@@ -43,21 +43,31 @@ const CREDENTIAL_KEY = String.raw`(?<![A-Za-z0-9_])(?<![A-Za-z0-9]-)(?:(?:[A-Za-
 /** Reuse the shared grammar for complete decoded JSON member names. */
 const CREDENTIAL_NAME = new RegExp(String.raw`^${CREDENTIAL_KEY}$`, 'i');
 /** Bound complete-value scanner work; oversized values refuse instead of being partially inspected. */
-function privacySize(value: string): void {
-  if (Buffer.byteLength(value) > 1024 * 1024) throw new MemoryError('privacy', 'Memory privacy scan size limit exceeded', 'Use at most 1 MiB per inspected value and simplify excessively long dotted or hyphenated identifiers');
+function privacySize(value: string, aggregate = false): void {
+  if (aggregate) aggregateSize(Buffer.byteLength(value));
+  if (!aggregate && Buffer.byteLength(value) > 1024 * 1024) throw new MemoryError('privacy', 'Memory privacy scan size limit exceeded', 'Use at most 1 MiB per inspected value and simplify excessively long dotted or hyphenated identifiers');
   let work = 0;
   for (const [identifier] of value.matchAll(/[A-Za-z0-9_.-]+/g)) {
     let separators = 0;
     for (const character of identifier) if (character === '.' || character === '-') separators++;
     work += identifier.length * separators;
-    if (work > 2_000_000) throw new MemoryError('privacy', 'Memory privacy scan size limit exceeded', 'Use at most 1 MiB per inspected value and simplify excessively long dotted or hyphenated identifiers');
+    if (aggregate && work > 32_000_000) throw new MemoryError('privacy', 'Memory aggregate scan work limit exceeded', 'Split the inventory and simplify excessively long dotted or hyphenated identifiers');
+    if (!aggregate && work > 2_000_000) throw new MemoryError('privacy', 'Memory privacy scan size limit exceeded', 'Use at most 1 MiB per inspected value and simplify excessively long dotted or hyphenated identifiers');
   }
 }
 /** Refuse the union of complete SDK credential findings and complete local-policy matches before persistence. */
-export function privacy(value: string, allowEmail = false): void {
-  privacySize(value);
+export function privacy(value: string, allowEmail = false): void { inspectPrivacy(value, allowEmail, false); }
+/** Bound the complete wire inventory independently of each decoded memory value. */
+export function aggregateSize(bytes: number): void {
+  if (bytes > 16 * 1024 * 1024) throw new MemoryError('privacy', 'Memory aggregate size limit exceeded', 'Split the import or export into inventories of at most 16 MiB including companion manifests');
+}
+/** Inspect a bounded wire companion without imposing the decoded-value byte ceiling. */
+export function aggregatePrivacy(value: string, allowEmail = false): void { inspectPrivacy(value, allowEmail, true); }
+/** Preserve complete credential and email policy under the appropriate resource budget. */
+function inspectPrivacy(value: string, allowEmail: boolean, aggregate: boolean): void {
+  privacySize(value, aggregate);
   for (const view of credentialViews(value)) {
-    privacySize(view);
+    privacySize(view, aggregate);
     if (sharedSecret(view) || supplementalCredential(view)) throw new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
   }
   if (!allowEmail && value.includes('@') && /\b[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,63}\b/i.test(value)) throw new MemoryError('privacy', 'Email address refused', 'Remove addresses or explicitly use --allow-email');
@@ -101,6 +111,17 @@ function credentialLiteral(name: string, value: string): boolean {
   if (trimmed === '[scrubbed]' || /^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/.test(trimmed) || /^<(?:redacted|[A-Za-z]+(?:[ _-][A-Za-z]+)+)>$/i.test(trimmed)) return false;
   return value.length >= 8 || normalized.length >= 8 || sharedSecret((name.toLowerCase() === '_authtoken' ? '_authToken' : name) + '=' + normalized);
 }
+/** Precompute greedy quote ends in one backwards pass; zero is invalid and negative is unterminated. */
+function quoteEnds(value: string, quote: string): Int32Array {
+  const ends = new Int32Array(value.length + 2); ends[value.length] = -value.length - 1;
+  for (let at = value.length - 1; at >= 0; at--) {
+    const character = value[at];
+    if (character === '\\') ends[at] = at + 1 < value.length && !/[\n\r\u2028\u2029]/.test(value[at + 1]) ? ends[at + 2] : 0;
+    else if (character === quote) ends[at] = quote === "'" && value[at + 1] === quote && ends[at + 2] !== 0 ? ends[at + 2] : at + 1;
+    else ends[at] = ends[at + 1];
+  }
+  return ends;
+}
 /** Inspect quoted scalar keys and bounded JSON string wrappers without copying SDK provider grammars. */
 function quotedAssignmentCredential(value: string, depth = 0): boolean {
   const signal = new RegExp(String.raw`["']${CREDENTIAL_KEY}\\*["']\s*[=:]`, 'i');
@@ -113,24 +134,26 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
   };
   let parsed: unknown; let valid = false;
   const names = new Map<string, string>();
+  const doubleEnds = quoteEnds(value, '"');
   try {
     // Give every JSON member a unique inspection key so duplicate assignments,
     // including object/array values, survive parsing with their original context.
     // Match only at the next quote; a failed token ends JSON inspection instead
     // of retrying every escaped quote in the same unterminated suffix.
-    const token = /"(?:\\.|[^"\\])*"(\s*:)?/y; const parts: string[] = []; let kept = 0;
+    const parts: string[] = []; let kept = 0;
     for (let cursor = value.indexOf('"'); cursor >= 0; cursor = value.indexOf('"', kept)) {
-      token.lastIndex = cursor;
-      const found = token.exec(value);
-      if (found === null) throw new SyntaxError('Unterminated JSON string');
+      const end = doubleEnds[cursor + 1];
+      if (end <= 0) throw new SyntaxError('Unterminated JSON string');
+      let colon = end; while (colon < value.length && /\s/.test(value[colon])) colon++;
+      const member = value[colon] === ':';
       parts.push(value.slice(kept, cursor));
-      if (found[1] === undefined) parts.push(found[0]);
+      if (!member) parts.push(value.slice(cursor, end));
       else {
-        const name = JSON.parse(found[0].slice(0, -found[1].length)) as string;
+        const name = JSON.parse(value.slice(cursor, end)) as string;
         const key = String(names.size); names.set(key, name);
-        parts.push(JSON.stringify(key) + found[1]);
+        parts.push(JSON.stringify(key) + value.slice(end, colon + 1));
       }
-      kept = token.lastIndex;
+      kept = member ? colon + 1 : end;
     }
     parts.push(value.slice(kept));
     const distinct = parts.join('');
@@ -155,22 +178,37 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
     }
     return false;
   }
-  for (const match of value.matchAll(new RegExp(String.raw`(["'])(${CREDENTIAL_KEY})\1\s*[=:]\s*("(?:\\.|[^"\\])*(?:"|$)|'(?:''|\\.|[^'\\])*(?:'|$)|[^\s"'\x60<>]+)`, 'gi'))) {
-    let literal = match[3];
+  const singleEnds = quoteEnds(value, "'");
+  const assignments = new RegExp(String.raw`(["'])(${CREDENTIAL_KEY})\1\s*[=:]\s*`, 'gi');
+  const unquoted = /[^\s"'`<>]+/y;
+  for (let match; (match = assignments.exec(value)) !== null;) {
+    const start = match.index + match[0].length;
+    let end: number;
+    if (value[start] === '"' || value[start] === "'") {
+      end = (value[start] === '"' ? doubleEnds : singleEnds)[start + 1];
+      if (end === 0) continue;
+      if (end < 0) end = value.length;
+    } else {
+      unquoted.lastIndex = start; const found = unquoted.exec(value);
+      if (found === null) continue;
+      end = unquoted.lastIndex;
+    }
+    assignments.lastIndex = end;
+    let literal = value.slice(start, end);
     if (literal.startsWith('"')) { try { literal = JSON.parse(literal) as string; } catch { literal = literal.slice(1, literal.endsWith('"') ? -1 : undefined); } }
     else if (literal.startsWith("'")) literal = literal.slice(1, literal.endsWith("'") ? -1 : undefined).replace(/''/g, "'");
     if (credentialLiteral(match[2], literal)) return true;
   }
   // Inspect each adjacent unescaped quote pair, including a previous closing quote
   // as the next opening quote. Each span is scanned once, even after stray prose quotes.
-  const token = /"(?:\\.|[^"\\])*"/y; const remainder: string[] = []; let kept = 0;
+  const remainder: string[] = []; let kept = 0;
   for (let cursor = 0; cursor < value.length; cursor++) {
     if (value[cursor] !== '"') continue;
-    token.lastIndex = cursor; const match = token.exec(value); if (match === null) break;
+    const end = doubleEnds[cursor + 1]; if (end <= 0) break;
     let decoded: string;
-    try { decoded = JSON.parse(match[0]) as string; } catch { cursor = token.lastIndex - 2; continue; }
+    try { decoded = JSON.parse(value.slice(cursor, end)) as string; } catch { cursor = end - 2; continue; }
     if (nested(decoded)) return true;
-    remainder.push(value.slice(kept, cursor)); kept = token.lastIndex; cursor = token.lastIndex - 2;
+    remainder.push(value.slice(kept, cursor)); kept = end; cursor = end - 2;
   }
   remainder.push(value.slice(kept));
   const unresolved = remainder.join('');

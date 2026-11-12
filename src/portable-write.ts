@@ -105,7 +105,14 @@ class CompletedInput extends Error {}
 async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMutation, target: OwnedTarget, base: ItemDocument | null, options: PortableImportOptions, stepId: string): Promise<void> {
   const identity = await importIdentity(store, plan.input); let completed: NativeProof | undefined;
   await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${identity.transactionId}-snapshot`, recoveryData: portableRecoveryData(`${identity.transactionId}-snapshot`, plan.author, stepId), steps: [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply: async () => {
-  const revision = mutation.op === 'update' ? await readItemRevision(mutation.id, { pmRoot: store.workspace }) : undefined;
+  let revision: Awaited<ReturnType<typeof readItemRevision>> | undefined;
+  if (mutation.op === 'update') {
+    try { revision = await readItemRevision(mutation.id, { pmRoot: store.workspace }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException | null)?.code !== 'ENOENT' || (await nativeState(store, mutation.id)).document !== null) throw error;
+      throw new ImportMoved(importConflict(mutation.id, ['id'], { id: base?.metadata.id }, { id: undefined }));
+    }
+  }
   const initial = await nativeState(store, mutation.id);
   if (mutation.op === 'create' && initial.document !== null || mutation.op === 'update' && initial.document === null) throw new ImportMoved(importConflict(mutation.id, ['id'], { id: base?.metadata.id }, { id: initial.document?.metadata.id }));
   assertBase(mutation.id, base, initial.document, initial.document);

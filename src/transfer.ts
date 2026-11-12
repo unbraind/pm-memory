@@ -8,7 +8,7 @@ import type { Stats } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
-import { digest, MemoryError, privacy, privacyRefusal } from './core.ts';
+import { digest, MemoryError, privacy, privacyRefusal, aggregateSize, aggregatePrivacy } from './core.ts';
 import { metadata, Store } from './store.ts';
 import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, policyPayload, policyParts, ownedMemories, readImportSnapshot, closeSkips, appendImportSkips, parsePolicy, guidanceOrigin } from './portable.ts';
 import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship, LegacyPortableSource } from './portable.ts';
@@ -57,12 +57,16 @@ export function harness(value: unknown, exporting = false): Harness {
   return value as Harness;
 }
 /** Read regular source files recursively; symlinks and special files fail closed. */
-async function sources(path: string, prefix = ''): Promise<{ path: string; bytes: Buffer }[]> {
+async function sources(path: string, prefix = '', size = { bytes: 0 }): Promise<{ path: string; bytes: Buffer }[]> {
   const stat = await lstat(path);
-  if (stat.isFile()) return [{ path: safePath(prefix || basename(path)), bytes: await readFile(path) }];
+  if (stat.isFile()) {
+    aggregateSize(size.bytes + stat.size);
+    const bytes = await readFile(path); size.bytes += bytes.length; aggregateSize(size.bytes);
+    return [{ path: safePath(prefix || basename(path)), bytes }];
+  }
   if (!stat.isDirectory()) throw new MemoryError('path', 'Non-regular import source refused', 'Copy regular memory files to a dedicated import directory');
   const result: { path: string; bytes: Buffer }[] = [];
-  for (const entry of (await readdir(path)).sort()) result.push(...await sources(join(path, entry), prefix ? `${prefix}/${entry}` : entry));
+  for (const entry of (await readdir(path)).sort()) result.push(...await sources(join(path, entry), prefix ? `${prefix}/${entry}` : entry, size));
   return result;
 }
 /** Original bytes must reproduce all portable fields, including implicit legacy defaults. */
@@ -99,16 +103,17 @@ function legacyOrigin(value: Awaited<ReturnType<typeof creationMetadata>>, sourc
 }
 /** Validate all represented raw bytes, including unknown frontmatter, before target writes. */
 function sourcePrivacy(input: readonly { path: string; bytes: Buffer }[], allowEmail?: boolean): void {
-  const offenses: string[] = [];
+  const offenses: string[] = []; const remedies = new Set<string>();
   for (const source of input) {
     const content = source.bytes.toString('utf8');
     try { privacy(content, allowEmail); }
     catch (error) {
       const failure = privacyRefusal(error);
+      remedies.add(failure.remedy);
       offenses.push(`${source.path}:${content.includes('\n') ? 'multiline' : 'line 1'} (${failure.message})`);
     }
   }
-  if (offenses.length > 0) throw new MemoryError('privacy', `Import refused: ${offenses.join('; ')}`, 'Edit each listed file to remove credentials or addresses; --allow-email permits email addresses only');
+  if (offenses.length > 0) throw new MemoryError('privacy', `Import refused: ${offenses.join('; ')}`, [...remedies].join('; '));
 }
 /** Validate an immutable legacy snapshot before reading any target state. */
 export function parseLegacyOrigins(value: unknown, from: Harness): LegacyOriginRecord[] {
@@ -409,7 +414,11 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     });
     /** Publication and receipts have one lease-fenced path for both wire encodings. */
     const commit = async (outputs: Map<string, Buffer>, byte_preserved: number): Promise<PortableExportResult> => {
-      for (const bytes of outputs.values()) privacy(bytes.toString('utf8'), true);
+      aggregateSize([...outputs.values()].reduce((size, bytes) => size + bytes.length, 0));
+      for (const [name, bytes] of outputs) {
+        if (name === POLICY_MANIFEST || name === LEGACY_ORIGINS) aggregatePrivacy(bytes.toString('utf8'), true);
+        else privacy(bytes.toString('utf8'), true);
+      }
       await store.fence(() => publish(resolve(path), outputs, options.onStep));
       const artifacts: NonNullable<PortableExportResult['lossy']> = outputs.has(POLICY_MANIFEST) ? memories.filter(item => item.artifact && !isCanceled(item)).map(item => ({ slug: item.slug, fields: ['slug', ...PORTABLE_FIELDS, 'relationships', 'artifact', ...(item.document === undefined ? [] : ['document' as const])], reason: 'Native index artifact is regenerated; its record is outside this policy inventory' })) : [];
       const losses = [...lossy, ...artifacts];

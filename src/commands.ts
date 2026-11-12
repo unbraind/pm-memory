@@ -39,7 +39,7 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     const refusal = error instanceof MemoryError ? error : new MemoryError('sdk', 'Memory operation could not complete', 'Check source permissions, tracker integrity and pm health before retrying', { cause: error });
     // Privacy refusals must also replace the host's default argv recovery bundle,
     // which otherwise echoes refused operands and flag values in every output format.
-    throw createPmCliExpectedError(`memory ${refusal.code}: ${refusal.message}. Remedy: ${refusal.remedy}`, { exitCode: refusal.code === 'privacy' ? 4 : refusal.code === 'duplicate' || refusal.code === 'conflict' ? 3 : 2, context: { code: refusal.code, required: refusal.remedy, ...(refusal.code === 'privacy' ? { recovery: { attempted_command: `pm memory ${command} [redacted]`, normalized_args: ['memory', command], provided_fields: [] } } : {}) } });
+    throw createPmCliExpectedError(`memory ${refusal.code}: ${refusal.message}. Remedy: ${refusal.remedy}`, { ...(refusal.code === 'privacy' ? {} : { cause: error }), exitCode: refusal.code === 'privacy' ? 4 : refusal.code === 'duplicate' || refusal.code === 'conflict' ? 3 : 2, context: { code: refusal.code, required: refusal.remedy, ...(refusal.code === 'privacy' ? { recovery: { attempted_command: `pm memory ${command} [redacted]`, normalized_args: ['memory', command], provided_fields: [] } } : {}) } });
   }
 }
 /** Native flag descriptions include concrete examples in every option's help entry. */
