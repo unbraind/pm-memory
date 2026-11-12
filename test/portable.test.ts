@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { WorkspaceTransactionInterruptedError, getHistoryPath, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import { remember, renew, get, guidanceState, exportDir, importDir, parsePolicy, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest, PortableGuidance } from '../index.ts';
+import { TRACKER_ORIGIN_FILE } from '../src/portable-origin.ts';
 import { policyRecord, policyBody, importPolicy } from '../src/portable.ts';
-import { tracker, snapshot, installExtension, gitlessCli } from './helpers.ts';
+import { tracker, clonedTracker, snapshot, installExtension, gitlessCli } from './helpers.ts';
 
 const from = '2026-10-01T00:00:00.000Z';
 const until = '2026-11-01T00:00:00.000Z';
@@ -18,11 +19,11 @@ async function manifest(path: string): Promise<PortablePolicyManifest> { return 
 /** Persist a harness-side manifest edit. */
 async function save(path: string, value: unknown): Promise<void> { await writeFile(join(path, POLICY_MANIFEST), JSON.stringify(value)); }
 /** Create a real bounded source and its portable directory. */
-async function fixture(t: Parameters<typeof tracker>[0], to: 'agents-md' | 'claude-code' = 'agents-md') {
+async function fixture(t: Parameters<typeof tracker>[0], to: 'agents-md' | 'claude-code' = 'agents-md', evidence: readonly [string, string] = ['Public review alpha', 'Public review beta']) {
   const source = await tracker(t);
   await remember('Run the public checks', { ...source.options, slug: 'policy', kind: 'project', pin: true, tags: ['public'], why: 'Reproducibility', how: 'Check before delivery' });
-  await renew('policy', { ...source.options, from, until, evidence: 'Public review alpha' });
-  await renew('policy', { ...source.options, from, until, evidence: 'Public review beta' });
+  await renew('policy', { ...source.options, from, until, evidence: evidence[0] });
+  await renew('policy', { ...source.options, from, until, evidence: evidence[1] });
   const path = join(source.root, 'portable'); await exportDir(path, { ...source.options, to });
   return { ...source, path, to };
 }
@@ -36,10 +37,13 @@ async function twoPolicies(t: Parameters<typeof tracker>[0]) {
   const valid = await manifest(source.path); const row = valid.guidance.find(row => row.slug === 'second')!;
   return { source, valid, row };
 }
-/** Check that recovery retained the one policy and its latest evidence revision. */
+/** Require the recovered policy to retain the exact ordered evidence of both fixture renewals. */
 async function assertRecovered(target: Awaited<ReturnType<typeof tracker>>) {
   assert.equal((await target.store.read()).length, 1);
-  assert.equal((await get('policy', target.options)).validity!.revision, 2);
+  const item = await get('policy', target.options);
+  assert.equal(item.validity!.revision, 2);
+  assert.equal(item.validity!.evidence, 'Public review beta');
+  assert.deepEqual((await policyRecord(target.store, item)).renewals.map(row => row.evidence), ['Public review alpha', 'Public review beta']);
 }
 /** Interrupt a selected public boundary once. */
 function crashAt(boundary: string) {
@@ -343,13 +347,55 @@ test('conflicting historical evidence refuses export and unrelated removed metad
 test('preparation boundaries serialize a competing import and retain its completed work', async t => {
   const source = await fixture(t); const probe = await tracker(t); const steps: string[] = [];
   await importDir(source.path, { ...probe.options, from: 'agents-md', onStep: step => { steps.push(preparationBoundary(step)); } });
+  // Reuse an empty registered schema; every boundary still fires on each independent tracker.
+  const template = await tracker(t); await template.store.register();
+  // No item uses this empty template namespace; each clone must exercise origin publication too.
+  await rm(join(template.workspace, TRACKER_ORIGIN_FILE));
+  // Contention is an immediate typed result, independent of runner speed or the 30s production ceiling.
+  const previousWait = process.env.PM_LOCK_WAIT_MS; process.env.PM_LOCK_WAIT_MS = '0';
+  t.after(() => { if (previousWait === undefined) delete process.env.PM_LOCK_WAIT_MS; else process.env.PM_LOCK_WAIT_MS = previousWait; });
   for (const boundary of new Set(steps)) {
-    const target = await tracker(t); let peer: ReturnType<typeof importDir> | undefined;
-    const first = await importDir(source.path, { ...target.options, from: 'agents-md', onStep: step => { if (preparationBoundary(step) === boundary) peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' }); } });
-    assert.ok(peer); const second = await peer;
-    assert.equal(first.imported + second.imported, 1);
-    await assertRecovered(target);
+    const target = await clonedTracker(t, template);
+    const reached = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
+    let paused = false;
+    const first = importDir(source.path, { ...target.options, from: 'agents-md', onStep: async step => {
+      if (!paused && preparationBoundary(step) === boundary) { paused = true; reached.resolve(); await resume.promise; }
+    } });
+    // A failure before the selected boundary is still awaited, never left as an unhandled rejection.
+    void first.catch(() => undefined);
+    let peer: ReturnType<typeof importDir> | undefined;
+    try {
+      const state = await Promise.race([reached.promise.then(() => 'paused'), first.then(() => 'finished', () => 'failed')]);
+      assert.equal(state, 'paused', `First import must reach ${boundary}`);
+      peer = importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' });
+      // Attach both outcomes in the same turn while the first import remains blocked on the barrier.
+      const attempt = await peer.then(result => ({ result, error: undefined }), (error: unknown) => ({ result: undefined, error }));
+      if (boundary === 'validated') assert.ok(attempt.result, 'Validation precedes the writer lease, so the peer finishes first');
+      else assert.ok(attempt.error instanceof MemoryError && attempt.error.code === 'conflict', `Writer must serialize ${boundary}`);
+      resume.resolve();
+      const firstResult = await first;
+      const second = attempt.result ?? await importDir(source.path, { ...target.options, author: 'peer', from: 'agents-md' });
+      assert.equal(firstResult.imported + second.imported, 1);
+      await assertRecovered(target);
+    } finally {
+      resume.resolve();
+      await Promise.allSettled(peer === undefined ? [first] : [first, peer]);
+    }
   }
+});
+
+test('recovery assertions reject swapped or dropped distinct renewal evidence', async t => {
+  await assertRecovered(await fixture(t));
+  for (const [name, evidence] of [
+    ['swapped', ['Public review beta', 'Public review alpha']],
+    ['dropped alpha', ['Public review beta', 'Public review beta']],
+  ] as const) await t.test(name, async child => {
+    const source = await fixture(child, 'agents-md', evidence);
+    const item = await get('policy', source.options);
+    assert.equal(item.validity!.revision, 2, 'Counterexamples retain the revision checked by the old assertion');
+    assert.equal((await policyRecord(source.store, item)).renewals.length, 2);
+    await assert.rejects(assertRecovered(source), assert.AssertionError);
+  });
 });
 
 test('malformed foreign Knowledge metadata cannot abort or be adopted by a portable import', async t => {
