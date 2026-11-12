@@ -2,13 +2,14 @@ id: pm-memory-preparation-boundary-barriers
 title: Make portable preparation contention tests independent of writer wait timing
 description: "Run 43009567827 job 130485472749 fails as an unhandled competing-import rejection when the first import holds its writer lease beyond 30 seconds. Use explicit boundaries, immediate rejection observation and retry after release; do not relax the production lock. Separate from overlapping PR 51."
 type: Issue
+pm_format_version: 2
 status: in_progress
 priority: 2
-tags[2]: release,tests
+tags[3]: "gh:unbraind/pm-memory#61",release,tests
 created_at: "2026-11-11T22:00:04.895Z"
-updated_at: "2026-11-12T00:16:08.938Z"
+updated_at: "2026-11-12T07:15:45.236Z"
 author: codex-release-repair-1111
-comments[7]{created_at,author,text}:
+comments[10]{created_at,author,text}:
   "2026-11-11T22:00:08.145Z",codex-release-repair-1111,"PR 51 overlaps both test/portable.test.ts and src/writer-lock.ts. It guards duplicate peer starts and observes rejection but still lets a competing import exhaust its deadline while the first runs. This repair keeps production source byte-identical: hold the first import at each exact boundary, use a zero-wait real competing attempt to assert contention, then release and retry to prove completed work is retained. The validated boundary precedes lock acquisition, so the peer completes first there. Every promise is observed immediately and drained in finally."
   "2026-11-11T22:03:20.197Z",codex-release-repair-1111,"Controlled slowness proof in a disposable copy holds the first import at read until the real peer settles, with a zero-wait budget and no sleeps. Original scheduling fails with MemoryError conflict; fixed scheduling passes. An empty registered-schema fixture now avoids repeating schema writes during each boundary case, while removing only its unused namespace before cloning preserves all origin-publication callbacks. Every discovered boundary remains asserted."
   "2026-11-11T22:15:13.645Z",codex-release-repair-1111,"Twenty consecutive complete boundary runs passed. The full portable plus SDK-lock linked run hit the pm runner default 120-second timeout, without a complete test receipt; this is not a passing gate. Rerun uses an explicit 1200-second linked-run timeout within the requested 20-minute cap."
@@ -16,10 +17,13 @@ comments[7]{created_at,author,text}:
   "2026-11-12T00:00:15.140Z",codex-release-repair-1111,"Round 2: read PRRT_kwDOVPw2oc62YY8B in full. Worktree is clean; origin/main has no commits missing from this branch, so no merge is needed. Assert both renewal evidence strings in order and latest validity evidence, preserving the deterministic contention protocol and unchanged production lock. Add a swapped/dropped evidence mutation proof on real fixture data."
   "2026-11-12T00:11:38.411Z",codex-release-repair-1111,"Round 2 proof: exact latest evidence is Public review beta, and the complete ordered renewal evidence is Public review alpha then Public review beta. New real fixtures preserve revision 2 and two slots while swapping the strings or dropping alpha by replacing it with beta. Reverting only assertRecovered to its prior count/revision checks makes both counterexample subtests fail with missing expected rejection; restored checks pass all 3 mutation-proof tests. Deterministic contention focused gate also passed. Lint/typecheck pass; no production files changed."
   "2026-11-12T00:16:08.066Z",codex-release-repair-1111,"Round 2 final scoped gate passes 29/29 across the complete portable and SDK lock test files, zero failures/skips (253 seconds, explicit 1200-second cap). Lint and source/test typecheck pass. Both swapped and dropped-alpha fixtures retain revision 2 and two renewal slots; each fails when only assertRecovered is reverted, and passes with exact latest/ordered evidence checks. Production writer-lock source is unchanged. The original 20-run scheduling receipt remains from the prior head; it was not redundantly repeated this round. PRRT_kwDOVPw2oc62YY8B remains open for the orchestrator."
+  "2026-11-12T07:11:02.365Z",codex-agent,"Addressing CodeRabbit thread PRRT_kwDOVPw2oc62evc4: set the existing preparation-boundary linked test timeout to 1200 seconds, verify exactly one unchanged command remains, then run it once and check the generated changelog."
+  "2026-11-12T07:15:29.673Z",codex-agent,"Verified through CLI read-back and assertions: exactly one linked test remains, with the unchanged command node --test --test-concurrency=2 test/portable.test.ts test/sdk-lock-protocol.test.ts and timeout_seconds 1200. Ran pm test pm-memory-preparation-boundary-barriers --run --progress exactly once: exit 0, 29 passed, zero failures/cancellations/skips, 251510 ms runner duration; runner confirmed timeout_ms=1200000. History remains an append-only extension. PRRT_kwDOVPw2oc62evc4 is addressed by the stored timeout; no thread action performed. Validation scope is the requested linked run and changelog check."
+  "2026-11-12T07:15:45.217Z",codex-agent,"Changelog generation produced no tracked change and npm run changelog:check passed. Only this tracker item and its append-only history change; leaving the item in_progress and unclaimed for orchestrator verification."
 files[1]{path,scope}:
   test/portable.test.ts,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
-  node --test --test-concurrency=2 test/portable.test.ts test/sdk-lock-protocol.test.ts,project,codex-release-repair-1111,"2026-11-11T22:11:34.065Z",local_mutation,fix/deterministic-preparation-boundary-test
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref},updated_by,updated_at}:
+  node --test --test-concurrency=2 test/portable.test.ts test/sdk-lock-protocol.test.ts,project,1200,codex-release-repair-1111,"2026-11-11T22:11:34.065Z",local_mutation,fix/deterministic-preparation-boundary-test,codex-agent,"2026-11-12T07:11:03.632Z"
 docs[1]{path,scope}:
   docs/portable-guidance-validation.md,project
 body: ""
