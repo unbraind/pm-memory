@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { access, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { isPmCliExpectedError } from '@unbrained/pm-cli/sdk';
+import { isPmCliExpectedError, scanMutationSecrets } from '@unbrained/pm-cli/sdk';
 import type { CommandHandlerContext } from '@unbrained/pm-cli/sdk/authoring';
 import { remember, get, renew, observe, importDir, exportDir, MemoryError } from '../index.ts';
 import { privacy } from '../src/core.ts';
@@ -14,7 +14,7 @@ const unsafe = 'password=${X}(' + literal + ')';
 /** Check the domain refusal and its complete public diagnostic without echoing content. */
 function refused(error: unknown): boolean {
   assert.ok(error instanceof MemoryError && error.code === 'privacy');
-  assert.equal(JSON.stringify(error).includes(literal), false);
+  assert.equal([error.message, error.remedy, String(error.cause)].some(value => value.includes(literal)), false);
   return true;
 }
 
@@ -36,6 +36,75 @@ test('reference exemptions preserve literal context across assignment and transp
   privacy('password=${X}' + bounded);
   for (const suffix of [bounded + literal, bounded.slice(0, -1) + 'b)', '(x)']) assert.throws(() => privacy('password=${X}' + suffix), refused);
   for (const value of ['password=${X}', 'password="${X}"', 'passphrase=short', 'password=${X}(provided by the environment)', 'password=${X}(provided by the environment); more guidance', 'password=${X}(provided by the environment)\npassword=${BUILD_SECRET}', 'password=${X}(provided by the environment)"']) privacy(value);
+});
+
+test('reference boundaries inspect adjacent quoted literals and preserve pure reference twins', () => {
+  for (const key of ['password', 'passphrase', 'api_key', 'client_secret', '_authToken']) {
+    for (const reference of ['${X}', '$BUILD_SECRET', '${BUILD_SECRET}(provided by the environment)']) {
+      for (const outer of ['', '"', "'"]) for (const quote of ['"', "'"]) {
+        const prefix = key + '=' + outer + reference + outer;
+        const value = prefix + quote + literal + quote;
+        for (const encoded of [value, JSON.stringify(value), prefix + quote + literal, [...value].map(char => '%' + char.charCodeAt(0).toString(16)).join(''), value.replaceAll('"', '\\u0022').replaceAll("'", '\\u0027')]) assert.throws(() => privacy(encoded, true), refused);
+        for (const twin of [prefix, prefix + quote + '${NEXT_SECRET}' + quote]) if (scanMutationSecrets(twin).length === 0) privacy(twin, true);
+      }
+    }
+  }
+  privacy('password=${X}"${Y}"; api_key=${Z}"${Q}"');
+  assert.throws(() => privacy('password=${X}"${Y}"; api_key=${Z}"' + literal + '"'), refused);
+  privacy(JSON.stringify({ note: 'password=${X}' }, null, 2));
+  privacy(JSON.stringify({ first: 'password=${X}', second: 'api_key=${Y}' }, null, 2));
+  privacy('password=${X}"}"; api_key=${Y}"}"'); privacy('password="${X}"ab');
+  for (const leading of ['}', ',', ']', ':']) {
+    const value = 'password=${X}"' + leading + literal + '"';
+    for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
+  }
+  for (const quote of ['"', "'"]) assert.throws(() => privacy('password=' + quote + '${X}' + quote + literal), refused);
+  for (const quote of ['"', "'"]) {
+    for (const ending of [quote, '']) {
+      const value = 'password=' + quote + '${BUILD_PASSWORD} ' + literal + ending;
+      for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
+      privacy('password=' + quote + '${BUILD_PASSWORD} ' + ending);
+    }
+    privacy(JSON.stringify('password=' + quote + '${BUILD_PASSWORD} ' + quote));
+    assert.throws(() => privacy('password=' + quote + '${X} ' + quote + literal), refused);
+  }
+});
+
+test('complete annotated references under quoted credential keys survive native admission and both transfers', async t => {
+  const target = await tracker(t); withoutGit(t, target.root);
+  const reference = '${BUILD_PASSWORD}(provided by the environment)';
+  for (const [index, value] of [JSON.stringify({ password: reference }), "'password': '" + reference + "'", JSON.stringify({ nested: [{ api_key: reference }] }), JSON.stringify({ config: { note: 'password=${BUILD_PASSWORD}' } }, null, 8)].entries()) {
+    privacy(value);
+    await remember(value, { ...target.options, kind: 'reference', slug: 'annotated-' + index, forceNew: true });
+    const supplied = value.includes(reference) ? reference : '${BUILD_PASSWORD}';
+    assert.throws(() => privacy(value.replace(supplied, supplied + literal)), refused);
+  }
+  for (const to of ['agents-md', 'claude-code'] as const) {
+    const directory = join(target.root, to); await exportDir(directory, { ...target.options, to });
+    const fresh = await tracker(t);
+    assert.equal((await importDir(directory, { ...fresh.options, from: to })).imported, 4);
+    assert.deepEqual((await fresh.store.read()).map(row => row.body).sort(), (await target.store.read()).map(row => row.body).sort());
+  }
+});
+
+test('quoted literal after a reference refuses every entry path without writes while pure twins survive', async t => {
+  const target = await tracker(t); const value = 'password=${X}"' + literal + '"';
+  const before = await snapshot(target.workspace);
+  await assert.rejects(remember(value, { ...target.options, kind: 'reference' }), refused);
+  const input = join(target.root, 'adjacent.md'); await writeFile(input, value);
+  for (const from of ['agents-md', 'claude-code'] as const) await assert.rejects(importDir(input, { ...target.options, from }), refused);
+  const ctx = { command: 'memory remember', pm_root: target.workspace, args: [value], options: { kind: 'reference' }, global: {} } as CommandHandlerContext;
+  await assert.rejects(runCommand('remember', ctx), error => {
+    assert.ok(isPmCliExpectedError(error)); assert.equal(error.exitCode, 4);
+    assert.equal(error.cause, undefined); assert.equal((String(error) + JSON.stringify(error)).includes(literal), false); return true;
+  });
+  assert.deepEqual(await snapshot(target.workspace), before);
+  const safe = await remember('password=${X}', { ...target.options, kind: 'reference', slug: 'pure' });
+  for (const to of ['agents-md', 'claude-code'] as const) await exportDir(join(target.root, 'safe-' + to), { ...target.options, to });
+  await target.client.update(safe.id, { body: value });
+  const retained = await snapshot(target.workspace);
+  for (const to of ['agents-md', 'claude-code'] as const) await assert.rejects(exportDir(join(target.root, 'unsafe-' + to), { ...target.options, to }), refused);
+  assert.deepEqual(await snapshot(target.workspace), retained);
 });
 
 test('all SDK memory and evidence fields refuse reference suffix literals before writes without git', async t => {

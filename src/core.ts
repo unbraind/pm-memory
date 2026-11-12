@@ -108,7 +108,7 @@ function credentialLiteral(name: string, value: string): boolean {
   // Only recognizable placeholder shapes are exempt: letter-only words joined by separators.
   // Bracketed digits, symbols or credential material fall through to the full policy below.
   const trimmed = normalized.trim();
-  if (trimmed === '[scrubbed]' || /^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/.test(trimmed) || /^<(?:redacted|[A-Za-z]+(?:[ _-][A-Za-z]+)+)>$/i.test(trimmed)) return false;
+  if (trimmed === '[scrubbed]' || COMPLETE_REFERENCE.test(trimmed) || /^<(?:redacted|[A-Za-z]+(?:[ _-][A-Za-z]+)+)>$/i.test(trimmed)) return false;
   return value.length >= 8 || normalized.length >= 8 || sharedSecret((name.toLowerCase() === '_authtoken' ? '_authToken' : name) + '=' + normalized);
 }
 /** Precompute greedy quote ends in one backwards pass; zero is invalid and negative is unterminated. */
@@ -226,16 +226,50 @@ const REFERENCE_VALUE = String.raw`\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Z
 const COMPLETE_REFERENCE = new RegExp(String.raw`^${REFERENCE_VALUE}$`);
 /** Retain the existing refusal of unknown parenthesized continuations using complete source matches. */
 function referenceSuffixCredential(value: string): boolean {
-  const references = new RegExp(String.raw`${CREDENTIAL_KEY}\s*[=:]\s*["']?\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)`, 'gi');
+  const references = new RegExp(String.raw`(${CREDENTIAL_KEY})\s*[=:]\s*((?:\\*["'])?)(\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*))`, 'gi');
   const explanation = /\([A-Za-z]+(?: [A-Za-z,.'-]+)+\)/y;
-  for (const match of value.matchAll(references)) {
-    const end = match.index + match[0].length;
-    if (value[end] !== '(') continue;
-    explanation.lastIndex = end;
-    const annotation = explanation.exec(value);
-    if (annotation === null || annotation[0].length > 200) return true;
-    const following = value[end + annotation[0].length];
-    if (following !== undefined && !/[\s"'`;,)}\]]/.test(following)) return true;
+  const scalar = /[^\s"'`<>;,)}\]]+/y;
+  const terminator = /\s*(?:[,}:\]]|$)/y;
+  const boundaries = new Map<string, Int32Array>();
+  let serialized: boolean | undefined;
+  for (let match; (match = references.exec(value)) !== null;) {
+    let end = match.index + match[0].length;
+    const start = end - match[3].length;
+    if (value[end] === '(') {
+      explanation.lastIndex = end;
+      const annotation = explanation.exec(value);
+      if (annotation === null || annotation[0].length > 200) return true;
+      end += annotation[0].length;
+      const following = value[end];
+      if (following !== undefined && !/[\s"'`;,)}\]]/.test(following)) return true;
+    }
+    let closed = match[2] !== '' && value.startsWith(match[2], end);
+    if (closed) end += match[2].length;
+    else if (match[2] !== '') {
+      const closing = value.indexOf(match[2], end);
+      if (credentialLiteral(match[1], value.slice(start, closing < 0 ? value.length : closing))) return true;
+      if (closing >= 0) { end = closing + match[2].length; closed = true; }
+    }
+    const beforeEscapes = end;
+    while (value[end] === '\\') end++;
+    const quote = value[end];
+    if (quote !== '"' && quote !== "'") {
+      scalar.lastIndex = end;
+      const suffix = closed ? scalar.exec(value) : null;
+      if (suffix !== null && credentialLiteral(match[1], suffix[0])) return true;
+      continue;
+    }
+    // A serialized field terminator carries no adjacent literal.
+    terminator.lastIndex = end + 1;
+    if (end === beforeEscapes && terminator.test(value)) {
+      if (serialized === undefined) { try { JSON.parse(value); serialized = true; } catch { serialized = false; } }
+      if (serialized) continue;
+    }
+    if (!boundaries.has(quote)) boundaries.set(quote, quoteEnds(value, quote));
+    const closing = boundaries.get(quote)![end + 1];
+    const literal = value.slice(end + 1, closing > 0 ? closing - 1 : value.length);
+    if (credentialLiteral(match[1], literal)) return true;
+    references.lastIndex = closing > 0 ? closing : value.length;
   }
   return false;
 }

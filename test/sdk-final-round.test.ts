@@ -63,6 +63,7 @@ test('typed pending intent parsing failures retain the intent and original error
   const target = await tracker(t); const payload = '{"typed-parser-control":true}';
   await mkdir(join(target.workspace, 'runtime'));
   await writeFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), JSON.stringify({ owner: 'pm-memory-policy-plan:1', payload, checksum: digest(payload) }));
+  const intent = join(target.workspace, 'runtime', 'memory-policy-import.json'); const intentBefore = await readFile(intent);
   const before = await snapshot(target.workspace);
   const failure = new MemoryError('conflict', 'Synthetic parser refusal', 'Retry safely');
   const original = JSON.parse;
@@ -73,6 +74,7 @@ test('typed pending intent parsing failures retain the intent and original error
   try { await assert.rejects(pendingImport(target.store), error => error === failure); }
   finally { hook.mock.restore(); }
   assert.deepEqual(await snapshot(target.workspace), before);
+  assert.deepEqual(await readFile(intent), intentBefore);
 });
 
 test('typed embedding cache and native task failures are never recoded', async t => {
@@ -142,6 +144,7 @@ test('recorded creation propagates unreadable publication receipts without grant
   assert.equal(await recordedCreation(target.store, id), false);
   const directory = join(target.workspace, 'transactions', 'sdk'); await mkdir(directory, { recursive: true });
   const receipt = join(directory, transaction + '-snapshot.json'); await writeFile(receipt, 'unreadable synthetic receipt');
+  const receiptBefore = await readFile(receipt);
   const before = await snapshot(target.workspace);
   await assert.rejects(recordedCreation(target.store, id), error => {
     assert.ok(error instanceof MemoryError && error.code === 'transaction');
@@ -150,4 +153,5 @@ test('recorded creation propagates unreadable publication receipts without grant
     assert.ok(error.cause instanceof Error); return true;
   });
   assert.deepEqual(await snapshot(target.workspace), before);
+  assert.deepEqual(await readFile(receipt), receiptBefore);
 });

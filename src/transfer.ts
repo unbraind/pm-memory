@@ -10,7 +10,7 @@ import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDoc
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { digest, MemoryError, privacy, privacyRefusal, aggregateSize, aggregatePrivacy } from './core.ts';
 import { metadata, Store } from './store.ts';
-import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, policyPayload, policyParts, ownedMemories, readImportSnapshot, closeSkips, appendImportSkips, parsePolicy, guidanceOrigin } from './portable.ts';
+import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, policyContent, policyPayload, policyParts, ownedMemories, readImportSnapshot, closeSkips, appendImportSkips, parsePolicy, guidanceOrigin } from './portable.ts';
 import type { PortableImportOptions, PortablePolicyManifest, PortableImportResult, PortableExportResult, PortableGuidance, PortableRelationship, LegacyPortableSource } from './portable.ts';
 import type { Harness, Memory, MemoryOptions } from './types.ts';
 import { ownershipPatch, portableFields, previousOwnership, creationMetadata, PORTABLE_FIELDS, validFields, projectSourceFields, projectSourceLinks, unsetSourceFields, exportedSource } from './portable-ownership.ts';
@@ -416,8 +416,12 @@ export async function exportDir(path: string, options: MemoryOptions & { to: Exc
     /** Publication and receipts have one lease-fenced path for both wire encodings. */
     const commit = async (outputs: Map<string, Buffer>, byte_preserved: number): Promise<PortableExportResult> => {
       aggregateSize([...outputs.values()].reduce((size, bytes) => size + bytes.length, 0));
+      const manifest = outputs.get(POLICY_MANIFEST);
+      const guidance = manifest === undefined ? [] : parsePolicy(JSON.parse(manifest.toString('utf8'))).guidance;
       for (const [name, bytes] of outputs) {
+        const row = guidance.find(row => row.path === name);
         if (name === POLICY_MANIFEST || name === LEGACY_ORIGINS) aggregatePrivacy(bytes.toString('utf8'), true);
+        else if (row !== undefined) policyContent(row, bytes, true);
         else privacy(bytes.toString('utf8'), true);
       }
       await store.fence(() => publish(resolve(path), outputs, options.onStep));
