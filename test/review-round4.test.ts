@@ -99,6 +99,8 @@ test('reference terminators inspect 100000 spaces within a bounded process deadl
     const elapsed = Number(result.stdout.trim().split('\n').at(-1));
     assert.ok(elapsed < 750, `100000-space scan took ${elapsed}ms`);
   }
+  // The child process accepts a refusal too, so admission of reference-only input is asserted in process first.
+  for (const value of ['pwd="${X}"'.repeat(1_000), 'password="${X}"<x>'.repeat(1_000)]) privacy(value);
   // Repeated reference-only assignments stay linear: each adjacent segment is scanned once. At 500 KB a linear scan
   // takes about 2 s on CI-class hardware, while the quadratic rescan it replaces runs for minutes.
   for (const value of ['pwd="${X}"'.repeat(50_000), 'password="${X}"<x>'.repeat(30_000)]) {

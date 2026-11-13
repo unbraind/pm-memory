@@ -228,14 +228,19 @@ const COMPLETE_REFERENCE = new RegExp(String.raw`^${REFERENCE_VALUE}$`);
  * Inspect the scalars, `<…>` wrappers and quoted segments that directly follow a reference suffix.
  * @returns The position after the last adjacent segment, or -1 when one of them is a credential literal.
  */
-function adjacentCredential(value: string, name: string, start: number, boundaries: Map<string, Int32Array>): number {
+function adjacentCredential(value: string, name: string, start: number, boundaries: Map<string, Int32Array>, seed = ''): number {
   const scalar = /[^\s"'`<>;,)}\]]+/y;
   const reference = /\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/y;
+  const assignment = new RegExp(String.raw`(?:${CREDENTIAL_KEY})\s*[=:]`, 'iy');
   // Literal pieces split across adjacent segments form one value, so their combined text meets the same threshold.
-  let combined = '';
+  // The caller seeds the run with a literal it has already read, such as the first quoted segment.
+  let combined = seed;
   const finish = (end: number): number => combined !== '' && credentialLiteral(name, combined) ? -1 : end;
   let position = start;
   while (position < value.length) {
+    // Another credential assignment starts a new value: end this run and leave it to the outer cursor.
+    assignment.lastIndex = position;
+    if (assignment.test(value)) break;
     // A complete reference is never a literal; consume it whole so its continuation is inspected on its own.
     reference.lastIndex = position;
     const named = reference.exec(value);
@@ -297,12 +302,11 @@ function referenceSuffixCredential(value: string): boolean {
     const quote = value[end];
     if (quote !== '"' && quote !== "'") {
       // An unquoted or closed-quote reference is followed directly by its suffix; inspect every adjacent segment.
-      if (closed || value[end] === '<') {
-        const after = adjacentCredential(value, match[1], end, boundaries);
-        if (after < 0) return true;
-        // Segments already inspected are never rescanned by later matches, which keeps the scan linear.
-        references.lastIndex = Math.max(references.lastIndex, after);
-      }
+      // Every unquoted or closed-quote reference is followed by its adjacent run, bare continuations included.
+      const after = adjacentCredential(value, match[1], end, boundaries);
+      if (after < 0) return true;
+      // Segments already inspected are never rescanned by later matches, which keeps the scan linear.
+      references.lastIndex = Math.max(references.lastIndex, after);
       continue;
     }
     // A serialized field terminator carries no adjacent literal.
@@ -317,7 +321,7 @@ function referenceSuffixCredential(value: string): boolean {
     const literal = value.slice(end + 1, closing > 0 ? closing - 1 : value.length);
     if (credentialLiteral(match[1], literal)) return true;
     // Scalars, wrapped and quoted segments adjacent to the closing quote continue the same assigned value.
-    const position = adjacentCredential(value, match[1], closing > 0 ? closing : value.length, boundaries);
+    const position = adjacentCredential(value, match[1], closing > 0 ? closing : value.length, boundaries, COMPLETE_REFERENCE.test(literal) ? '' : literal);
     if (position < 0) return true;
     references.lastIndex = position;
   }
