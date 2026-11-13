@@ -63,7 +63,7 @@ test('reference boundaries inspect adjacent quoted literals and preserve pure re
   privacy('password=${X}<secret-manager-reference>');
   // A literal split across adjacent quoted or bare segments is judged by its combined text.
   for (const value of ['password=${X}"Synthet""icOnly1""23!"', "password=${X}'Synthet'icOnly'123!'", 'password="${X}"Synthet"icOnly123!"', 'password=${X}ab"cdefgh"', 'password=${X}"abcd""efgh"']) for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
-  for (const value of ['password=${X}"ab""cd"', 'password=${X}"${Y}""${Z}"', 'password=${X}"a"<secret-manager-reference>', 'pwd="${X}"'.repeat(3), 'password=${X}"${Y}"api_key=${Z}', 'pwd="${X}"; token="${Y}"']) privacy(value);
+  for (const value of ['password=${X}"ab""cd"', 'password=${X}"${Y}""${Z}"', 'password=${X}"a"<secret-manager-reference>', 'pwd="${X}"'.repeat(3), 'password=${X}"${Y}"api_key=${Z}', 'pwd="${X}"; token="${Y}"', 'password=${X}"${Y}"<ab', 'password=${X}<ab']) privacy(value);
   // Complete references are consumed whole, so a literal after one is inspected and pure references stay public.
   for (const value of ['password=${X}"${Y}"${Z}' + literal, 'password=${X}"${Y}"${Z}"' + literal + '"']) for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
   for (const value of ['password=${X}"${Y}"${BUILD_PASSWORD}', 'password=${X}"${Y}"$BUILD_PASSWORD', 'password="${X}"${BUILD_PASSWORD}']) privacy(value);
