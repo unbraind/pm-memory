@@ -224,11 +224,43 @@ function quotedAssignmentCredential(value: string, depth = 0): boolean {
 const REFERENCE_VALUE = String.raw`\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)(?:\([A-Za-z]+(?: [A-Za-z,.'-]+)+\))?`;
 /** Classify an entire local reference value, never a scanned prefix. */
 const COMPLETE_REFERENCE = new RegExp(String.raw`^${REFERENCE_VALUE}$`);
+/**
+ * Inspect the scalars, `<…>` wrappers and quoted segments that directly follow a reference suffix.
+ * @returns The position after the last adjacent segment, or -1 when one of them is a credential literal.
+ */
+function adjacentCredential(value: string, name: string, start: number, boundaries: Map<string, Int32Array>): number {
+  const scalar = /[^\s"'`<>;,)}\]]+/y;
+  let position = start;
+  while (position < value.length) {
+    scalar.lastIndex = position;
+    const adjacent = scalar.exec(value);
+    if (adjacent !== null) {
+      if (credentialLiteral(name, adjacent[0])) return -1;
+      position += adjacent[0].length;
+      continue;
+    }
+    const next = value[position];
+    if (next === '<') {
+      // A bracket-wrapped literal is checked like the standalone wrapper form, including its brackets.
+      const close = value.indexOf('>', position + 1);
+      if (credentialLiteral(name, value.slice(position, close < 0 ? value.length : close + 1))) return -1;
+      if (close < 0) return value.length;
+      position = close + 1;
+      continue;
+    }
+    if (next !== '"' && next !== "'") break;
+    if (!boundaries.has(next)) boundaries.set(next, quoteEnds(value, next));
+    const segmentEnd = boundaries.get(next)![position + 1];
+    if (credentialLiteral(name, value.slice(position + 1, segmentEnd > 0 ? segmentEnd - 1 : value.length))) return -1;
+    if (!(segmentEnd > position)) return value.length;
+    position = segmentEnd;
+  }
+  return position;
+}
 /** Retain the existing refusal of unknown parenthesized continuations using complete source matches. */
 function referenceSuffixCredential(value: string): boolean {
   const references = new RegExp(String.raw`(${CREDENTIAL_KEY})\s*[=:]\s*((?:\\*["'])?)(\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*))`, 'gi');
   const explanation = /\([A-Za-z]+(?: [A-Za-z,.'-]+)+\)/y;
-  const scalar = /[^\s"'`<>;,)}\]]+/y;
   const boundaries = new Map<string, Int32Array>();
   let serialized: boolean | undefined;
   for (let match; (match = references.exec(value)) !== null;) {
@@ -253,9 +285,8 @@ function referenceSuffixCredential(value: string): boolean {
     while (value[end] === '\\') end++;
     const quote = value[end];
     if (quote !== '"' && quote !== "'") {
-      scalar.lastIndex = end;
-      const suffix = closed ? scalar.exec(value) : null;
-      if (suffix !== null && credentialLiteral(match[1], suffix[0])) return true;
+      // An unquoted or closed-quote reference is followed directly by its suffix; inspect every adjacent segment.
+      if (closed || value[end] === '<') { if (adjacentCredential(value, match[1], end, boundaries) < 0) return true; }
       continue;
     }
     // A serialized field terminator carries no adjacent literal.
@@ -269,32 +300,9 @@ function referenceSuffixCredential(value: string): boolean {
     const closing = boundaries.get(quote)![end + 1];
     const literal = value.slice(end + 1, closing > 0 ? closing - 1 : value.length);
     if (credentialLiteral(match[1], literal)) return true;
-    // Scalars and quoted segments adjacent to the closing quote continue the same assigned value, so inspect each one.
-    let position = closing > 0 ? closing : value.length;
-    while (position < value.length) {
-      scalar.lastIndex = position;
-      const adjacent = scalar.exec(value);
-      if (adjacent !== null) {
-        if (credentialLiteral(match[1], adjacent[0])) return true;
-        position += adjacent[0].length;
-        continue;
-      }
-      const next = value[position];
-      if (next === '<') {
-        // A bracket-wrapped literal is checked like the standalone wrapper form, including its brackets.
-        const close = value.indexOf('>', position + 1);
-        if (credentialLiteral(match[1], value.slice(position, close < 0 ? value.length : close + 1))) return true;
-        if (close < 0) { position = value.length; break; }
-        position = close + 1;
-        continue;
-      }
-      if (next !== '"' && next !== "'") break;
-      if (!boundaries.has(next)) boundaries.set(next, quoteEnds(value, next));
-      const segmentEnd = boundaries.get(next)![position + 1];
-      if (credentialLiteral(match[1], value.slice(position + 1, segmentEnd > 0 ? segmentEnd - 1 : value.length))) return true;
-      if (!(segmentEnd > position)) { position = value.length; break; }
-      position = segmentEnd;
-    }
+    // Scalars, wrapped and quoted segments adjacent to the closing quote continue the same assigned value.
+    const position = adjacentCredential(value, match[1], closing > 0 ? closing : value.length, boundaries);
+    if (position < 0) return true;
     references.lastIndex = position;
   }
   return false;

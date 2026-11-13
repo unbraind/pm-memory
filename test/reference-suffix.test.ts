@@ -58,6 +58,9 @@ test('reference boundaries inspect adjacent quoted literals and preserve pure re
   // A bracket-wrapped literal adjacent to the closing quote is checked like the standalone wrapper form.
   for (const value of ['password=${X}"${Y}"<' + literal + '>', 'api_key=${X}"${Y}"<' + literal]) for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
   privacy('password=${X}"${Y}"<secret-manager-reference>');
+  // The same wrapper directly after an unquoted or closed-quote reference.
+  for (const value of ['password=${X}<' + literal + '>', 'password="${X}"<' + literal + '>', "api_key='${X}'<" + literal + '>']) for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
+  privacy('password=${X}<secret-manager-reference>');
   // Must allow: adjacent pure references and whitespace-separated prose stay public.
   for (const value of ['password=${X}"${Y}"${Z}', 'password=${X}"${Y}" plus the deployment note', 'password=${X}"${Y}"\'${Z}\'']) privacy(value);
   assert.throws(() => privacy('password=${X}"${Y}"; api_key=${Z}"' + literal + '"'), refused);

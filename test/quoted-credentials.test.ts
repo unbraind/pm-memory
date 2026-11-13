@@ -56,10 +56,8 @@ test('quoted credentials cover nested, escaped and normalized representations', 
     JSON.stringify({ password: '<redacted!123>' }), JSON.stringify({ secret: '<pass word2>' }),
   ];
   for (const fact of fixtures) {
-    await assert.rejects(remember(fact, { ...target.options, kind: 'reference', allowEmail: true }), error => {
-      assert.ok(error instanceof MemoryError); assert.equal(error.code, 'privacy');
-      assert.ok(!error.message.includes(secret)); return true;
-    });
+    // The shared helper also inspects the remedy and the cause chain.
+    await assert.rejects(remember(fact, { ...target.options, kind: 'reference', allowEmail: true }), refused);
     assert.deepEqual(await snapshot(target.workspace), before);
   }
   let excessive = four; excessive = JSON.stringify(excessive);
