@@ -60,7 +60,7 @@
     "eslint": "10.14.0",
     "fast-glob": "3.3.3",
     "jscpd": "5.4.3",
-    "pm-changelog": "2026.11.6",
+    "pm-changelog": "2026.11.10",
     "pm-ops": "2026.11.6",
     "typescript": "7.0.2"
   },
