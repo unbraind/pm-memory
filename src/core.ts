@@ -230,8 +230,13 @@ const COMPLETE_REFERENCE = new RegExp(String.raw`^${REFERENCE_VALUE}$`);
  */
 function adjacentCredential(value: string, name: string, start: number, boundaries: Map<string, Int32Array>): number {
   const scalar = /[^\s"'`<>;,)}\]]+/y;
+  const reference = /\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/y;
   let position = start;
   while (position < value.length) {
+    // A complete reference is never a literal; consume it whole so its continuation is inspected on its own.
+    reference.lastIndex = position;
+    const named = reference.exec(value);
+    if (named !== null) { position += named[0].length; continue; }
     scalar.lastIndex = position;
     const adjacent = scalar.exec(value);
     if (adjacent !== null) {
@@ -286,7 +291,12 @@ function referenceSuffixCredential(value: string): boolean {
     const quote = value[end];
     if (quote !== '"' && quote !== "'") {
       // An unquoted or closed-quote reference is followed directly by its suffix; inspect every adjacent segment.
-      if (closed || value[end] === '<') { if (adjacentCredential(value, match[1], end, boundaries) < 0) return true; }
+      if (closed || value[end] === '<') {
+        const after = adjacentCredential(value, match[1], end, boundaries);
+        if (after < 0) return true;
+        // Segments already inspected are never rescanned by later matches, which keeps the scan linear.
+        references.lastIndex = Math.max(references.lastIndex, after);
+      }
       continue;
     }
     // A serialized field terminator carries no adjacent literal.

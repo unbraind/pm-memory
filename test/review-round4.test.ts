@@ -99,6 +99,14 @@ test('reference terminators inspect 100000 spaces within a bounded process deadl
     const elapsed = Number(result.stdout.trim().split('\n').at(-1));
     assert.ok(elapsed < 750, `100000-space scan took ${elapsed}ms`);
   }
+  // Repeated reference-only assignments stay linear: each adjacent segment is scanned once. At 500 KB a linear scan
+  // takes about 2 s on CI-class hardware, while the quadratic rescan it replaces runs for minutes.
+  for (const value of ['pwd="${X}"'.repeat(50_000), 'password="${X}"<x>'.repeat(30_000)]) {
+    const result = spawnSync(process.execPath, [resolve('test/privacy-process.ts')], { input: value, encoding: 'utf8', timeout: 15_000 });
+    assert.equal(result.status, 0, result.stderr);
+    const elapsed = Number(result.stdout.trim().split('\n').at(-1));
+    assert.ok(elapsed < 6000, `${value.length}-byte repeated reference scan took ${elapsed}ms`);
+  }
   const start = performance.now();
   privacy(JSON.stringify({ note: 'password=${X}' }));
   assert.throws(() => privacy('password=${X}"' + ' '.repeat(100000) + literal + '"'), error => error instanceof MemoryError && error.code === 'privacy');
