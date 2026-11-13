@@ -280,6 +280,14 @@ function referenceSuffixCredential(value: string): boolean {
         continue;
       }
       const next = value[position];
+      if (next === '<') {
+        // A bracket-wrapped literal is checked like the standalone wrapper form, including its brackets.
+        const close = value.indexOf('>', position + 1);
+        if (credentialLiteral(match[1], value.slice(position, close < 0 ? value.length : close + 1))) return true;
+        if (close < 0) { position = value.length; break; }
+        position = close + 1;
+        continue;
+      }
       if (next !== '"' && next !== "'") break;
       if (!boundaries.has(next)) boundaries.set(next, quoteEnds(value, next));
       const segmentEnd = boundaries.get(next)![position + 1];

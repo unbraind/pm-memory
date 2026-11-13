@@ -55,6 +55,9 @@ test('reference boundaries inspect adjacent quoted literals and preserve pure re
   for (const value of ['password=${X}"${Y}"' + literal, 'password=${X}"${Y}"\'${Z}\'' + literal, "password=${X}'${Y}'\"" + literal + '"', 'api_key=${X}"${Y}"' + literal + '; note=ok']) {
     for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
   }
+  // A bracket-wrapped literal adjacent to the closing quote is checked like the standalone wrapper form.
+  for (const value of ['password=${X}"${Y}"<' + literal + '>', 'api_key=${X}"${Y}"<' + literal]) for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
+  privacy('password=${X}"${Y}"<secret-manager-reference>');
   // Must allow: adjacent pure references and whitespace-separated prose stay public.
   for (const value of ['password=${X}"${Y}"${Z}', 'password=${X}"${Y}" plus the deployment note', 'password=${X}"${Y}"\'${Z}\'']) privacy(value);
   assert.throws(() => privacy('password=${X}"${Y}"; api_key=${Z}"' + literal + '"'), refused);
@@ -165,4 +168,12 @@ test('both harnesses refuse suffix credentials on intake and export while legacy
       assert.deepEqual(await snapshot(target.workspace), retained);
     }
   }
+});
+
+test('cause diagnostics render object values inside aggregate causes', () => {
+  // Negative control: a refusal whose aggregate cause holds a plain object must expose that object's text to the no-secret checks.
+  const nested = new Error('outer', { cause: new AggregateError([{ detail: literal, inner: { again: literal } }], 'aggregate') });
+  assert.ok(causeDiagnostics(nested.cause).includes(literal));
+  const cyclic: Record<string, unknown> = { detail: 'public' }; cyclic.self = cyclic;
+  assert.ok(causeDiagnostics(new AggregateError([cyclic])).includes('public'));
 });

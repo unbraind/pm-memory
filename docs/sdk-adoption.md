@@ -14,8 +14,11 @@ portable birth proof. Field ownership, history prefixes, ABA detection, dependen
 read sets and positive complete-birth evidence remain required. New coordinator journals carry
 a package marker in public recoveryData, bound to transaction, author and step.
 Recovery validates it before publishing or abandoning a receipt, including under
-the abandonment lock. Legacy unmarked receipts remain untouched; their native
-forward writes remain readable and are never reversed.
+the abandonment lock. Legacy unmarked coordinator receipts remain untouched; their native
+forward writes remain readable and are never reversed. The one exception is a
+legacy unmarked snapshot journal: recovery resumes it after the legacy ownership
+and native-publication checks described below, so its publication intent is
+not lost.
 
 ## Credential policy
 

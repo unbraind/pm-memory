@@ -390,7 +390,7 @@ function exportPrivacy(item: Memory): void {
   if (item.document !== undefined) fields.set('document.original', Buffer.from(item.document.original, 'base64').toString('utf8'));
   for (const [field, value] of fields) {
     try { privacy(value, true); }
-    catch (error) { const refusal = privacyRefusal(error); throw new MemoryError('privacy', `Export refused for record ${item.id}, field ${field}: ${refusal.message}`, refusal.remedy, { cause: refusal }); }
+    catch (error) { const refusal = privacyRefusal(error); throw new MemoryError('privacy', `Export refused for record ${diagnosticPath(item.id)}, field ${field}: ${refusal.message}`, refusal.remedy, { cause: refusal }); }
   }
 }
 /** Export exact imported bytes when semantically unchanged, with conflict-safe native generation otherwise. */
