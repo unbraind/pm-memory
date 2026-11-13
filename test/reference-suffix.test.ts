@@ -51,6 +51,12 @@ test('reference boundaries inspect adjacent quoted literals and preserve pure re
     }
   }
   privacy('password=${X}"${Y}"; api_key=${Z}"${Q}"');
+  // A literal adjacent to the closing quote of a reference suffix, directly or after further quoted references.
+  for (const value of ['password=${X}"${Y}"' + literal, 'password=${X}"${Y}"\'${Z}\'' + literal, "password=${X}'${Y}'\"" + literal + '"', 'api_key=${X}"${Y}"' + literal + '; note=ok']) {
+    for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
+  }
+  // Must allow: adjacent pure references and whitespace-separated prose stay public.
+  for (const value of ['password=${X}"${Y}"${Z}', 'password=${X}"${Y}" plus the deployment note', 'password=${X}"${Y}"\'${Z}\'']) privacy(value);
   assert.throws(() => privacy('password=${X}"${Y}"; api_key=${Z}"' + literal + '"'), refused);
   privacy(JSON.stringify({ note: 'password=${X}' }, null, 2));
   privacy(JSON.stringify({ first: 'password=${X}', second: 'api_key=${Y}' }, null, 2));

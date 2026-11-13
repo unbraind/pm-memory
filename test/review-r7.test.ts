@@ -40,8 +40,9 @@ test('whole-file privacy refusals retain safe document locations across the full
   const before = await snapshot(options.workspace);
   await assert.rejects(importDir(source, { ...options, from: 'claude-code' }), (error: unknown) => {
     assert.ok(error instanceof MemoryError);
-    assert.match(error.message, /line\.md:multiline/);
-    assert.match(error.message, /multiline\.md:multiline/);
+    // Each diagnostic starts after the refusal prefix or a '; ' separator, so line.md cannot match inside multiline.md.
+    assert.match(error.message, /(?:^Import refused: |; )line\.md:multiline/);
+    assert.match(error.message, /(?:^Import refused: |; )multiline\.md:multiline/);
     assert.ok(!error.message.includes('synthetic-credential-value'));
     return true;
   });

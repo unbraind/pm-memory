@@ -269,7 +269,25 @@ function referenceSuffixCredential(value: string): boolean {
     const closing = boundaries.get(quote)![end + 1];
     const literal = value.slice(end + 1, closing > 0 ? closing - 1 : value.length);
     if (credentialLiteral(match[1], literal)) return true;
-    references.lastIndex = closing > 0 ? closing : value.length;
+    // Scalars and quoted segments adjacent to the closing quote continue the same assigned value, so inspect each one.
+    let position = closing > 0 ? closing : value.length;
+    while (position < value.length) {
+      scalar.lastIndex = position;
+      const adjacent = scalar.exec(value);
+      if (adjacent !== null) {
+        if (credentialLiteral(match[1], adjacent[0])) return true;
+        position += adjacent[0].length;
+        continue;
+      }
+      const next = value[position];
+      if (next !== '"' && next !== "'") break;
+      if (!boundaries.has(next)) boundaries.set(next, quoteEnds(value, next));
+      const segmentEnd = boundaries.get(next)![position + 1];
+      if (credentialLiteral(match[1], value.slice(position + 1, segmentEnd > 0 ? segmentEnd - 1 : value.length))) return true;
+      if (!(segmentEnd > position)) { position = value.length; break; }
+      position = segmentEnd;
+    }
+    references.lastIndex = position;
   }
   return false;
 }
