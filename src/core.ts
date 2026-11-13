@@ -231,6 +231,9 @@ const COMPLETE_REFERENCE = new RegExp(String.raw`^${REFERENCE_VALUE}$`);
 function adjacentCredential(value: string, name: string, start: number, boundaries: Map<string, Int32Array>): number {
   const scalar = /[^\s"'`<>;,)}\]]+/y;
   const reference = /\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)/y;
+  // Literal pieces split across adjacent segments form one value, so their combined text meets the same threshold.
+  let combined = '';
+  const finish = (end: number): number => combined !== '' && credentialLiteral(name, combined) ? -1 : end;
   let position = start;
   while (position < value.length) {
     // A complete reference is never a literal; consume it whole so its continuation is inspected on its own.
@@ -241,26 +244,29 @@ function adjacentCredential(value: string, name: string, start: number, boundari
     const adjacent = scalar.exec(value);
     if (adjacent !== null) {
       if (credentialLiteral(name, adjacent[0])) return -1;
+      combined += adjacent[0];
       position += adjacent[0].length;
       continue;
     }
     const next = value[position];
     if (next === '<') {
-      // A bracket-wrapped literal is checked like the standalone wrapper form, including its brackets.
+      // A bracket-wrapped literal is checked like the standalone wrapper form, including its brackets; wrappers stay self-contained.
       const close = value.indexOf('>', position + 1);
       if (credentialLiteral(name, value.slice(position, close < 0 ? value.length : close + 1))) return -1;
-      if (close < 0) return value.length;
+      if (close < 0) return finish(value.length);
       position = close + 1;
       continue;
     }
     if (next !== '"' && next !== "'") break;
     if (!boundaries.has(next)) boundaries.set(next, quoteEnds(value, next));
     const segmentEnd = boundaries.get(next)![position + 1];
-    if (credentialLiteral(name, value.slice(position + 1, segmentEnd > 0 ? segmentEnd - 1 : value.length))) return -1;
-    if (!(segmentEnd > position)) return value.length;
+    const segment = value.slice(position + 1, segmentEnd > 0 ? segmentEnd - 1 : value.length);
+    if (credentialLiteral(name, segment)) return -1;
+    if (!COMPLETE_REFERENCE.test(segment)) combined += segment;
+    if (!(segmentEnd > position)) return finish(value.length);
     position = segmentEnd;
   }
-  return position;
+  return finish(position);
 }
 /** Retain the existing refusal of unknown parenthesized continuations using complete source matches. */
 function referenceSuffixCredential(value: string): boolean {

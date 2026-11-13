@@ -61,6 +61,9 @@ test('reference boundaries inspect adjacent quoted literals and preserve pure re
   // The same wrapper directly after an unquoted or closed-quote reference.
   for (const value of ['password=${X}<' + literal + '>', 'password="${X}"<' + literal + '>', "api_key='${X}'<" + literal + '>']) for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
   privacy('password=${X}<secret-manager-reference>');
+  // A literal split across adjacent quoted or bare segments is judged by its combined text.
+  for (const value of ['password=${X}"Synthet""icOnly1""23!"', "password=${X}'Synthet'icOnly'123!'", 'password="${X}"Synthet"icOnly123!"']) for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
+  for (const value of ['password=${X}"ab""cd"', 'password=${X}"${Y}""${Z}"', 'password=${X}"a"<secret-manager-reference>']) privacy(value);
   // Complete references are consumed whole, so a literal after one is inspected and pure references stay public.
   for (const value of ['password=${X}"${Y}"${Z}' + literal, 'password=${X}"${Y}"${Z}"' + literal + '"']) for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
   for (const value of ['password=${X}"${Y}"${BUILD_PASSWORD}', 'password=${X}"${Y}"$BUILD_PASSWORD', 'password="${X}"${BUILD_PASSWORD}']) privacy(value);
