@@ -6,7 +6,7 @@ import { getHistoryPath, readHistoryEntries, readSettings, certifyCompleteListRe
 import type { BulkItemMutation, CommitItemMutationsOptions, Dependency } from '@unbrained/pm-cli/sdk';
 import { recoverInput, applyImport, expectedTargets, observeTargets, validateImportPlan, previewImport, importIdentity } from './portable-plan.ts';
 import { importConflict } from './portable-write.ts';
-import { digest, kind, MemoryError, privacy, slug } from './core.ts';
+import { digest, kind, MemoryError, privacy, aggregateSize, aggregatePrivacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
 import { metadata, Store } from './store.ts';
 import type { GuidanceWindow, Harness, HarnessDocument, Memory, MemoryKind, MemoryOptions } from './types.ts';
@@ -316,8 +316,18 @@ export function skipOccupiedIdentities(rows: readonly PortableGuidance[], existi
 }
 /** Bind a file to its inventory row without embedding unbounded advice in the index. */
 export function policyBody(row: PortableGuidance, body: string): Buffer { return Buffer.from(`<!-- pm-memory-policy:v1 ${row.slug}; policy ${digest(JSON.stringify([row.validity, row.renewals, row.pinned, ...(row.baseline === undefined ? [] : [row.baseline]), ...(row.origin === undefined ? [] : [row.origin])]))}; keep ${POLICY_MANIFEST} -->\n${body}`); }
+/** Inspect verified framing under the wire budget and the decoded payload under its admission limit. */
+export function policyContent(row: PortableGuidance, bytes: Buffer, allowEmail?: boolean): string {
+  aggregateSize(bytes.length);
+  const content = bytes.toString('utf8'); const prefix = policyBody(row, '').toString('utf8');
+  if (!Buffer.from(content).equals(bytes) || !content.startsWith(prefix)) return invalid();
+  const payload = content.slice(prefix.length);
+  privacy(payload, allowEmail); aggregatePrivacy(prefix, allowEmail);
+  return payload;
+}
 /** Parse only files owned by the manifest; foreign adjacent records are skipped with a reason. */
 export async function importPolicy(input: readonly { path: string; bytes: Buffer }[], options: PortableImportOptions, legacy?: ReadonlyMap<string, LegacyPortableSource>): Promise<PortableImportResult> {
+  aggregateSize(input.reduce((size, file) => size + file.bytes.length, 0));
   let value: unknown;
   try { value = JSON.parse(input.find(file => file.path === POLICY_MANIFEST)!.bytes.toString('utf8')); } catch { return invalid(); }
   const manifest = parsePolicy(value);
@@ -327,10 +337,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
   const bodies = manifest.guidance.map(row => {
     const file = input.find(file => file.path === row.path);
     if (file === undefined) return invalid();
-    const content = file.bytes.toString('utf8'); const prefix = policyBody(row, '').toString('utf8');
-    if (!Buffer.from(content).equals(file.bytes) || !content.startsWith(prefix)) return invalid();
-    privacy(content, options.allowEmail);
-    const payload = content.slice(prefix.length); payloads.push(payload);
+    const payload = policyContent(row, file.bytes, options.allowEmail); payloads.push(payload);
     if (!provenance.has(row.slug) && row.document?.format === 'legacy') {
       const before = sourceDocument(row.document.path, Buffer.from(row.document.original, 'base64'), row.document.harness);
       const source = sourceDocument(row.document.path, Buffer.from(payload), row.document.harness);
@@ -342,7 +349,19 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
     }
     return payload;
   });
-  privacy(JSON.stringify(manifest), options.allowEmail);
+  aggregatePrivacy(JSON.stringify(manifest), options.allowEmail);
+  // Wire aggregation must not relax the limit on decoded metadata values.
+  for (const row of manifest.guidance) {
+    const pending: unknown[] = [row];
+    while (pending.length > 0) {
+      const value = pending.pop();
+      if (typeof value === 'string') privacy(value, options.allowEmail);
+      else if (Array.isArray(value)) pending.push(...value);
+      else if (value !== null && typeof value === 'object') for (const [key, child] of Object.entries(value)) {
+        if (value !== row.document || key !== 'original') pending.push(child);
+      }
+    }
+  }
   for (const row of manifest.guidance) if (row.document !== undefined) privacy(Buffer.from(row.document.original, 'base64').toString('utf8'), options.allowEmail);
   for (const row of manifest.guidance) if (row.relationships.some(edge => !manifest.guidance.some(target => target.slug === edge.slug))) invalid();
   const inputHash = digest(JSON.stringify([manifest, payloads, [...provenance]]));

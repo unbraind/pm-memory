@@ -102,6 +102,20 @@ test('origin continuations reject missing or repeated SDK cursors rather than gu
   assert.throws(() => originCursor({ has_more: true, next_cursor: 'same' }, 'same'), refusal('continuation is unavailable'));
 });
 
+test('creator preserves typed failures from native creation decoding unchanged', async t => {
+  const target = await tracker(t);
+  const memory = await remember('Creator identity control', { ...target.options, slug: 'identity', kind: 'reference' });
+  const [entry] = await readHistoryEntries(getHistoryPath(target.workspace, memory.id), memory.id);
+  for (const cause of [new MemoryError('conflict', 'Native validation refused', 'Retain native evidence'), new Error('Foreign decoding failure')]) {
+    // Use a genuine SDK birth entry; a failing field read exercises creator's catch without mocking the SDK.
+    const failing = new Proxy(entry, { get(object, property, receiver) { if (property === 'patch') throw cause; return Reflect.get(object, property, receiver); } });
+    assert.throws(() => creator(memory.id, failing, undefined), error => {
+      if (cause instanceof MemoryError) return error === cause;
+      return error instanceof MemoryError && error.code === 'origin_missing' && error.cause === cause;
+    });
+  }
+});
+
 test('failed origin publication returns a typed retry remedy and a rerun converges', async t => {
   const source = await tracker(t);
   await assert.rejects(ensureTrackerOrigin(source.store, async step => {

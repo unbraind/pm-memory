@@ -63,12 +63,11 @@ remain native. New nodes precede represented edges so interruption does not crea
 references to absent nodes. Publication recovery records only a proven history
 append; it never mutates an item.
 
-These checks have a remaining re-read-to-write window. SDK transactions serialize
-cooperating transactions, not ordinary native writers. See
-[pm-cli#1576](https://github.com/unbraind/pm-cli/issues/1576) and
-[pm-cli#1620](https://github.com/unbraind/pm-cli/issues/1620). The tests establish
-behavior at observed boundaries, not atomic native-writer isolation or an atomic
-multi-item import.
+The current SDK adoption additionally uses `withExpectedItemRevisions` for
+locked canonical update preconditions. SDK workspace transactions still serialize
+coordinators, while domain history/read-set checks remain necessary for ABA and
+portable ownership. Imports retain completed forward steps and are not atomic
+across items. See [public SDK adoption](sdk-adoption.md) for the current contract.
 
 ## Source state and revision validation
 

@@ -32,7 +32,7 @@ test('import refuses multiline credentials before any durable writes in every ha
   }
 });
 
-test('whole-file privacy refusals retain safe line diagnostics across the full import batch', async t => {
+test('whole-file privacy refusals retain safe document locations across the full import batch', async t => {
   const { root, options } = await tracker(t);
   const source = join(root, 'source'); await mkdir(source);
   await writeFile(join(source, 'line.md'), 'Safe guidance\npassword=synthetic-credential-value\n');
@@ -40,8 +40,9 @@ test('whole-file privacy refusals retain safe line diagnostics across the full i
   const before = await snapshot(options.workspace);
   await assert.rejects(importDir(source, { ...options, from: 'claude-code' }), (error: unknown) => {
     assert.ok(error instanceof MemoryError);
-    assert.match(error.message, /line\.md:line 2/);
-    assert.match(error.message, /multiline\.md:multiline/);
+    // Each diagnostic starts after the refusal prefix or a '; ' separator, so line.md cannot match inside multiline.md.
+    assert.match(error.message, /(?:^Import refused: |; )line\.md:multiline/);
+    assert.match(error.message, /(?:^Import refused: |; )multiline\.md:multiline/);
     assert.ok(!error.message.includes('synthetic-credential-value'));
     return true;
   });

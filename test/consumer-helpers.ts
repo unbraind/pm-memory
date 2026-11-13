@@ -20,7 +20,7 @@ export function consumerFixture(t: TestContext) {
   const publicEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/(?:TOKEN|PASSWORD|SECRET|KEY|AUTH|CREDENTIAL|PAT)(?:_|$)/i.test(key) && key !== 'NPM_MEDIA_SERVER'));
   const env = { ...npmEnvironment(gitEnvironment(publicEnv)), HOME: scratch, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_CEILING_DIRECTORIES: scratch, PM_AUTHOR: 'memory-consumer' };
   const packed = JSON.parse(execute(repository, ['pack', '--json', '--pack-destination', scratch, '--ignore-scripts'], 'npm', env)) as { filename: string; integrity: string; files: { path: string }[] }[];
-  const allowed = /^(dist\/|manifest\.json$|package\.json$|README\.md$|ARCHITECTURE\.md$|LICENSE$|CHANGELOG\.md$)/;
+  const allowed = /^(dist\/|docs\/sdk-adoption\.md$|manifest\.json$|package\.json$|README\.md$|ARCHITECTURE\.md$|LICENSE$|CHANGELOG\.md$)/;
   assert.ok(packed[0].files.every(file => allowed.test(file.path)), 'Packed file allowlist'); assert.ok(packed[0].files.some(file => file.path === 'dist/index.js'));
   assert.ok(packed[0].files.filter(file => file.path.startsWith('dist/')).every(file => existsSync(join(repository, file.path.replace(/^dist\//, '').replace(/\.(?:js|d\.ts)(?:\.map)?$/, '.ts')))), 'Every packed module requires current TypeScript source; remove obsolete generated outputs and rebuild');
   return { repository, scratch, manifest, env, packed };

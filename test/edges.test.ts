@@ -14,7 +14,8 @@ import { tracker } from './helpers.ts';
 
 test('privacy variable references and token assignment forms remain discriminated', () => {
   assert.deepEqual([...words('Feedback: CodeRabbit, stable.')], ['feedback', 'coderabbit', 'stable']);
-  privacy('token=$SOME_VARIABLE(suffix)'); privacy('token=${SOME_VARIABLE}'); privacy('token: accounting');
+  privacy('token=$SOME_VARIABLE(provided by the operator)'); privacy('token=${SOME_VARIABLE}'); privacy('token: accounting');
+  assert.throws(() => privacy('token=$SOME_VARIABLE(unknownsuffix)'), MemoryError);
   assert.throws(() => privacy('token=lowercaseword'), MemoryError);
   assert.throws(() => privacy('token: fake_00000000'), MemoryError);
   assert.throws(() => privacy('password: lowercaseword'), MemoryError);

@@ -1,0 +1,252 @@
+id: pm-memory-sdk-transaction-reader
+title: Adopt public SDK transaction inspection and native hash preconditions
+description: "Adopt public SDK transaction readers, host-bound item batches and locked expected revisions while retaining portable history, read-set and forward-retention proofs."
+type: Feature
+status: in_progress
+priority: 1
+tags[10]: "gh:unbraind/pm-cli#1576","gh:unbraind/pm-cli#1597","gh:unbraind/pm-cli#1598","gh:unbraind/pm-cli#1620","gh:unbraind/pm-memory#51",sdk-adoption,"upstream:pm-cli#1576","upstream:pm-cli#1597","upstream:pm-cli#1598","upstream:pm-cli#1620"
+created_at: "2026-10-27T06:21:15.119Z"
+updated_at: "2026-11-12T23:55:19.590Z"
+author: codex-agent
+acceptance_criteria: "Replace owned SDK journal reads with public transaction inspection without weakening crash recovery, CAS, foreign preservation or replay tests"
+parent: pm-memory-0kwy
+comments[49]{created_at,author,text}:
+  "2026-10-27T08:53:47.062Z",codex-agent,"Additional verified SDK adapter limit: previewItemMutations accepts only pmRoot, transactionId, author and mutations; no include/exclude path or authoritative-item projection option exists. Its owned snapshot includes extensions, so installed dependency links can refuse normal imports. The package now projects SDK-certified item documents, relevant exact history streams and guarded SDK schema/settings into a private disposable tracker before invoking the same SDK validator. PmClient still has no host-bound preview method (related upstream issue 1598); that issue covers the public host-context surface, while this managed-directory scoping constraint is a separate observed symptom. Adopt a public scoped preview when available; do not remove validation or copy installed code."
+  "2026-10-27T09:39:43.693Z",codex-agent,"Capability precision: runWorkspaceTransactionGc(dryRun: true) provides status/age sweep decisions, but not the ownership payload or step results needed for recovery, abandonment or replanning. It is not a substitute for the missing full transaction receipt reader tracked by 1597. No GC of foreign or SDK journals was added."
+  "2026-10-29T02:15:08.111Z",codex-agent,"Portable import review confirms the remaining native read-to-write gap: the installed public update options have no expectedItemHash precondition (upstream 1576), and commitWorkspaceTransaction serializes transactions without excluding ordinary SDK/CLI writes (upstream 1620, verified on SDK 2026.10.25 and 2026.10.28). Future adoption must replace best-effort final hash/history rereads with the public native precondition when available. Existing receipt-payload reader/abandon/replan and scoped staged-document preview needs remain tracked by upstream 1597/1598. Current compensation cancels creations, preserves incoming/outgoing references, checks the real SDK proposal for unowned field side effects, and restores only still-owned field values; it does not claim native-writer isolation. Evidence and reverts remain on pm-memory-1363 and PR 15."
+  "2026-10-29T05:58:06.040Z",codex-agent,"Round 13 removes import rollback entirely. Imports retain completed forward writes; legacy intents are retired without replay or restoration. Final pre-write SDK-normalized base/history checks remain best effort against ordinary native writers (#1576/#1620). The pinned previewItemMutations declaration still accepts only Pick<CommitItemMutationsOptions, pmRoot | transactionId | author | mutations>; no scoped projection argument is available. No new upstream issue was filed. Removing links to deleted rollback/replan modules; current work and behavioral evidence remain on pm-memory-1363 and PR 15."
+  "2026-10-29T06:00:03.706Z",codex-agent,"Upstream status refresh: #1576 and #1620 remain OPEN. #1597 and #1598 are CLOSED; receipt inspection and host-bound/scoped preview are pinned-2026.10.25 compatibility needs, not current open upstream defects. The supported host floor and repository pin are unchanged. Adoption in a future dependency update should verify the new public declarations before replacing compatibility adapters."
+  "2026-11-02T04:42:45.845Z",pi-memory,"Thread PRRT_kwDOVPw2oc6yXN3S (P3): the task description still presented the closed upstream #1597/#1598 as open and omitted the open native precondition blockers (#1576/#1620). Description updated to reflect the closed status and the open blockers so the task no longer reads as actionable today."
+  "2026-11-02T04:42:49.648Z",pi-memory,"Thread PRRT_kwDOVPw2oc6yXN3S (P3): the task description still presented the closed upstream #1597/#1598 as open and omitted the open native precondition blockers (#1576/#1620). Description updated to reflect the closed status and the open blockers so the task no longer reads as actionable today."
+  "2026-11-02T06:42:47.157Z",codex-sol,"Continuation audit of cubic thread PRRT_kwDOVPw2oc6yXN3S: verified upstream states live: #1597/#1598 CLOSED, #1576/#1620 OPEN. Removed the inherited contradictory phrase claiming no acceptance criterion was blocked; the existing acceptance criterion still requires a supported public replacement without weakening native preconditions. Compatibility status and open blockers are now explicit. No upstream mutation was made."
+  "2026-11-02T08:27:48.899Z",codex-sol,"Local strict project health has a host-only optional-extension skew: the pinned package SDK is 2026.10.27 while the globally installed pm-github advertises 2026.11.2. The pinned no-extensions health check passes 10/10 with zero warnings. Pins and global installations were retained. Clean CI installation remains the full health gate; this does not establish an SDK protocol defect or satisfy the still-open native-precondition blockers."
+  "2026-11-06T10:08:55.719Z",codex-sol,"Implements companion pm-cli-website-tdwu G1. Reuse the existing owner item; public readers replace private journal paths and shapes, with native revision refusals supplementing immutable history and field ownership checks. Full release gates are delegated to CI per task; targeted real-tracker regressions, lint and typecheck run locally."
+  "2026-11-06T10:09:38.889Z",codex-sol,"SDK batch compensation restores values and its create inspection adopts an existing id; those semantics differ from portable forward-only retention and positive creation ownership. Keep the domain coordinator and final ownership hook for source publication; use host-bound batches for independent birth construction and host-bound preview for canonical staging, plus withExpectedItemRevisions around source updates. Public abandonment is restricted to exact owned custom steps and never applied to foreign or item-batch recovery plans."
+  "2026-11-06T10:32:18.611Z",codex-sol,"Validation: focused portable/adoption suite passed 79/79 tests with concurrency 2. Linked transaction regressions passed 5/5 through pm test --run --progress. Disposable behavioral reverts: native revision scope 2 failures; public receipt reader 1; public occupied-identity reader 1; supported retirement 1. Restoring the implementation passed all 15 adoption regressions. Concurrent edits, ABA/history-prefix rewrite, create-if-absent/foreign births, interrupted replay and compensation controls remain covered. Typecheck, lint, duplication, docstrings and identity checks pass; full npm/Bun release gates are delegated to CI per task."
+  "2026-11-06T11:39:32.487Z",codex-sol,"CI on the prior head passed 703/703 tests in both Node 26 runtime gates but failed unchanged coverage thresholds: portable-ownership.ts had the final no-usable-receipt return unexercised. Earlier malformed fixtures are rejected by the public reader before package receipt inspection. Extend the counterfeit-schema regression with genuine SDK-coordinated empty, foreign and unrelated-target result payloads, proving they grant no ownership and do not mutate tracker state."
+  "2026-11-06T11:53:25.282Z",codex-sol,"Coverage correction verified with genuine SDK coordinators: empty, scalar, array, foreign-owner, invalid-target, unrelated-target, pending and missing receipts grant no body ownership and leave observed tracker state unchanged. The focused c8 probe now has no uncovered branches in committedReceipt (whole-module coverage remains a separate full-suite claim). Linked transaction regressions passed 5/5 through pm test --run --progress. Prior Node 26 npm/Bun CI each passed 703/703 assertions but failed the unchanged coverage gate; fresh final-head CI must certify the complete scope."
+  "2026-11-06T14:44:49.645Z",codex-sol,"Review round 3 raises an outside-diff ownership boundary: author and step fields alone do not establish package ownership of a workspace transaction. Add a durable package marker through public recoveryData, prove matching-field foreign transactions remain untouched, and retain legacy unmarked receipts without acquiring their compensation authority. Companion pm-cli-website-tdwu remains read only."
+  "2026-11-06T15:03:05.250Z",codex-sol,"Review round 3 fixed: new attempt and publication coordinators carry exact package recoveryData markers bound to transaction, author and step. Recovery validates the marker before publishing and again under the abandonment lock. Legacy unmarked receipts are retained without being published or abandoned, preserving their native forward writes. Same-author/same-step foreign, legacy, and missing-receipt controls use genuine SDK trackers. Targeted adoption/publication/recovery suite passes 54/54; final linked adoption file passes 21/21 and marker subset 5/5. Function-only reverts fail: retirement 2, recovery publication 1, attempt creation 1 and write creation 1; restoration passes all five controls. A focused coverage probe exercises all newly added ownership conditions; full-scope coverage remains for CI. Typecheck, lint, duplication 0 percent and docstrings pass. The separate pre-existing quoted-key privacy bug is tracked in pm-memory-quoted-credential-keys with gh:unbraind/pm-memory#52 and is not claimed fixed. Companion pm-cli-website-tdwu remains read only."
+  "2026-11-06T16:45:48.342Z",codex-sol,CI on 8184847 passed all 710 tests but missed one branch in validFields at unchanged 100 percent thresholds. Added a malformed baseline-array control built from a genuine SDK export; it refuses at parsing and before native writes. Named array properties also prove the explicit array rejection rather than relying on missing keys. No runtime ownership logic changed.
+  "2026-11-06T17:27:01.532Z",codex-sol,"The linked malformed baseline-array control passes 1/1 on the final local source. The wider SDK/admission assertions pass in the 62-case run; its only failure was a separate wall-time privacy control, which subsequently passes in the unchanged six-case deadline run. No G1 runtime implementation changed for the coverage repair. Full-source coverage remains for fresh CI."
+  "2026-11-06T18:56:24.327Z",codex-sol,"Final-head Node 26 npm and Bun each pass all 720 tests, including every deadline control. Coverage is 100 statements/functions/lines and 99.95 branches. The remaining ownership gap is validOwnedFields at line 166, not validFields at line 160: the earlier baseline-array test covered the latter. Adding a genuine SDK-owned receipt control for array-shaped partial fields and proving the ownership refusal on revert. No threshold changes."
+  "2026-11-06T18:59:52.287Z",codex-sol,"The partial ownership receipt control passes through the linked runner (1/1), using fingerprints from a real SDK-backed exported tracker. It rejects null, primitive and array-shaped fields, including an array carrying matching named hashes. Removing only validOwnedFields Array.isArray guard makes the new assertion fail; restoration passes 1/1. The focused three-case coverage probe passes 3/3 and exercises the previously uncovered line-166 refusal branch. Full-source coverage still requires fresh CI."
+  "2026-11-06T21:08:07.008Z",codex-sol,"Round 5 requests surfaced transaction-reader failures and actual locked current revisions in conflict receipts. Fixing both with safe typed refusal and real revision fingerprints, with regression/revert controls. The out-of-scope review notice is incorrect: public transaction adoption is the original G1 objective, tracked by this active Feature and companion pm-cli-website-tdwu, explicitly combined with G7 in one PR."
+  "2026-11-06T21:17:58.888Z",codex-sol,"Round-5 linked transaction controls pass 4/4, including genuine SDK-valid foreign envelopes and unreadable transport refusals without native mutations. Function-only reverts fail the reader refusal case and both locked revision fingerprint cases (1 and 2 failures); restoring the functions passes the five-case joint probe. Missing/noncommitted receipts still prove no ownership; malformed/unreadable receipts now surface a safe typed transaction error. Original expected-history fingerprints are retained and current fingerprints use the real SDK locked revision."
+  "2026-11-09T09:35:56.299Z",codex-agent,"Review round 6: verify malformed ownership target cases through SDK-readable journals using the original completed result key, and separately require malformed journal transaction refusals. Recheck the whole transaction adoption diff for equivalent gaps."
+  "2026-11-09T09:42:41.631Z",codex-agent,"Behavioral fixture revert proof in a disposable worktree: changing only the completed result key back to foreign while retaining the strict SDK-reader assertion fails the ownership regression (1 failure), proving target fixtures must reach package validation. Restoration passes 1/1. Malformed journal cases independently require SDK-reader rejection and a typed transaction refusal; SDK-readable malformed/foreign target receipts must instead produce import conflicts and retain the entire native tracker snapshot."
+  "2026-11-09T09:44:24.068Z",codex-agent,"Final round-6 transaction gates: node --test --test-concurrency=2 test/portable-ownership.test.ts test/sdk-adoption.test.ts test/portable-document.test.ts passes 70/70, no skips. Thread PRRT_kwDOVPw2oc60wKt1 is fixed by SDK-readable target fixtures and strict import-conflict/no-write assertions. The whole transaction adoption diff was checked for the same receipt-validation and swallowed-error classes; existing public-reader and recovery ownership regressions remain passing. No SDK/CLI bug or missing capability was identified."
+  "2026-11-09T10:36:27.097Z",pi-agent,"Review round 7 (auto round 1 BLOCKED, all four findings non-blocking). Plan for the three findings on this item plus the shared host-version class: (1) package.json exact peer pin -> bounded range '>=2026.11.5 <2027' (floor = reviewed inventory, upper bound = next major), documented explicitly in docs/sdk-adoption.md; runtime SDK_FINDING_POLICY already refuses unknown findings conservatively so safety does not need lockstep. (2) manifest.json pm_min_version 2026.10.23 -> 2026.11.5 so pre-transaction-reader hosts reject before load, matching the README host. Adversarial test extends the r5 manifest control: peer range shape/floor/bound + reviewed version satisfies + manifest floor alignment, fails on revert to the exact pin or the old minimum. (3) portable-plan recovery: add a recoverInput control for a mismatched attempt marker (foreign recoveryData on plan.transactionId under the same author/step) asserting the foreign skip result and byte-preserved intent + foreign journal across retries; no behavior change."
+  "2026-11-09T11:07:56.638Z",pi-agent,"Round-7 fixes (threads PRRT_kwDOVPw2oc61NEfe, PRRT_kwDOVPw2oc61NEfi, PRRT_kwDOVPw2oc61NEfn), class rule: shipped version contracts (peer range, extension load floor, documented host) must state one reviewed compatibility floor and not couple routine host upgrades to a package release. Fixed instances: package.json peerDependencies for the host CLI widened from the exact pin 2026.11.5 to >=2026.11.5 <2027 (floor = reviewed detector inventory + pinned dev host, bound before the next major); manifest.json pm_min_version raised 2026.10.23 -> 2026.11.5 so hosts without the SDK transaction readers are rejected before extension load; README.md and docs/sdk-adoption.md now state the bounded-range policy explicitly (lockstep releases not required for safety; the runtime finding policy refuses unknown findings conservatively). Class search found no other shipped version contract. Recovery control added (no behavior change): a foreign coordinator marker occupying the exact attempt slot under the same author and step identity makes recoverInput return the typed foreign skip result, and repeated retries preserve the owned intent bytes and the foreign journal bytes unchanged."
+  "2026-11-09T11:08:02.611Z",pi-agent,"Revert proofs in a disposable copy of the package worktree (behavioral reverts, implementation restored in the same copy afterwards): (1) reverting only the peer range back to the exact pin 2026.11.5 fails the manifest control (1 failure: 'Peer support must be a bounded range above the reviewed inventory'); (2) reverting only pm_min_version back to 2026.10.23 fails the same control (1 failure: 'Extension loading must require the reviewed host floor'); (3) reverting only the foreign_intent typed handling in recoverInput fails the new mismatched-attempt-marker control (1 failure: the recovery rethrows a typed transaction refusal instead of returning the foreign skip result). Restoring each function passes the controls again."
+  "2026-11-09T11:36:12.309Z",pi-agent,"Round-7 final gates at the pushed head: all 9 linked tests pass through pm test --run --progress (including the new mismatched-attempt-marker control 1/1 and the updated manifest control 1/1); the full portable-ownership + sdk-adoption + portable-document suite passes 70/70; typecheck, lint, docstring, duplication (0% threshold, 0 clone pairs) and identity (0 violations) all pass; CHANGELOG regenerated and changelog:check passes. The branch is not behind main (merge not needed). One earlier pm test run of the companion item recorded 2 assertion failures in adversarial wall-time deadline controls under host load; they pass on every retry and are known flaky-under-load, CI certifies the complete gate."
+  "2026-11-09T17:28:29.197Z",codex-agent,"Continuation: reviewing the additional src/portable-plan.ts finding under the general rule that domain error translation preserves its original typed cause while keeping public diagnostics safe. Audit all package catch-and-wrap paths and add failure injection with a real non-git tracker."
+  "2026-11-09T17:32:54.572Z",codex-agent,"Scope warning assessed: the original PR task explicitly authorizes both public transaction-reader adoption (G1) and SDK secret scanning (G7); removing G1 would discard authorized valid work. Existing G1/G7 items and PR description already explain that combined scope. Retain the work and report this evidence-backed refusal in the PR conversation. Operational cause audit also covers namespace/ownership readers, previews, origin access/publication/history, task reads, cache I/O, writer-lock conflicts, command translation and the forward-import wrapper. Content-parser privacy/format refusals deliberately omit raw syntax errors because those can contain refused input."
+  "2026-11-09T17:39:26.748Z",codex-agent,"Revert proofs completed in a disposable worktree with finally restoration. Reverting only importIdentity drops the real SDK cause and fails the three-reader non-git receipt test (1 failure); restoration passes 1/1. The package-wide AST invariant independently detects removal of cause propagation at every one of 18 translated catch sites (18 mutations, each 1 failure), including helper-based merge refusals. Reverting the MemoryError constructor or forward-import wrapper each fails the arbitrary-thrown-value diagnostic property (1 failure each); restoration passes 1/1. All restored boundary controls pass 5/5. Exact commands: node --test --test-concurrency=1 --test-name-pattern=\"all namespace readers|every operational catch|domain causes\" test/review-boundaries.test.ts. Causes are non-enumerable; public messages, remedies and validation behavior are preserved."
+  "2026-11-09T17:43:00.097Z",codex-agent,"Focused transaction/recovery/ownership/origin/preview/merge/utility/verification gates pass 117/117, zero skips, through the linked pm runner with at most two workers. Final boundary, cache-fault and privacy-export cause controls pass 7/7, zero skips. The scope audit retained legacy data readability and non-git operation; parser privacy/format/schema refusals still omit raw input-bearing syntax errors, while the safe typed export privacy refusal now retains its original domain cause. Full npm/Bun release and 100-percent coverage certification remain assigned to final-head CI under the original task explicit pm-memory runtime exception; local full gates are documented to require hours on this host."
+  "2026-11-09T17:46:23.208Z",codex-agent,"Additional behavioral proofs: reverting only safe privacy-cause propagation in src/transfer.ts fails the existing export-refusal corpus (1 failure); restoration passes 1/1. Reverting only cache cause propagation in src/embeddings.ts fails the strengthened filesystem/non-Error fault corpus (1 failure); restoration passes 1/1. No existing tests were removed or weakened. Fast gates pass: npm run typecheck, lint, duplication, docstring, audit:prod, pack:dry-run and verify:release-publish-attestation. Duplication remains 0 percent, all 174 declarations are documented, production audit reports zero vulnerabilities, and isolated self-host health passes all 10 checks with the same two advisory warnings."
+  "2026-11-09T17:51:26.760Z",codex-agent,"Final writer-lock gate passes 7/7 with zero skips, including the live-owner refusal retaining a typed SDK PmCliError as a non-enumerable cause. Reverting only writer cause propagation makes that live-owner regression fail (1 failure); restoration passes 1/1. Across this continuation there are 27 negative revert/mutation controls, every one failing as expected, and every restored control passes. Final typecheck and lint pass after the last strengthened test. Both claims will be released without closing either item; complete npm/Bun release and coverage certification remains pending final-head CI."
+  "2026-11-09T21:42:34.897Z",pi-agent,"Round-13 fix (thread PRRT_kwDOVPw2oc61bqZa), class rule: a catch that translates failures into a typed package error must rethrow a value that is already a typed package error, wrapping only foreign causes; a deliberate domain re-diagnosis must be recognizable (established categories or the merge refusal helper, which always retains the cause). Fixed instances: the creator wrapper (the finding) plus every other direct typed catch translation found by the package-wide search (identity namespace and pending-intent catches, peer-export conflict, native receipt verification, preview source reads, embedding cache IO, native task snapshot, verify file evidence, and both tracker-origin publication catches); each now guards with an instanceof rethrow before wrapping while keeping the message, remedy and cause. The CLI dispatch catch (conditional expression) and the writer lock (negated foreign-type guard) already rethrow and are now recognized by the audit. The merge refusal helper stays unguarded by design: malformed pending receipts fail closed as a merge conflict (existing fail-closed controls require it) and always retain their cause."
+  "2026-11-09T21:42:41.153Z",pi-agent,"Revert proofs in a disposable copy of the package worktree (behavioral reverts, restored in the same copy afterwards): reverting only the creator guard back to the bare cause wrap fails the package-wide cause audit (1 failure: the creator site is reported as re-coding an existing typed error); reverting only the audit's variable-category handling back to the literal-only skip fails the synthetic corpus (1 failure: a variable category without cause retention is no longer reported); removing only the typed-rethrow guard requirement fails the corpus (1 failure: a variable category without a guard is no longer reported). Restorations pass all corpus and package-wide audit controls."
+  "2026-11-09T21:58:49.875Z",pi-agent,"Round-13 final gates at the pushed head: 12 of 13 linked tests pass through pm test --run --progress, including the package-wide cause audit, the synthetic corpus and the full merge/origin/preview suites; the only failure in the broad batch is the known wall-time deadline control (long distinct quotes, 500ms bound) under concurrent host load, which passes 9/9 in isolation and in CI. Focused suites: 30/30 (origin, utility, verify, edges), 34/34 (transfer, plan, preview, commands, consent), 22/22 (memory, consolidate, quoted credentials, review boundaries), 64-case merge batch passing except the same deadline controls. Typecheck, lint, docstring, duplication (0%, 0 clone pairs) and identity (0 violations) pass; the changelog is refreshed after these tracker writes. CI certifies the complete release gate."
+  "2026-11-09T22:06:08.280Z",codex-agent,"Continuation audit: existing commits 5b48dae and 795287d already address both round-13 findings and match the remote head. Current main is an ancestor. Preserve those fixes and independently verify cause retention, typed-error identity, adversarial audit controls, packed npm/Bun non-git consumers, and required gates. No duplicate tracker item or PR; no raw agent transcript read."
+  "2026-11-09T22:10:45.548Z",codex-agent,"Independent revert proofs completed in a disposable worktree, with finally restoration and a passing rerun after every mutation. Command node --test --test-concurrency=1 --test-name-pattern=\"creator preserves typed failures\" test/portable-origin.test.ts: removing only creator typed-rethrow guard fails 1/1; restoring passes 1/1. The genuine SDK birth-entry probe verifies exact typed-error identity and preserves a foreign decoding cause. The source invariant also tests removal of every one of 14 direct rethrow guards across the package. Focused origin and boundary suites pass 20/20, zero skips."
+  "2026-11-09T22:11:45.207Z",codex-agent,"Packed cause/refusal acceptance passes for both npm and Bun from one digest-verified artifact, in non-git consumer trackers: SDK retains the original non-enumerable syntax cause; CLI JSON and TOON retain origin_missing and omit the private detail; no export directory is published and malformed origin bytes remain unchanged. Gates pass: typecheck, lint, duplication 0 percent, 175 documented declarations, identity zero violations, production audit zero vulnerabilities, release publish attestation. Clean-HOME strict self-host health passes 10/10; normal host health retains the pre-existing globally discovered pm-github version skew (pinned host 2026.11.5 versus global extension 2026.11.8). No dependency pin or unrelated host configuration changed. Complete npm/Bun release gates remain assigned to final-head CI under the explicit pm-memory multi-hour exception."
+  "2026-11-09T22:20:33.373Z",codex-agent,"Final continuation receipt: preserved remote work and current main, verified both unresolved threads with all comments and no missing pagination, and kept the existing PR and feature items. Linked origin/boundary tests pass 20/20; complete packed installation gate passes 3/3, zero skips, with npm/Bun SDK and JSON/TOON CLI evidence on non-git trackers. Exact commands and five revert proofs are recorded above. Typecheck, lint, duplication, docstrings, identity, production audit, pack validation, publish attestation and isolated strict health pass. Complete npm/Bun release and intended-source coverage certification remains pending final-head CI at https://github.com/unbraind/pm-memory/pull/51/checks; normal host health retains its pre-existing global extension skew. Both review fixes are retained in 5b48dae and further guarded by this continuation. Releasing the claim, retaining in_progress for orchestrator verification; no thread reply, resolution, merge or release."
+  "2026-11-12T12:03:12.057Z",codex-agent,"PR 51 review thread PRRT_kwDOVPw2oc62jl0k: retaining existing snapshot assertions and adding direct byte comparisons for the pending runtime intent and unreadable SDK publication receipt, which snapshot intentionally excludes. The review remains open for orchestrator verification."
+  "2026-11-12T12:19:32.564Z",codex-agent,"Evidence-preservation proof: in disposable sources, deliberately changed the runtime intent after its typed parse refusal and changed the publication receipt after its SDK read refusal. Both enhanced tests fail on byte comparison; reverting only those two new assertions makes both corrupted runs pass, proving snapshots alone missed the defect. Unmutated sources pass both checks and the complete sdk-final-round.test.ts file (8/8). No tracked recovery code or append-only history was altered."
+  "2026-11-12T14:17:11.384Z",codex-agent,"Final linked timeout 1200s node --test --test-concurrency=2 test/sdk-final-round.test.ts passes 8/8. PRRT_kwDOVPw2oc62jl0k now explicitly compares pending intent and unreadable publication receipt bytes, retaining snapshot checks. Disposable corruption fails both byte checks, while the previous snapshot-only assertions pass 2/2; restoration passes. All five round findings, exact commands, revert proofs, 560 completed passing tests, and the twice-capped import-state property gate are recorded on pm-memory-sdk-secret-scan. Merge #61 covers issue62-point2 (portable 22/22). Full release and coverage certification remain assigned to exact-head CI. Items remain in progress; releasing only our own claims before commit."
+  "2026-11-12T22:44:11.101Z",codex-agent,"Resume after orchestrator head 4af6796. Retain accepted earlier fixes, including r6 nested-cause assertions and MULTI_FILE_REMEDY. Worktree is clean, remote head pulled and origin/main already merged. Read all unresolved thread comments and agent prompts. Current round addresses PRRT_kwDOVPw2oc62265t (unmarked snapshot publication intents), PRRT_kwDOVPw2oc622652 (artifact scan after final output selection), and PRRT_kwDOVPw2oc622659 (one independent constant-content assertion). Audit every publication and durable intent clear; each must follow a committed receipt or an explicitly named proof that publication is unnecessary. Use real SDK journals and trackers, behavioural scratch reverts, targeted gates capped at 1200 seconds, and the shared-runner hold before push. The prior CodeQL thread remains answered but unresolved; its source fix and evidence are unchanged."
+  "2026-11-12T23:04:50.436Z",codex-agent,"Focused SDK and compatibility selection passes 68/68 before the final-boundary test refinement. Recovery now commits unmarked snapshots under the author and single-step legacy check, retains foreign or mismatched receipts, and shares a receipt-or-unchanged-generation check with normal publication. Earlier publications settle before replacement and post-write conflicts settle before batch return. Whole-plan deletion rejects a remaining publication. Legacy plans with interrupted known coordinators require unchanged native generations before retirement. The clearing list, including merge finalization, is documented in docs/sdk-adoption.md. Strengthened the former test that expected unmarked journals to remain pending, plus four invalid-publication controls that now retain uncertain intents. Run all direct importers and the related forward-recovery tests; full release and coverage stay in CI at unchanged thresholds."
+  "2026-11-12T23:18:46.818Z",codex-agent,"Behavioural reverts against 4af6796 ran only in disposable copies, rebuilding dist before each case. Restoring publishPending fails the unmarked-snapshot crash/restart test (1 failure). Restoring writeForward fails the earlier-publication-before-replacement test (1). Restoring commitPortableBatch fails post-write conflict publication (1). Restoring removeIntent fails the actual late SDK publication guard (1). Restoring pendingImport fails legacy interrupted whole-plan retention (1). Every case uses genuine SDK journals and native mutations, including the non-git and in-process host harness. No API doubles. The final receipt comparison uses the SDK committed-only return contract and checks its exact reconstructed ownership payload; the alternative proof is complete unchanged native hash, history length and digest. Unmarked author, step and multi-step collisions and unrelated committed receipts remain refused with intent and journal intact. Added a legacy no-write control: incomplete base evidence retains the intent; the full unchanged generation permits safe retirement. Restored selection including privacy and remedy controls passes 15/15. Current direct-importer gates are running at one file per command with a 1200-second cap; the scratch checks used one worker alongside one gate worker."
+  "2026-11-12T23:55:18.125Z",codex-agent,"Final current-round evidence at the unchanged SDK floor: 26 distinct gate files, {'tests': 365, 'pass': 365, 'fail': 0, 'cancelled': 0, 'skipped': 0}. Exact bounded commands/results: timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/publication-intent.test.ts => 11/11 passed in 20.69 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/commands.test.ts => 5/5 passed in 16.879 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/portable-admission.test.ts => 7/7 passed in 63.496 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/portable-collision.test.ts => 9/9 passed in 130.917 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/portable-critical.test.ts => 10/10 passed in 112.739 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/portable-identity.test.ts => 11/11 passed in 38.209 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/portable-ownership.test.ts => 30/30 passed in 102.768 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/portable-plan.test.ts => 8/8 passed in 47.08 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/portable-publication.test.ts => 19/19 passed in 38.313 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/portable-recovery-controls.test.ts => 16/16 passed in 46.335 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/portable-validation.test.ts => 9/9 passed in 40.01 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/review-boundaries.test.ts => 10/10 passed in 6.085 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/review-r6.test.ts => 6/6 passed in 13.327 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/review-round4.test.ts => 8/8 passed in 25.702 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/round2.test.ts => 9/9 passed in 15.366 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/sdk-adoption.test.ts => 22/22 passed in 32.802 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/sdk-final-round.test.ts => 8/8 passed in 10.185 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/sdk-review-r6.test.ts => 4/4 passed in 6.186 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/semantic.test.ts => 41/41 passed in 54.163 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/source-refusal-remedies.test.ts => 4/4 passed in 2.013 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/transfer.test.ts => 6/6 passed in 17.944 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=1 --test-reporter=tap '--test-name-pattern=^recovery:|^linked dependency final guard|^peer completion never adopts' test/portable-forward.test.ts => 7/7 passed in 106.657 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/compound-credentials.test.ts => 59/59 passed in 30.761 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/full-value-privacy.test.ts => 18/18 passed in 21.353 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/quoted-credentials.test.ts => 7/7 passed in 6.113 seconds; timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/reference-suffix.test.ts => 7/7 passed in 11.917 seconds; initial capped forward command: timeout --kill-after=10s 1200s node --test --test-concurrency=2 --test-reporter=tap test/portable-forward.test.ts => exit 124, 14 top-level cases completed before the cap. Forward-file qualification: the first bounded command reached exit 124 after 14 top-level cases completed successfully; the 7 unfinished cases pass a separate bounded retry in 106.657 seconds. The aggregate includes those 14 observed completed cases as well as 351 tests from passing commands, giving 365 distinct passing cases across 26 files. No property bounds, schedules or assertions changed. Full single-invocation forward-file certification remains with CI. Earlier passing gates were refreshed after the final receipt-check refinement; the runner checked final production and fixture hashes before each file and at completion. Every command is capped at 1200 seconds and the gate queue runs one file at a time. Pinned pm test --run --only-last --progress also executes the reader publication regression (11/11) and scanner artifact/remedy regressions (17/17). npm and Bun lint and typecheck passed again after those tests. Build, zero duplication (0/21059 lines, 164 sources), docstrings (44 files, 193 declarations), attestation and pack dry-run pass. Full release, coverage and CodeQL certification remain assigned to CI; no threshold, SDK pin or property budget changed. Exact behavioural reverts, rebuilt only in disposable copies: legacy-publication-reverted: timeout --kill-after=10s 1200s node --test --test-concurrency=1 --test-reporter=tap '--test-name-pattern=unmarked snapshot publication' test/publication-intent.test.ts => exit 1, {'tests': 1, 'pass': 0, 'fail': 1, 'cancelled': 0, 'skipped': 0}; publication-replacement-reverted: timeout --kill-after=10s 1200s node --test --test-concurrency=1 --test-reporter=tap '--test-name-pattern=later forward write' test/publication-intent.test.ts => exit 1, {'tests': 1, 'pass': 0, 'fail': 1, 'cancelled': 0, 'skipped': 0}; post-write-conflict-reverted: timeout --kill-after=10s 1200s node --test --test-concurrency=1 --test-reporter=tap '--test-name-pattern=post-write conflict' test/publication-intent.test.ts => exit 1, {'tests': 1, 'pass': 0, 'fail': 1, 'cancelled': 0, 'skipped': 0}; whole-plan-guard-reverted: timeout --kill-after=10s 1200s node --test --test-concurrency=1 --test-reporter=tap '--test-name-pattern=whole-plan deletion' test/publication-intent.test.ts => exit 1, {'tests': 1, 'pass': 0, 'fail': 1, 'cancelled': 0, 'skipped': 0}; legacy-plan-retirement-reverted: timeout --kill-after=10s 1200s node --test --test-concurrency=1 --test-reporter=tap '--test-name-pattern=legacy whole-plan retirement' test/publication-intent.test.ts => exit 1, {'tests': 1, 'pass': 0, 'fail': 1, 'cancelled': 0, 'skipped': 0}; artifact-choice-reverted: timeout --kill-after=10s 1200s node --test --test-concurrency=1 --test-reporter=tap '--test-name-pattern=retained artifact originals' test/review-round4.test.ts => exit 1, {'tests': 1, 'pass': 0, 'fail': 1, 'cancelled': 0, 'skipped': 0}; remedy-content-planted: timeout --kill-after=10s 1200s node --test --test-concurrency=1 --test-reporter=tap '--test-name-pattern=multi-file remedy requires|privacy preflight reports' test/round2.test.ts => exit 1, {'tests': 2, 'pass': 1, 'fail': 1, 'cancelled': 0, 'skipped': 0}; remedy-old-assertion: timeout --kill-after=10s 1200s node --test --test-concurrency=1 --test-reporter=tap '--test-name-pattern=privacy preflight reports' test/round2.test.ts => exit 0, {'tests': 1, 'pass': 1, 'fail': 0, 'cancelled': 0, 'skipped': 0}; restored: timeout --kill-after=10s 1200s node --test --test-concurrency=1 --test-reporter=tap '--test-name-pattern=unmarked|completed import clears|committed unrelated|legacy whole-plan|later forward|post-write conflict|whole-plan deletion|unchanged native generation|retained artifact originals|multi-file remedy requires|privacy preflight reports|legacy no-write' test/publication-intent.test.ts test/review-round4.test.ts test/round2.test.ts test/portable-recovery-controls.test.ts => exit 0, {'tests': 15, 'pass': 15, 'fail': 0, 'cancelled': 0, 'skipped': 0}. There are seven intended mutation/revert failures; the old remedy behaviour passes the wrong constant, and restored controls pass 15/15. The shared-runner hold was active during local checks and will be checked immediately before push; never modify the hold file. Keep both items in_progress, release this author claim, regenerate/check changelog after the final metadata write, and run strict health and identity. No review replies, resolutions or closures."
+files[31]:
+  - path: docs/sdk-adoption.md
+    scope: project
+  - path: manifest.json
+    scope: project
+  - path: package.json
+    scope: project
+  - path: README.md
+    scope: project
+  - path: src/commands.ts
+    scope: project
+  - path: src/core.ts
+    scope: project
+  - path: src/embeddings.ts
+    scope: project
+  - path: src/merge-receipt.ts
+    scope: project
+  - path: src/portable-origin.ts
+    scope: project
+  - path: src/portable-ownership.ts
+    scope: project
+  - path: src/portable-plan.ts
+    scope: project
+  - path: src/portable-preview.ts
+    scope: project
+  - path: src/portable-write.ts
+    scope: project
+  - path: src/transfer.ts
+    scope: project
+  - path: src/utility.ts
+    scope: project
+  - path: src/verify.ts
+    scope: project
+  - path: src/writer-lock.ts
+    scope: project
+  - path: test/export-credential-original.test.ts
+    scope: project
+  - path: test/portable-document.test.ts
+    scope: project
+  - path: test/portable-origin.test.ts
+    scope: project
+  - path: test/portable-ownership.test.ts
+    scope: project
+  - path: test/portable-recovery-controls.test.ts
+    scope: project
+  - path: test/reference-suffix-consumer.acceptance.ts
+    scope: project
+  - path: test/review-boundaries.test.ts
+    scope: project
+  - path: test/sdk-adoption.test.ts
+    scope: project
+  - path: test/sdk-final-round.test.ts
+    scope: project
+    note: Direct intent and receipt byte preservation assertions
+  - path: test/sdk-lock-protocol.test.ts
+    scope: project
+  - path: test/sdk-review-r5.test.ts
+    scope: project
+  - path: test/semantic.test.ts
+    scope: project
+  - path: test/publication-intent.test.ts
+    scope: project
+  - path: test/portable-publication.test.ts
+    scope: project
+tests[16]:
+  - command: "node --test --test-concurrency=2 --test-name-pattern=\"locked SDK|public reader|public receipt|supported abandonment\" test/sdk-adoption.test.ts"
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-06T10:25:50.381Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: "node --test --test-concurrency=2 --test-name-pattern=\"matching-field|proven native publication|locked SDK|supported abandonment\" test/sdk-adoption.test.ts"
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-06T14:53:47.168Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"array baseline\" test/sdk-adoption.test.ts"
+    scope: project
+    timeout_seconds: 180
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-06T16:54:53.154Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: node --test --test-concurrency=1 --test-name-pattern=document.receipt.fingerprints test/portable-document.test.ts
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-06T18:58:46.604Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"locked SDK|public receipt\" test/sdk-adoption.test.ts"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-06T21:10:17.951Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: "node --test --test-concurrency=1 --test-name-pattern=\"locked SDK|public receipt|foreign ownership receipts\" test/sdk-adoption.test.ts test/portable-ownership.test.ts"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-06T21:11:46.593Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: node --test --test-concurrency=2 test/portable-ownership.test.ts test/sdk-adoption.test.ts test/portable-document.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T09:40:39.718Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: node --test --test-concurrency=2 --test-name-pattern='mismatched attempt marker' test/portable-recovery-controls.test.ts
+    scope: project
+    provenance:
+      author: pi-agent
+      created_at: "2026-11-09T11:08:29.908Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: node --test --test-concurrency=2 --test-name-pattern='public SDK finding policy' test/sdk-review-r5.test.ts
+    scope: project
+    provenance:
+      author: pi-agent
+      created_at: "2026-11-09T11:08:32.899Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: PM_MEMORY_WORKER_POOL=2 node --test --test-concurrency=2 test/sdk-adoption.test.ts test/portable-ownership.test.ts test/portable-preview.test.ts test/portable-origin.test.ts test/portable-recovery-controls.test.ts test/merge-receipt.test.ts test/utility.test.ts test/verify.test.ts
+    scope: project
+    timeout_seconds: 1800
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T17:38:26.007Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: "PM_MEMORY_WORKER_POOL=2 node --test --test-concurrency=2 --test-name-pattern=\"cache faults|default test and coverage|every operational catch|domain causes|all namespace readers|origin and preview|export refusals preserve\" test/semantic.test.ts test/review-boundaries.test.ts test/export-credential-original.test.ts"
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T17:42:10.817Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: PM_MEMORY_WORKER_POOL=2 node --test --test-concurrency=2 test/sdk-lock-protocol.test.ts
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T17:47:42.806Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: node --test --test-concurrency=2 test/review-boundaries.test.ts test/review-r5.test.ts test/review-r1.test.ts test/review-r9.test.ts test/merge-receipt.test.ts test/merge-history.test.ts
+    scope: project
+    timeout_seconds: 900
+    provenance:
+      author: pi-agent
+      created_at: "2026-11-09T21:43:02.209Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: node --test --test-concurrency=2 test/review-boundaries.test.ts test/portable-origin.test.ts
+    scope: project
+    timeout_seconds: 900
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-09T22:09:07.463Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: timeout 1200s node --test --test-concurrency=2 test/sdk-final-round.test.ts
+    scope: project
+    timeout_seconds: 1200
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T12:27:20.194Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+  - command: timeout 1200s node --test --test-concurrency=2 test/publication-intent.test.ts
+    scope: project
+    provenance:
+      author: codex-agent
+      created_at: "2026-11-12T23:04:48.831Z"
+      source_kind: local_mutation
+      source_ref: adopt-sdk-transaction-readers-and-secret-scan
+docs[1]{path,scope,note}:
+  docs/sdk-adoption.md,project,Existing transaction recovery and refusal contract
+body: ""

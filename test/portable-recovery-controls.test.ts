@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, writeFile, mkdir, chmod, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { commitWorkspaceTransaction, WorkspaceTransactionInterruptedError, deleteItem, getHistoryPath, readSettings, locateItem, resolveItemTypeRegistry, serializeItemDocument, createHistoryEntry, appendHistoryEntry } from '@unbrained/pm-cli/sdk';
+import { commitWorkspaceTransaction, readWorkspaceTransaction, WorkspaceTransactionInterruptedError, deleteItem, getHistoryPath, readSettings, locateItem, resolveItemTypeRegistry, serializeItemDocument, createHistoryEntry, appendHistoryEntry } from '@unbrained/pm-cli/sdk';
 import type { WorkspaceTransactionJsonValue } from '@unbrained/pm-cli/sdk';
 import { importDir, exportDir, remember, MemoryError } from '../index.ts';
 import { digest } from '../src/core.ts';
@@ -20,6 +20,24 @@ async function fixtureIntent(workspace: string, value: unknown): Promise<string>
   await writeFile(file, JSON.stringify({ owner: 'pm-memory-policy-plan:1', payload, checksum: digest(payload) }));
   return file;
 }
+
+test('legacy no-write coordinators retire only with a complete unchanged native generation', async t => {
+  const { target, plan, mutation, before } = await capturedPublication(t);
+  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, transactionId: plan.transactionId, author: plan.author, steps: [{ id: 'attempt', inspect: async () => ({ state: 'pending' }), apply: async () => ({ input: plan.input }), compensate: retainForwardWrites }], onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+  delete plan.forwardOnly; delete plan.expected[0].document;
+  await target.store.write(() => savePlan(target.store, plan));
+  const file = join(target.workspace, 'runtime', 'memory-policy-import.json'); const bytes = await readFile(file);
+  await assert.rejects(pendingImport(target.store), error => error instanceof MemoryError && error.code === 'history');
+  assert.deepEqual(await readFile(file), bytes);
+  await target.store.write(async () => {
+    Object.assign(plan.expected[0], { document: before.document });
+    await savePlan(target.store, plan);
+  });
+  assert.equal(await pendingImport(target.store), undefined);
+  await assert.rejects(readFile(file), { code: 'ENOENT' });
+  assert.deepEqual(await nativeState(target.store, mutation.id), before);
+  assert.equal((await readWorkspaceTransaction(target.workspace, plan.transactionId))?.recoveryData, undefined);
+});
 
 /** Build a genuine SDK graph shared by admission and post-no-op dependency controls. */
 async function linkedFixture(t: Parameters<typeof tracker>[0], cyclic = false) {
@@ -114,6 +132,25 @@ test('a foreign intent replacing a proven interrupted publication is retained wi
   assert.ok(result?.skipped.some(row => row.slug === 'pending-import'));
   assert.equal(await readFile(join(target.workspace, 'runtime', 'memory-policy-import.json'), 'utf8'), foreign);
   assert.equal((await target.client.listAllComplete({ includeBody: true })).items[0].body, 'Alpha B');
+});
+
+test('a mismatched attempt marker returns the foreign result while retries preserve the intent and journal', async t => {
+  const { target, plan } = await capturedPublication(t);
+  await target.store.write(async () => { await savePlan(target.store, plan); });
+  const intentFile = join(target.workspace, 'runtime', 'memory-policy-import.json');
+  const intent = await readFile(intentFile, 'utf8');
+  // A foreign coordinator marker occupies the exact attempt slot under the same author and step identity.
+  await assert.rejects(commitWorkspaceTransaction({ pmRoot: target.workspace, author: plan.author, transactionId: plan.transactionId, recoveryData: { owner: 'another-package' }, steps: [{ id: 'attempt', inspect: async () => ({ state: 'pending' as const }), apply: async () => ({ retained: true }) as WorkspaceTransactionJsonValue, compensate: retainForwardWrites }], onTransition: event => { if (event.transition === 'prepared') throw new WorkspaceTransactionInterruptedError(); } }), WorkspaceTransactionInterruptedError);
+  const journalFile = join(target.workspace, 'transactions', 'sdk', `${plan.transactionId}.json`);
+  const journal = await readFile(journalFile, 'utf8');
+  const kept = await snapshot(target.workspace);
+  for (const retry of [1, 2]) {
+    const result = await recoverInput(target.store, 'current-input', { ...target.options, from: 'agents-md' });
+    assert.deepEqual(result, { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [{ slug: 'pending-import', reason: 'Foreign pending import record retained' }] }, `retry ${retry} must report the retained foreign attempt marker`);
+    assert.equal(await readFile(intentFile, 'utf8'), intent, `retry ${retry} must preserve the owned intent`);
+    assert.equal(await readFile(journalFile, 'utf8'), journal, `retry ${retry} must preserve the foreign journal`);
+  }
+  assert.deepEqual(await snapshot(target.workspace), kept);
 });
 
 test('unsealed and sealed birth captures derive only the requested SDK creation and preserve an earlier independent document', async t => {

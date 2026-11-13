@@ -2,9 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- Delegate memory credential detection to SDK mutation secret scanner ([pm-memory-sdk-secret-scan](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-secret-scan.toon))
+- Adopt public SDK transaction inspection and native hash preconditions ([pm-memory-sdk-transaction-reader](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-transaction-reader.toon))
+
 ### Fixed
 
 - Make portable preparation contention tests independent of writer wait timing ([pm-memory-preparation-boundary-barriers](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-preparation-boundary-barriers.toon))
+- Refuse quoted JSON and YAML credential keys before persistence ([pm-memory-quoted-credential-keys](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-quoted-credential-keys.toon))
 
 ## 2026.11.7 - 2026-11-07
 

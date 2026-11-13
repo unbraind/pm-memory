@@ -122,7 +122,7 @@ export function embeddingText(item: Memory): string {
 /** Classify filesystem failures without leaking local paths or suggesting daemon repair. */
 async function cacheIO<T>(operation: () => Promise<T>): Promise<T> {
   try { return await operation(); }
-  catch { throw new MemoryError('cache', 'Local embedding cache unavailable', 'Check tracker runtime permissions, file types and free disk space; retry or use --semantic off'); }
+  catch (cause) { if (cause instanceof MemoryError) throw cause; throw new MemoryError('cache', 'Local embedding cache unavailable', 'Check tracker runtime permissions, file types and free disk space; retry or use --semantic off', { cause }); }
 }
 /** Missing runtime files are cache misses; other filesystem errors remain actionable. */
 async function readCache(path: string): Promise<string | undefined> {

@@ -7,6 +7,7 @@ import { extractClaims, checkClaim, directoryEvidence } from '../src/verify.ts';
 import { proposals } from '../src/consolidate.ts';
 import { recallPacket, rank } from '../src/memory.ts';
 import { tracker, snapshot } from './helpers.ts';
+import { MULTI_FILE_REMEDY } from '../src/transfer.ts';
 
 test('verify classifier resolves nested repositories and repeatable roots with conservative absence reasons', async t => {
   const { root, options } = await tracker(t); const other = await tracker(t);
@@ -80,14 +81,18 @@ test('compact recall retains a huge top result at 200 tokens, shows scores and d
   const empty = recallPacket([], [], 'anything', 200); assert.equal(empty.omitted, 0);
 });
 
-test('privacy preflight reports every offending relative file, line and matched class without echoing values or writing', async t => {
+test('the multi-file remedy requires editing each listed file', () => {
+  assert.match(MULTI_FILE_REMEDY, /edit each listed file/i);
+});
+
+test('privacy preflight reports every offending relative file, whole-document location and matched class without echoing values or writing', async t => {
   const { root, options } = await tracker(t); const source = join(root, 'source'); await mkdir(source);
   await writeFile(join(source, 'email.md'), '---\nname: email-note\ndescription: person@example.test\n---\nBody\n');
   await writeFile(join(source, 'secret.md'), '---\nname: secret-note\n---\napi_key=fake0000000000000000\n');
   const before = await snapshot(options.workspace);
   await assert.rejects(importDir(source, { ...options, from: 'claude-code' }), error => {
-    assert.ok(error instanceof MemoryError); assert.match(error.message, /email.md:line 3 \(Email address refused\)/); assert.match(error.message, /secret.md:line 4 \(Credential-shaped memory refused\)/);
-    assert.ok(!error.message.includes('person@example.test')); assert.ok(!error.message.includes('fake000')); assert.match(error.remedy, /--allow-email/); assert.match(error.remedy, /Edit each listed file/); return true;
+    assert.ok(error instanceof MemoryError); assert.match(error.message, /email.md:multiline \(Email address refused\)/); assert.match(error.message, /secret.md:multiline \(Credential-shaped memory refused\)/);
+    assert.ok(!error.message.includes('person@example.test')); assert.ok(!error.message.includes('fake000')); assert.match(error.remedy, /--allow-email/); assert.ok(error.remedy.includes(MULTI_FILE_REMEDY)); return true;
   });
   assert.deepEqual(await snapshot(options.workspace), before);
   await writeFile(join(source, 'secret.md'), 'A safe standalone note');

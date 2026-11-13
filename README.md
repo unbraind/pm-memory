@@ -37,17 +37,17 @@ After publication, choose your usual package manager:
 ```sh
 pm package install pm-memory
 
-npm install --save-dev @unbrained/pm-cli@2026.10.23 pm-memory
+npm install --save-dev @unbrained/pm-cli@2026.11.11 pm-memory
 npx pm package install pm-memory
 
-bun add --dev @unbrained/pm-cli@2026.10.23 pm-memory
+bun add --dev @unbrained/pm-cli@2026.11.11 pm-memory
 bunx --bun pm package install pm-memory
 
 npx --package=@unbrained/pm-cli pm package install pm-memory
 bunx --bun --package @unbrained/pm-cli pm package install pm-memory
 ```
 
-Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The peer host minimum is 2026.10.23; the pinned development host is 2026.11.4. Node 22.18 or later is required.
+Initialize a tracker first with `pm init`. For a nested project, set `PM_PATH` explicitly to its own `.agents/pm`. All SDK calls require an explicit initialized tracker directory; they never discover an ancestor. The supported peer floor and pinned development host are 2026.11.11, and the peer range is bounded below the next major. Raising the floor or the upper bound requires reviewing the SDK detector inventory and passing the compatibility fixtures. Node 22.18 or later is required.
 
 
 ## Consent-scoped recall views
@@ -133,7 +133,7 @@ Every command returns native host TOON by default and accepts `--json`. Expected
 
 `remember` requires `--kind user|feedback|project|reference`. Omit `--slug` for a stable content-derived key. An exact slug updates the same item and appends native history. Use `--update build` to require that the key already exists. Near duplicates at or above 0.82 normalized title-plus-body token Jaccard similarity refuse with the existing key and two remedies: `--update <slug>` or `--force-new --slug <distinct-key>`. `--why`, `--how`, `--pin` and repeatable `--link` add retrieval context and relationships. SDK clients may also supply tags.
 
-The privacy gate examines facts, rationale, application instructions, tags and imported source bytes before mutations. It refuses recognizable API/token prefixes, JWTs, private keys, password/key/secret assignments, authenticated URLs and credential-shaped token assignments. Variable references and short plain `token:` accounting prose are references rather than literal credentials. Emails require explicit `--allow-email`, also supported by import. Import reports every offending relative file and line together with its matched class before writing anything; edit the listed files or permit email explicitly. This heuristic is an input guard, not a proof that arbitrary prose contains no private information. Do not store credentials in memory.
+The privacy gate examines facts, rationale, application instructions, tags and imported source bytes before mutations. It refuses recognizable API/token prefixes, JWTs, private keys, password/key/secret assignments, authenticated URLs and credential-shaped token assignments. Complete values are checked by both the SDK scanner and the local compound-key policy. Local variable-reference exemptions never suppress an SDK credential finding; short plain `token:` accounting prose remains accepted. Whole-value resource limits refuse oversized or excessively costly input instead of inspecting a window (see [the credential contract](docs/sdk-adoption.md#credential-policy)). Emails require explicit `--allow-email`, also supported by import. Import reports every offending relative file, whole-document location and matched class before writing anything; edit the listed files or permit email explicitly. This heuristic is an input guard, not a proof that arbitrary prose contains no private information. Do not store credentials in memory.
 
 Recall defaults to 800 estimated tokens; index defaults to 1500. The entire packet, including the estimated-token field and omission receipt, is measured in both pretty JSON and native TOON with the host's UTF-8 byte estimator. An impossibly small budget refuses before counter writes. Recall packs compact rows first (slug, kind, pinned, description, score), in rank order; it then spends spare space on query-centered excerpts. A top result is never replaced by a smaller lower-ranked result. At 200 tokens a maximum-length slug retains its top row with the recall receipt; smaller budgets may refuse. Truncated excerpts carry an explicit marker pointing to `pm memory get <slug>`. Index entries may be omitted when oversized. All truncation is Unicode-safe. An index orders pinned guidance first, then kind, then recency.
 
@@ -306,16 +306,23 @@ never authorizes a restoration. Portable field receipts use the SDK normalizer
 and native history invalidates only values actually edited by a peer. Source
 round trips that change nothing perform no item writes.
 
-`commitWorkspaceTransaction` journals cooperating transactions; **it does not
-exclude ordinary native SDK/CLI writers**. The final SDK hook rechecks saved field
-bases and the current document hash. Planning freezes SDK-normalized content and
-its immutable history head before the read callback; timestamps never identify a
-snapshot or select a historical base. History also detects intervening edits that
-return a field to its prior value. The re-read-to-write window remains:
-[pm-cli#1576](https://github.com/unbraind/pm-cli/issues/1576) and
-[pm-cli#1620](https://github.com/unbraind/pm-cli/issues/1620). These checks do not
-provide lock-based native-writer isolation or an atomic multi-item batch. Readers
-may see completed items before the rest of an import finishes.
+`commitWorkspaceTransaction` journals cooperating transactions; it does not
+exclude ordinary native SDK/CLI writers. Source updates now run inside the SDK's
+`withExpectedItemRevisions` with a public `readItemRevision` hash captured before
+publication. The native item lock refuses a changed canonical revision. The final
+SDK hook additionally rechecks saved field bases, complete birth evidence and
+immutable history prefixes, including edits that return a field to its prior value.
+Read-set dependencies still have domain ownership checks; this is not an atomic
+multi-item import. Readers may see completed items before the remaining steps finish.
+
+Public `readWorkspaceTransaction` and `readItemTransaction` inspect retained
+receipts and occupied operation identities. No SDK journal file layout is decoded.
+Recovery uses `abandonWorkspaceTransaction` only for an exact owned custom step,
+with a forward-retention compensation. Foreign coordinators and SDK item-batch
+plans are retained for their owner. Domain source writes deliberately keep the
+custom coordinator: generic item-batch recovery can adopt an existing create id
+and restore earlier values, whereas portable imports require positive birth
+ownership and never reverse completed source writes.
 
 Unknown frontmatter and Markdown sections belong to the imported document. Raw,
 companion and canonical imports compare the complete UTF-8 document, including
@@ -342,7 +349,7 @@ their document snapshots as lossy when those artifacts are outside the inventory
 
 Creation admission compares the SDK proposal with an independently planned native
 birth document. Hooks are scoped to the exact tracker. The `write-guard` observer
-marks the final best-effort check, not an atomic SDK precondition.
+marks the domain admission check; native update revisions are also guarded under the SDK item lock.
 
 Relationship validation checks the kind, target and every optional provenance field
 (`created_at`, `author`, `source_kind`, `author_source`) in the first pure pass,
@@ -384,7 +391,7 @@ Unrelated tracker readers can observe staged writes until
 commit or recovery completes. Schema registration is idempotent and
 precedes the item batch. The lease covers the state read, planning, preview and
 publication, and releases last. Observed newer native revisions supersede this import even when their author and
-transaction message match; the SDK race limitation above still applies. Relationship target ids are remapped to portable slugs and back, including
+transaction message match; native revision and domain history checks still apply. Relationship target ids are remapped to portable slugs and back, including
 kinds, source references and author/time provenance; SDK edge authorship is reasserted
 by its native mutation path. Import computes selective SDK additions/removals over the
 represented relationship identities. An edge can be removed only if the current or a
@@ -424,10 +431,11 @@ Installed extension code stays outside item validation. When the tracker contain
 packages, preview builds a private disposable projection from SDK-certified item
 paths, admitted history streams and guarded SDK schema/settings, then runs the same
 SDK mutation preview. Package dependency links and foreign files remain untouched.
-Every projection boundary has crash and competing-native-edit coverage; the final saved-base
-check still guards the original tracker, subject to the documented native-writer race. The pinned SDK has no preview path filter or
-host-bound batch method (the latter is tracked by
-[pm-cli#1598](https://github.com/unbraind/pm-cli/issues/1598)).
+Every projection boundary has crash and competing-native-edit coverage. Preview uses the
+public host-bound `PmClient.previewItemMutations`; independent birth construction uses
+`PmClient.commitItemMutations` in its disposable tracker. Staging does not certify
+executable host hooks: source publication retains the attested host policy scope
+and applies the same domain checks for directory and injected-host imports.
 
 The existing CLI commands return compact host TOON or `--json` counts; policy imports
 also return `skipped` entries with a slug, reason and optional typed `import_conflict`
@@ -573,7 +581,7 @@ These measurements cover the shipped ranker on the synthetic fixture; they are n
 
 Remember, renew, recall (including local semantic recall), get, index, import, export, verify, consolidation, observe and utility work in an initialized plain-directory tracker. They do not require a Git executable. Verification searches source trees independently of repository metadata; optional network checks still require explicit `--network`. Git-based release/changelog tooling needs repository history. Regression tests exercise semantic recall in a real non-git tracker with ancestor Git discovery blocked and a PATH containing no Git executable.
 
-Writer ownership and recovery use the SDK lease protocol (minimum host 2026.10.23).
+Writer ownership and recovery use the SDK lease protocol (minimum host 2026.11.11).
 Native mutations and file export fence publication against successor takeover;
 a stale writer refuses with `lock_lost`. Live or unverifiable owners remain
 protected, and contention waits are capped at 30 seconds. These paths also work

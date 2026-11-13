@@ -3,9 +3,7 @@ import { validNativeProof } from './portable-write.ts';
 import { documentHash } from './native-revision.ts';
 import type { NativeProof } from './native-revision.ts';
 import { validRelationship } from './portable-relationships.ts';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { getHistoryPath, getItemAt, hashHistoryStream, readHistoryEntries, replayHistoryToTarget, itemDocumentToMutationOptions, createRelationshipKindRegistry, normalizeDependencySourceKind } from '@unbrained/pm-cli/sdk';
+import { getHistoryPath, getItemAt, hashHistoryStream, readHistoryEntries, replayHistoryToTarget, itemDocumentToMutationOptions, createRelationshipKindRegistry, normalizeDependencySourceKind, readWorkspaceTransaction } from '@unbrained/pm-cli/sdk';
 import type { Dependency } from '@unbrained/pm-cli/sdk';
 import { canonicalProvenance } from './portable.ts';
 import type { PortableGuidance, PortableRelationship } from './portable.ts';
@@ -264,15 +262,13 @@ export function ownershipPatch(current: Memory, row: PortableGuidance, body: str
 }
 /** Read one complete, committed package receipt; missing or foreign journals prove nothing. */
 async function committedReceipt(store: Store, transactionId: string, id: string): Promise<OwnedTarget | undefined> {
-  let value: unknown;
-  try { value = JSON.parse(await readFile(join(store.workspace, 'transactions', 'sdk', `${transactionId}-snapshot.json`), 'utf8')); } catch { return undefined; }
-  if (value === null || typeof value !== 'object') return undefined;
-  const journal = value as { status?: unknown; results?: Record<string, { owner?: unknown; targets?: OwnedTarget[] }> };
-  if (journal.status !== 'committed' || journal.results === undefined || journal.results === null || typeof journal.results !== 'object') return undefined;
+  let journal;
+  try { journal = await readWorkspaceTransaction(store.workspace, `${transactionId}-snapshot`); } catch (cause) { if (cause instanceof MemoryError) throw cause; throw new MemoryError('transaction', 'Native transaction receipt could not be verified', 'Preserve the receipt and restore SDK-readable transaction evidence before retrying', { cause }); }
+  if (journal?.status !== 'committed') return undefined;
   for (const receipt of Object.values(journal.results)) {
-    if (receipt === null || typeof receipt !== 'object' || receipt.owner !== 'pm-memory-policy-ownership:1' || !Array.isArray(receipt.targets)) continue;
+    if (receipt === null || typeof receipt !== 'object' || Array.isArray(receipt) || receipt.owner !== 'pm-memory-policy-ownership:1' || !Array.isArray(receipt.targets)) continue;
     const target = receipt.targets.find(target => validOwnedTarget(target) && target.id === id);
-    if (target !== undefined) return target;
+    if (validOwnedTarget(target)) return target;
   }
   return undefined;
 }
@@ -296,7 +292,7 @@ export async function recordedCreation(store: Store, id: string): Promise<boolea
       if (await committedReceipt(store, match[1], id) !== undefined) return true;
     }
     return false;
-  } catch { return false; }
+  } catch (error) { if (error instanceof MemoryError) { throw error; } return false; }
 }
 
 /** Read only committed package receipts linked by immutable SDK history markers. */

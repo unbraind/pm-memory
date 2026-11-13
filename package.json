@@ -19,13 +19,14 @@
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
-    "ARCHITECTURE.md"
+    "ARCHITECTURE.md",
+    "docs/sdk-adoption.md"
   ],
   "scripts": {
     "build": "tsc",
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build && npm run build:test && node --test --test-concurrency=2 test/*.test.ts",
-    "test:install": "npm run build && node --test --test-concurrency=2 --test-reporter=spec test/install.acceptance.ts",
+    "test:install": "npm run build && node --test --test-concurrency=2 --test-reporter=spec test/install.acceptance.ts test/reference-suffix-consumer.acceptance.ts",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "check": "npm run typecheck",
@@ -48,13 +49,13 @@
     "bench": "node scripts/bench.ts"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.10.23"
+    "@unbrained/pm-cli": ">=2026.11.11 <2027"
   },
   "devDependencies": {
     "@babel/eslint-parser": "8.0.7",
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@types/node": "26.6.6",
-    "@unbrained/pm-cli": "2026.11.7",
+    "@unbrained/pm-cli": "2026.11.11",
     "c8": "^12.0.0",
     "eslint": "10.14.0",
     "fast-glob": "3.3.3",
@@ -104,7 +105,8 @@
     "docs": [
       "README.md",
       "CHANGELOG.md",
-      "ARCHITECTURE.md"
+      "ARCHITECTURE.md",
+      "docs/sdk-adoption.md"
     ],
     "examples": [
       "README.md"

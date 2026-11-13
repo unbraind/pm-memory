@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { lstat, readdir, open, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { PmClient, certifyCompleteListResult, readSettings, writeSettings, runWithActiveExtensions, runWithConfigurationOnlySettings, resolveTransactionSchema, resolveItemTypeRegistry, locateItem, getItemPath, getHistoryPath, previewItemMutations, commitItemMutations, getItemAt, canonicalDocument, serializeItemDocument, readHistoryEntries } from '@unbrained/pm-cli/sdk';
+import { PmClient, certifyCompleteListResult, readSettings, writeSettings, runWithActiveExtensions, runWithConfigurationOnlySettings, resolveTransactionSchema, resolveItemTypeRegistry, locateItem, getItemPath, getHistoryPath, getItemAt, canonicalDocument, serializeItemDocument, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { validateImportPlan } from './portable-plan.ts';
 import { Store } from './store.ts';
@@ -23,7 +23,7 @@ export async function hasPreviewPackages(workspace: string): Promise<boolean> {
 export async function copyPreviewFile(source: string, destination: string): Promise<boolean> {
   let file: Awaited<ReturnType<typeof open>>;
   try { file = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw new MemoryError('history', 'Preview source is not a readable regular file', 'Restore the verified tracker item or history file and retry'); }
+  catch (error) { if (error instanceof MemoryError) throw error; if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw new MemoryError('history', 'Preview source is not a readable regular file', 'Restore the verified tracker item or history file and retry', { cause: error }); }
   try {
     if (!(await file.stat()).isFile()) throw new MemoryError('history', 'Preview source is not a regular file', 'Restore the verified tracker item or history file and retry');
     await mkdir(dirname(destination), { recursive: true });
@@ -99,7 +99,7 @@ export async function captureBirths(store: Store, plan: ImportPlan): Promise<voi
   const nodes = plan.nodes ?? plan.mutations.filter(row => row.op === 'create');
   if (nodes.length === 0) { plan.births = []; return; }
   const births = await withProjection(store, plan, new Set(nodes.map(row => row.id)), async workspace => {
-    await commitItemMutations({ pmRoot: workspace, author: plan.author, transactionId: plan.nodes === undefined ? plan.transactionId : `${plan.transactionId}-nodes`, mutations: nodes });
+    await new PmClient({ pmRoot: workspace, author: plan.author, noExtensions: true }).commitItemMutations({ transactionId: plan.nodes === undefined ? plan.transactionId : `${plan.transactionId}-nodes`, mutations: nodes });
     const schema = await trackerSchema(workspace);
     return Promise.all(nodes.map(async row => ({ id: row.id, document: birthDocument((await getItemAt(row.id, '1', { pmRoot: workspace })).document, schema), message: (await readHistoryEntries(getHistoryPath(workspace, row.id), row.id))[0].message })));
   });
@@ -110,12 +110,12 @@ export async function previewOwnedItems(store: Store, plan: ImportPlan, mutation
   const creates = mutations.some(row => row.op === 'create');
   if (!creates && !await hasPreviewPackages(store.workspace)) {
     await validateImportPlan(store, plan);
-    await previewItemMutations({ ...plan, mutations, pmRoot: store.workspace }); return;
+    await (store.hostClient ?? new PmClient({ pmRoot: store.workspace, author: plan.author, noExtensions: true })).previewItemMutations({ transactionId: plan.transactionId, mutations }); return;
   }
   await withProjection(store, plan, new Set(), async workspace => {
     const target = new Store({ workspace, author: plan.author });
     await validateImportPlan(target, plan);
-    await previewItemMutations({ ...plan, mutations, pmRoot: workspace });
+    await new PmClient({ pmRoot: workspace, author: plan.author, noExtensions: true }).previewItemMutations({ transactionId: plan.transactionId, mutations });
   }, onStep);
   if (creates) {
     plan.nodes = prepareImportNodes(plan);

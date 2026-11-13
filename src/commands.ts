@@ -1,4 +1,4 @@
-import { createPmCliExpectedError } from '@unbrained/pm-cli/sdk';
+import { createPmCliExpectedError, isPmCliExpectedError } from '@unbrained/pm-cli/sdk';
 import { defineCommand } from '@unbrained/pm-cli/sdk/authoring';
 import type { CommandHandlerContext, ExtensionApi, FlagDefinition } from '@unbrained/pm-cli/sdk/authoring';
 import { kind, MemoryError, text } from './core.ts';
@@ -14,6 +14,19 @@ import { createView, grantConsent, withdrawConsent, inspectView, viewFields } fr
 import { MEMORY_FIELDS } from './store.ts';
 import { registerNativeHost } from './native-host.ts';
 
+/** Recognize SDK secret refusals through operational wrappers without retaining their diagnostics. */
+function sdkSecretRefusal(error: unknown): boolean {
+  const pending = [error]; const seen = new Set<unknown>();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (seen.has(current)) continue;
+    seen.add(current);
+    if (isPmCliExpectedError(current) && current.code === 'mutation_secret_guard_blocked') return true;
+    if (current instanceof Error && current.cause !== undefined) pending.push(current.cause);
+    if (current instanceof AggregateError) for (const child of current.errors) pending.push(child);
+  }
+  return false;
+}
 /** Dispatch native command operands to the documented in-process API. */
 export async function runCommand(command: string, ctx: CommandHandlerContext): Promise<unknown> {
   try {
@@ -36,8 +49,10 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     if (command === 'consolidate') return await consolidate({ ...base, apply: options.apply === true, semantic: semanticMode(options.semantic), minAgeDays: options.minAgeDays === undefined ? undefined : Number(options.minAgeDays) });
     throw new MemoryError('invalid', 'Unknown memory command', 'Run pm memory --help');
   } catch (error) {
-    const refusal = error instanceof MemoryError ? error : new MemoryError('sdk', 'Memory operation could not complete', 'Check source permissions, tracker integrity and pm health before retrying');
-    throw createPmCliExpectedError(`memory ${refusal.code}: ${refusal.message}. Remedy: ${refusal.remedy}`, { exitCode: refusal.code === 'privacy' ? 4 : refusal.code === 'duplicate' || refusal.code === 'conflict' ? 3 : 2, context: { code: refusal.code, required: refusal.remedy } });
+    const refusal = sdkSecretRefusal(error) ? new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead') : error instanceof MemoryError ? error : new MemoryError('sdk', 'Memory operation could not complete', 'Check source permissions, tracker integrity and pm health before retrying', { cause: error });
+    // Privacy refusals must also replace the host's default argv recovery bundle,
+    // which otherwise echoes refused operands and flag values in every output format.
+    throw createPmCliExpectedError(`memory ${refusal.code}: ${refusal.message}. Remedy: ${refusal.remedy}`, { ...(refusal.code === 'privacy' ? {} : { cause: error }), exitCode: refusal.code === 'privacy' ? 4 : refusal.code === 'duplicate' || refusal.code === 'conflict' ? 3 : 2, context: { code: refusal.code, required: refusal.remedy, ...(refusal.code === 'privacy' ? { recovery: { attempted_command: `pm memory ${command} [redacted]`, normalized_args: ['memory', command], provided_fields: [] } } : {}) } });
   }
 }
 /** Native flag descriptions include concrete examples in every option's help entry. */

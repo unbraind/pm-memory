@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { readFile, writeFile, mkdir, rm, cp } from 'node:fs/promises';
 import { exportDir, importDir, remember, renew, POLICY_MANIFEST, MemoryError } from '../index.ts';
 import type { PortablePolicyManifest } from '../index.ts';
 import { policyBody } from '../src/portable.ts';
 import { tracker, snapshot, crashAtStep, assertSkippedUnchanged, exportedPolicy, editIntent, crashAfterCompensation, assertOriginRefused, importText } from './helpers.ts';
-import { WorkspaceTransactionInterruptedError, commitItemMutations, commitWorkspaceTransaction, sealHistoryRecord, appendHistoryEntry, type WorkspaceTransactionJsonValue, getHistoryPath, readHistoryEntries, getItemPath, canonicalDocument, serializeItemDocument, resolveItemTypeRegistry, readSettings } from '@unbrained/pm-cli/sdk';
+import { WorkspaceTransactionInterruptedError, commitItemMutations, commitWorkspaceTransaction, sealHistoryRecord, appendHistoryEntry, type WorkspaceTransactionJsonValue, getHistoryPath, readHistoryEntries, getItemPath, canonicalDocument, serializeItemDocument, resolveItemTypeRegistry, readSettings, readWorkspaceTransaction } from '@unbrained/pm-cli/sdk';
 import type { ImportPlan } from '../src/portable-plan.ts';
 import { creationMetadata, recordedCreation } from '../src/portable-ownership.ts';
 
@@ -161,11 +161,25 @@ test('foreign ownership receipts never authorize a later native edit to be overw
   await writeFile(join(path, row.path), policyBody(row, 'Harness D'));
   const owned = Object.values(journal.results)[0].targets[0];
   const targets: unknown[] = [null, 3, [], {}, { ...owned, fields: null }, { ...owned, fields: {} }, { ...owned, fields: { unknown: 'x' } }, { ...owned, fields: { body: 3 } }, { ...owned, fields: { body: 'bad' } }, { ...owned, relationships: 3 }, ...[3, [], {}, { id: 3, kind: 'related' }, { id: 'valid', kind: 'unknown' }].map(edge => ({ ...owned, relationships: [edge] })), { ...owned, id: 'foreign' }, { ...owned, fields: [] }, { ...owned, relationships: [null] }, { ...owned, graph: [] }, ...[null, 3, [], {}, { original: 3 }, { original: 'Retained foreign source bytes' }].map(source => ({ ...owned, source }))];
-  const values: unknown[] = [null, 3, [], {}, { ...journal, status: 'prepared' }, ...[undefined, null, 3, [], { foreign: null }, { foreign: 3 }, { foreign: { owner: 'foreign' } }, { foreign: { owner: 'pm-memory-policy-ownership:1', targets: null } }, ...targets.map(target => ({ foreign: { owner: 'pm-memory-policy-ownership:1', targets: [target] } }))].map(results => ({ ...journal, results }))];
+  const resultKey = Object.keys(journal.results)[0];
+  const receipts: unknown[] = [null, 3, [], {}, { owner: 'foreign' }, { owner: 'pm-memory-policy-ownership:1', targets: null }, ...targets.map(target => ({ owner: 'pm-memory-policy-ownership:1', targets: [target] }))];
   const before = await snapshot(target.workspace);
+  for (const receipt of receipts) {
+    const value = JSON.stringify({ ...journal, results: { [resultKey]: receipt } });
+    await writeFile(journalPath, value);
+    const readable = await readWorkspaceTransaction(target.workspace, basename(journalPath, '.json'));
+    assert.ok(readable, 'Target fixture must reach package ownership validation');
+    assert.equal(readable.status, 'committed');
+    const result = await importDir(path, { ...target.options, from: 'agents-md' });
+    assert.ok('skipped' in result && result.skipped.some(row => row.conflict?.code === 'import_conflict'));
+    assert.equal(await readFile(journalPath, 'utf8'), value);
+    assert.deepEqual(await snapshot(target.workspace), before);
+  }
+  const values: unknown[] = [null, 3, [], {}, { ...journal, status: 'prepared' }, ...[undefined, null, 3, [], { foreign: null }].map(results => ({ ...journal, results }))];
   for (const value of ['{', ...values.map(value => JSON.stringify(value))]) {
     await writeFile(journalPath, value);
-    await importDir(path, { ...target.options, from: 'agents-md' });
+    await assert.rejects(readWorkspaceTransaction(target.workspace, basename(journalPath, '.json')));
+    await assert.rejects(importDir(path, { ...target.options, from: 'agents-md' }), error => error instanceof MemoryError && error.code === 'transaction');
     assert.equal(await readFile(journalPath, 'utf8'), value);
     assert.deepEqual(await snapshot(target.workspace), before);
   }
