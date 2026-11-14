@@ -9,10 +9,19 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request supersedes its earlier CI run: cancel it instead of letting both hold runners.
+# Pushes to main and manual runs are never cancelled.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   runtime:
     name: release gate (${{ matrix.node-version }}, ${{ matrix.runtime }})
-    runs-on: ubuntu-latest
+    # The three full release gates are the fleet's heaviest jobs. With the repository variable PM_LOCAL_RUNNER=on
+    # they run on the fleet's local, ephemeral runners (label pm-local); fork pull requests always stay on
+    # GitHub-hosted runners, because a self-hosted runner must never execute untrusted code.
+    runs-on: ${{ (vars.PM_LOCAL_RUNNER == 'on' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && fromJSON('["self-hosted","pm-local"]') || 'ubuntu-latest' }}
     env:
       NPM_CONFIG_USERCONFIG: /dev/null
     strategy:
