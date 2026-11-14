@@ -2,11 +2,13 @@ id: pm-memory-toolchain-1104
 title: Migrate the November 4 toolchain and verification collision fixtures
 description: "Supersede https://github.com/unbraind/pm-memory/pull/46 with exact requested toolchain pins. Reproduce timestamp-collision and tags failures, classify their upstream contracts, retain semantic and source revision safety controls."
 type: Chore
-status: in_progress
+status: closed
 priority: 2
 tags[4]: dependencies,"gh:unbraind/pm-memory#46",migration,sdk
 created_at: "2026-11-05T05:10:03.809Z"
-updated_at: "2026-11-05T07:18:10.853Z"
+updated_at: "2026-11-14T08:58:02.550Z"
+closed_at: "2026-11-14T08:58:02.447Z"
+completed_at: "2026-11-14T08:58:02.447Z"
 author: codex-toolchain-1104
 acceptance_criteria: Focused collision regression and relevant gates pass; no weakened coverage or assertions; merge latest main including pool-lane stop tests; separate review PR with tracker evidence
 comments[3]{created_at,author,text}:
@@ -24,4 +26,5 @@ tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,
 docs[2]{path,scope}:
   docs/time-bounded-guidance-validation.md,project
   README.md,project
+close_reason: "https://github.com/unbraind/pm-memory/pull/50 merged 2026-11-05T09:33:58Z; merge SHA 3c1f8cab89d851d9dc4cc8e5da86d8ac8874e3d0; PR head 9b33dabaa1ec37a53f4c208a86ff6607bfbffcd8. Delivered: Updated toolchain and validated SDK string-tag collision fixtures, preserving timestamp/semantic/source revision, ABA and pool-lane stop assertions. Green at that head: release gate (22, npm), codeql, release gate (26, npm), release gate (26, bun), test (22), test (26), CodeQL, CodeRabbit. Other check outcomes: enable-auto-merge: SKIPPED; cubic · AI code reviewer: NEUTRAL; Sourcery review: SKIPPED (not counted as green)."
 body: ""

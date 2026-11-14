@@ -2,11 +2,13 @@ id: pm-memory-review48
 title: Address PR 48 rejection and caller-stop review findings
 description: Implement and verify the two unresolved review findings on PR #48; retain the parent issue and its orchestrator claim.
 type: Task
-status: in_progress
+status: closed
 priority: 2
 tags[2]: "gh:unbraind/pm-memory#48",review
 created_at: "2026-11-04T21:32:13.964Z"
-updated_at: "2026-11-04T22:00:36.434Z"
+updated_at: "2026-11-14T08:58:04.806Z"
+closed_at: "2026-11-14T08:58:04.781Z"
+completed_at: "2026-11-14T08:58:04.781Z"
 author: codex-agent
 acceptance_criteria: Unstringifiable rejections preserve cause and stop new claims; caller-level deterministic regression catches scheduling bypass; behavioral revert proofs and unchanged full npm/Bun release gates recorded.
 parent: pm-memory-x47g
@@ -28,4 +30,5 @@ tests[5]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "npm run test:install",project,codex-agent,"2026-11-04T22:00:34.808Z",local_mutation,fix/pool-stop-test-independent-of-slot-order
 docs[1]{path,scope}:
   CHANGELOG.md,project
+close_reason: "https://github.com/unbraind/pm-memory/pull/48 merged 2026-11-05T03:50:02Z; merge SHA 115e05ac952e2a2d3ff7911060f017114d76acf1; PR head 1ee83a0e7dc39c79b1fadee9dd4989c73a518f05. Delivered: Deterministic lane-stop regressions, safe unstringifiable rejection handling and caller-level stop behavior with unchanged worker-pool semantics. Green at that head: release gate (22, npm), codeql, release gate (26, npm), release gate (26, bun), test (22), test (26), CodeQL, cubic · AI code reviewer. Other check outcomes: enable-auto-merge: SKIPPED; CodeRabbit: SKIPPED; Sourcery review: SKIPPED (not counted as green)."
 body: ""
