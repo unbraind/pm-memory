@@ -2,14 +2,19 @@ id: pm-memory-sdk-transaction-reader
 title: Adopt public SDK transaction inspection and native hash preconditions
 description: "Adopt public SDK transaction readers, host-bound item batches and locked expected revisions while retaining portable history, read-set and forward-retention proofs."
 type: Feature
-status: in_progress
+status: closed
 priority: 1
 tags[10]: "gh:unbraind/pm-cli#1576","gh:unbraind/pm-cli#1597","gh:unbraind/pm-cli#1598","gh:unbraind/pm-cli#1620","gh:unbraind/pm-memory#51",sdk-adoption,"upstream:pm-cli#1576","upstream:pm-cli#1597","upstream:pm-cli#1598","upstream:pm-cli#1620"
 created_at: "2026-10-27T06:21:15.119Z"
-updated_at: "2026-11-12T23:55:19.590Z"
+updated_at: "2026-11-13T23:51:17.721Z"
+closed_at: "2026-11-13T23:51:17.632Z"
+completed_at: "2026-11-13T23:51:17.632Z"
 author: codex-agent
 acceptance_criteria: "Replace owned SDK journal reads with public transaction inspection without weakening crash recovery, CAS, foreign preservation or replay tests"
 parent: pm-memory-0kwy
+resolution: Implemented and merged in #51 (d2d448e).
+expected_result: The change described by this item is on main.
+actual_result: "Merged in #51 as d2d448e; checks successful at head 0850d61: CodeQL, codeql, release gate (22, npm), release gate (26, bun), release gate (26, npm), test (22), test (26)."
 comments[49]{created_at,author,text}:
   "2026-10-27T08:53:47.062Z",codex-agent,"Additional verified SDK adapter limit: previewItemMutations accepts only pmRoot, transactionId, author and mutations; no include/exclude path or authoritative-item projection option exists. Its owned snapshot includes extensions, so installed dependency links can refuse normal imports. The package now projects SDK-certified item documents, relevant exact history streams and guarded SDK schema/settings into a private disposable tracker before invoking the same SDK validator. PmClient still has no host-bound preview method (related upstream issue 1598); that issue covers the public host-context surface, while this managed-directory scoping constraint is a separate observed symptom. Adopt a public scoped preview when available; do not remove validation or copy installed code."
   "2026-10-27T09:39:43.693Z",codex-agent,"Capability precision: runWorkspaceTransactionGc(dryRun: true) provides status/age sweep decisions, but not the ownership payload or step results needed for recovery, abandonment or replanning. It is not a substitute for the missing full transaction receipt reader tracked by 1597. No GC of foreign or SDK journals was added."
@@ -249,4 +254,5 @@ tests[16]:
       source_ref: adopt-sdk-transaction-readers-and-secret-scan
 docs[1]{path,scope,note}:
   docs/sdk-adoption.md,project,Existing transaction recovery and refusal contract
+close_reason: "Delivered by #51 \"Adopt public SDK transaction readers, revision guards and secret scanning\" (merged as d2d448e). Checks successful at the PR head 0850d61: CodeQL, codeql, release gate (22, npm), release gate (26, bun), release gate (26, npm), test (22), test (26)."
 body: ""
