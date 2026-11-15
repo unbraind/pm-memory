@@ -7,12 +7,12 @@ status: in_progress
 priority: 2
 tags[4]: ci,"gh:unbraind/pm-memory#75",performance,tests
 created_at: "2026-11-04T03:26:26.179Z"
-updated_at: "2026-11-15T05:09:01.412Z"
+updated_at: "2026-11-15T06:34:30.622Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: orchestrator
 acceptance_criteria: Hosted quick required checks complete within 15 minutes including queueing; full default and deep mode retain all original seed receipts and release checks; CLI delayed-writer isolation regression and file-watchdog regression pass; quick coverage remains 100 percent in every dimension; record local and PR measurements; leave this Task open for owner verification
-comments[17]{created_at,author,text}:
+comments[22]{created_at,author,text}:
   "2026-11-15T03:42:01.837Z",codex-sol,"Applying Fleet CI v2; companion pm-cli-website-dyhg. Reusing this existing CI/performance Task. Required checks confirmed: test (22), test (26), codeql. CodeQL stays unfiltered because it is required. Plan: hosted quick PR gates, exhaustive four-combination local deep tier, deterministic depth prefixes with unchanged 100% coverage, bounded test lifecycle and issue #75 regression, then measured PR checks. Release workflow and release verifiers are out of scope."
   "2026-11-15T03:48:18.439Z",codex-sol,"Baseline run 43627397337: full gate steps Node 22 npm 182m51s, Node 26 npm 56m33s, Node 26 Bun 41m08s. Current main has three runtime legs, so deep restores the requested Node 22 Bun combination as well. The pinned CLI dispatches detached telemetry flush children; replacement diagnostic environments drop test suppression. Child test environments now explicitly disable telemetry. An independent probe confirmed Node --test-timeout does not terminate an idle file after its last passing test, so an unreferenced per-file failure watchdog is required. No coverage thresholds or source scope changed."
   "2026-11-15T03:50:36.924Z",codex-sol,"Recovered baseline test timings from the successful main Node 26 job log: model 1302.75s, forward-only update boundary sweep 544.59s, owned state 441.94s, 220-source round trip 395.36s, grammar 365.66s. The canceled run 43616440465 last emitted test 346 and retained model/coverage children, so its logs do not prove all tests finished. Explicit watchdog regression now fails an idle file after a passing test. The real-CLI probe demonstrates unsuppressed detached telemetry dispatch and zero dispatch with isolated child settings; diagnostic assertions and cleanup failures remain load-bearing."
@@ -30,35 +30,57 @@ comments[17]{created_at,author,text}:
   "2026-11-15T04:52:16.658Z",codex-sol,"The standalone quick coverage command was terminated by the outer pm harness at 2700.062 seconds (SIGTERM), with no assertion failures reported before termination. This is incomplete evidence, not a coverage pass; any partial report is invalid. The complete quick release:check will now rerun coverage under the corrected 7200-second linked-test harness, then execute audit, pack, changelog, attestation and real packed npm/Bun acceptance."
   "2026-11-15T05:07:54.541Z",codex-sol,"The final remaining large-count seeded loop was the packet-budget property (300 generated sets), now depth-selected to the same first 30 sets. The in-flight release gate was deliberately superseded before completion so final local validation uses this exact test configuration. The remaining fixed large fixtures are product size/complexity contracts or complete seed-ledger guards, rather than sampled seed loops. No result from a stopped run is claimed as a pass."
   "2026-11-15T05:09:01.401Z",codex-sol,"Final prefix validation passed in 20.632 seconds: packet-budget and quoted-scanner tests at both quick and full depth. Typecheck and lint passed after the final packet-budget helper change. Restarting the complete quick release gate on the final selected-seed configuration; the earlier superseded release invocation is excluded from success evidence."
-files[27]{path,scope}:
+  "2026-11-15T05:51:30.920Z",codex-sol,"Live diagnosis during final quick release validation: apparent output pause at 345 reported passes was finite work, not an idle process. Model workers advanced to batches starting at 20, 25, 30 and 35 of the selected 50 sequences; the environment confirms quick depth and time scale 3. The sibling lossless suite was also active. This reinforces the distinction between unfinished model work in canceled hosted logs and the separately demonstrated detached telemetry/teardown defect."
+  "2026-11-15T06:10:13.711Z",codex-sol,"Final quick model validation completed all 50 sequences and 2290 SDK-read steps in 1326.501 seconds on the shared local host; the final two batches were observed advancing at starts 40 and 45 before completion. Fresh-tracker field/adapter export law also passed in 675.220 seconds locally versus 81.448 seconds in the hosted baseline, illustrating why local and hosted timings must be labeled separately. The complete release gate is still running without reported failures; no overall pass or coverage percentage is claimed yet."
+  "2026-11-15T06:23:49.737Z",codex-sol,"Deep schedule refined to 00:53 UTC: its nominal 120-minute execution window ends at 02:53, thirty minutes before the 03:23 release cron. This supersedes the earlier 02:53 start decision. Queue delays can still shift actual execution; the per-ref concurrency and hard timeout remain unchanged. Product tests and coverage configuration are unchanged by this scheduling edit."
+  "2026-11-15T06:31:09.734Z",codex-sol,"Complete quick validation found one stale tooling assertion and exactly one uncovered source branch. Result: 896/897 tests passed; coverage statements/functions/lines 100%, branches 99.97%. The assertion still required a standalone identity step, although identity remains first in the Node 26 release gate. The uncovered core.ts branch rejects invalid quote spans ending in a backslash, previously reached only by late quote-corpus seeds. Added deterministic benign-tail and later-credential refusal cases at both depths; thresholds and source inventory remain unchanged. This failed attempt is not counted as successful release proof."
+  "2026-11-15T06:34:30.607Z",codex-sol,"The deterministic malformed quote-tail regression records four hits on the previously uncovered core.ts:189 branch in diagnostic c8 coverage. Corrected identity-gate wiring and quote-tail tests pass at both quick and full depth via linked test 6 (3.567 seconds). Typecheck and lint pass. Separate audit, pack dry-run, changelog and attestation checks pass; packed acceptance is still running before the complete gate restart."
+files[44]{path,scope}:
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
   .github/workflows/codeql.yml,project
+  CHANGELOG.md,project
+  docs/ci-tiers.md,project
   package.json,project
   scripts/coverage-gate.ts,project
   scripts/environment.ts,project
   test/ci-lifecycle.test.ts,project
   test/consumer-helpers.ts,project
   test/helpers.ts,project
+  test/import-state.test.ts,project
   test/import-state.worker.ts,project
   test/memory.test.ts,project
   test/native-host-helpers.ts,project
+  test/portable-document-law.test.ts,project
   test/portable-document.worker.ts,project
+  test/portable-fidelity.test.ts,project
   test/portable-fidelity.worker.ts,project
   test/portable-forward.test.ts,project
+  test/portable-grammar-law.test.ts,project
   test/portable-grammar.worker.ts,project
+  test/portable-laws.test.ts,project
   test/portable-laws.worker.ts,project
+  test/portable-model.test.ts,project
   test/portable-model.worker.ts,project
   test/portable-native-peer.ts,project
+  test/property-seeds.test.ts,project
+  test/property-seeds.ts,project
   test/release-ci.test.ts,project
+  test/review-r1.test.ts,project
+  test/review-r11.test.ts,project
   test/review-r4.test.ts,project
+  test/review-r9.test.ts,project
+  test/review-round4.test.ts,project
   test/sdk-review-r8.test.ts,project
   test/semantic.test.ts,project
   test/shipped-files.acceptance.ts,project
+  test/source-safety.test.ts,project
   test/support/depth.ts,project
   test/support/file-deadline.ts,project
   test/support/time.ts,project
-tests[5]:
+  test/tooling.test.ts,project
+  test/worker-budget.test.ts,project
+tests[6]:
   - command: "npm run typecheck && npm run lint && npm run duplication && npm run changelog:check"
     scope: project
     timeout_seconds: 300
@@ -99,6 +121,14 @@ tests[5]:
     provenance:
       author: codex-sol
       created_at: "2026-11-15T05:07:53.466Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: "PM_TEST_DEPTH=quick node --import ./test/support/file-deadline.ts --test --test-name-pattern=\"invalid escaped|identity policy runs\" test/sdk-review-r8.test.ts test/tooling.test.ts && PM_TEST_DEPTH=full node --import ./test/support/file-deadline.ts --test --test-name-pattern=\"invalid escaped|identity policy runs\" test/sdk-review-r8.test.ts test/tooling.test.ts"
+    scope: project
+    timeout_seconds: 120
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-15T06:32:56.649Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
 docs[1]{path,scope}:

@@ -44,6 +44,17 @@ test('quoted scanner preserves the prior matcher corpus', () => {
     : '968ab572638bd4858a24f528ef67486cdb49a8f0b9f31821086b32d4119f2488');
 });
 
+test('invalid escaped quote tails do not hide a later credential assignment', () => {
+  // The late enumerated seeds reach this invalid-span branch. Keep its policy
+  // explicit in both depths instead of relying on a random or enumerated tail.
+  for (const ending of ['', '\n']) {
+    const malformed = "'password': '\\" + ending;
+    assert.doesNotThrow(() => privacy(malformed, true));
+    assert.throws(() => privacy(malformed + "\n'api_key': 'SyntheticOnly123!'", true),
+      error => error instanceof MemoryError && error.code === 'privacy');
+  }
+});
+
 test('100k escaped-quote inputs complete without backtracking quote matchers', t => {
   // Reject the unsafe algorithm before running it: this guard has no wall-clock threshold.
   const original = RegExp.prototype.exec; let unsafeCalls = 0;

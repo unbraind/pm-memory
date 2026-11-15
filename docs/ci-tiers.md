@@ -27,8 +27,9 @@ no path exclusions; skipping that workflow would block docs-only PRs.
 Deep checks have distinct names, `deep (22, npm)`, `deep (22, bun)`,
 `deep (26, npm)` and `deep (26, bun)`. Each runs one complete release gate;
 this restores Node 22 Bun in addition to the three legs on the previous main.
-They run on main pushes, dispatch and daily at 02:53 UTC, separate from release
-at 03:23 UTC and weekly CodeQL at 01:47 UTC on Monday. Each has a 120-minute
+They run on main pushes, dispatch and daily at 00:53 UTC. The nominal 120-minute
+window ends 30 minutes before release at 03:23 UTC; weekly CodeQL remains at
+01:47 UTC on Monday. Each has a 120-minute
 limit, `PM_TEST_DEPTH=full`, `PM_TEST_TIME_SCALE=3`, and cancellation per ref.
 Runner routing uses the fleet's `PM_LOCAL_DEEP` expression: self-hosted `pm-local`
 unless the controller sets the variable to `off`, then hosted Ubuntu. Busy local
@@ -47,6 +48,9 @@ uses 52 of 512 enumerated seeds in quick mode, and packet-budget properties
 use 30 of 300 generated sets. The scanner has a separately frozen prefix
 digest verified against the unchanged full-corpus digest. Coverage thresholds
 and source inventory never vary by depth.
+An explicit invalid escaped-quote-tail regression covers the scanner branch
+previously reached only by late enumerated cases, including refusal of a later
+credential assignment after a malformed benign prefix.
 
 The packed-documentation contract lives in `test/shipped-files.acceptance.ts`
 and runs through `test:install`, keeping the Node 22 PR leg free of pack commands.

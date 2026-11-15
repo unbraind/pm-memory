@@ -222,11 +222,11 @@ test('identity policy checks side-branch commits and merged additions', () => {
   assert.equal(auditIdentities(root).length, 3);
 });
 
-test('identity policy runs as a required CI and release gate', () => {
+test('identity policy runs through the required code CI release gate', () => {
   const ci = readFileSync(join(repositoryRoot, '.github/workflows/ci.yml'), 'utf8');
   const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
-  assert.match(ci, /- name: Verify commit identities and private path policy\s+run: npm run identity:check/);
-  assert.match(manifest.scripts['release:check'], /npm run identity:check/);
+  assert.match(ci, /run: npm run release:check/);
+  assert.match(manifest.scripts['release:check'], /^npm run identity:check && /);
   assert.equal(manifest.scripts['identity:check'], 'node scripts/identity-gate.ts');
   const root = identityFixture('identity-main');
   assert.equal(runScript('identity-gate.ts', [root]).status, 0);
