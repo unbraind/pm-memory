@@ -66,7 +66,9 @@ test('PR change detection handles docs, source, deletions, renames and unusual f
       const result = spawnSync('bash', ['-c', script], { cwd: root, encoding: 'utf8', env: { ...process.env, BASE_SHA: base, HEAD_SHA: git('rev-parse', 'HEAD'), GITHUB_EVENT_NAME: 'pull_request', RUNNER_TEMP: root, GITHUB_OUTPUT: output } });
       assert.equal(result.status, 0, result.stderr); assert.equal(readFileSync(output, 'utf8'), `code=${expected}\n`, label);
     };
-    const cases: [string, boolean][] = [['README.md', false], ['docs/guide.txt', false], ['.agents/pm/tasks/sample.toon', false], ['LICENSE', false], ['src/new.ts', true], ['source\nname.ts', true]];
+    const cases: [string, boolean][] = [['README.md', false], ['docs/guide.txt', false], ['.agents/pm/tasks/sample.toon', false], ['LICENSE', false], ['src/new.ts', true]];
+    // Windows rejects control characters in filenames; retain all portable cases there.
+    if (process.platform !== 'win32') cases.push(['source\nname.ts', true]);
     for (const [path, expected] of cases) {
       git('reset', '--hard', base); git('clean', '-fd');
       mkdirSync(join(root, path, '..'), { recursive: true }); writeFileSync(join(root, path), 'fixture');
