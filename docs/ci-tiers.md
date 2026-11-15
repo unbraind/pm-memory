@@ -61,6 +61,10 @@ runs SDK/CLI round trips. It proves project installs and installed-bin execution
 it does not claim global or network-ephemeral bunx installation. The PR gate
 retains this proof once and adds `bun install --no-save` as a package-graph smoke.
 
+Independent unit test files use four file slots; model subprocesses retain the
+existing shared slot budget (at most four across sibling files). This overlaps
+fixed I/O-heavy contracts without increasing their seed or worker budgets.
+
 ## Test lifecycle and slow hardware
 
 Issue #75 failed while removing the diagnostic fixture's `.pm-cli/locks`.

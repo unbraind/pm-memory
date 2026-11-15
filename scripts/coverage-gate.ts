@@ -267,7 +267,7 @@ function runC8(root: string, config: CoverageGateConfig, inventory: SourceInvent
       "--import",
       new URL("../test/support/file-deadline.ts", import.meta.url).href,
       "--test",
-      "--test-concurrency=2",
+      "--test-concurrency=4",
       ...config.tests,
     ],
     { cwd: root, env, stdio: "inherit" },
