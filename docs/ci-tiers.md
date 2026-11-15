@@ -42,8 +42,10 @@ properties and randomized consolidation use the same rule. Full, unset and
 unknown values retain full depth. The independent full seed manifest and its
 missing/duplicate/changed-seed guards remain exhaustive in both tiers. Worker
 receipts prove the selected complete prefix; seed formulas, batch sizes and
-per-sequence assertions are unchanged. Fixed input-size contracts, including the
-220-source aggregate round trip, remain complete. The quoted-scanner corpus
+per-sequence assertions are unchanged. The aggregate round trip retains 220 × 4 KiB sources at full depth. Quick uses
+25 × 32 KiB sources: both retain a policy manifest larger than 1 MiB and verify
+all imported bodies through both real harnesses; the full tier retains the
+original many-source cardinality contract. Other fixed input-size contracts remain complete. The quoted-scanner corpus
 uses 52 of 512 enumerated seeds in quick mode, and packet-budget properties
 use 30 of 300 generated sets. The scanner has a separately frozen prefix
 digest verified against the unchanged full-corpus digest. Coverage thresholds
@@ -61,9 +63,9 @@ runs SDK/CLI round trips. It proves project installs and installed-bin execution
 it does not claim global or network-ephemeral bunx installation. The PR gate
 retains this proof once and adds `bun install --no-save` as a package-graph smoke.
 
-Independent unit test files use four file slots; model subprocesses retain the
-existing shared slot budget (at most four across sibling files). This overlaps
-fixed I/O-heavy contracts without increasing their seed or worker budgets.
+Unit tests, coverage and packed acceptance use two file slots after a
+four-file hosted experiment increased contention. Model subprocesses retain the
+existing shared slot budget (at most four across sibling files).
 
 ## Test lifecycle and slow hardware
 

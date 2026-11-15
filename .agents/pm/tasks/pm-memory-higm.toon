@@ -7,12 +7,12 @@ status: in_progress
 priority: 2
 tags[4]: ci,"gh:unbraind/pm-memory#75",performance,tests
 created_at: "2026-11-04T03:26:26.179Z"
-updated_at: "2026-11-15T08:14:36.548Z"
+updated_at: "2026-11-15T08:36:46.418Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: orchestrator
 acceptance_criteria: Hosted quick required checks complete within 15 minutes including queueing; full default and deep mode retain all original seed receipts and release checks; CLI delayed-writer isolation regression and file-watchdog regression pass; quick coverage remains 100 percent in every dimension; record local and PR measurements; leave this Task open for owner verification
-comments[27]{created_at,author,text}:
+comments[29]{created_at,author,text}:
   "2026-11-15T03:42:01.837Z",codex-sol,"Applying Fleet CI v2; companion pm-cli-website-dyhg. Reusing this existing CI/performance Task. Required checks confirmed: test (22), test (26), codeql. CodeQL stays unfiltered because it is required. Plan: hosted quick PR gates, exhaustive four-combination local deep tier, deterministic depth prefixes with unchanged 100% coverage, bounded test lifecycle and issue #75 regression, then measured PR checks. Release workflow and release verifiers are out of scope."
   "2026-11-15T03:48:18.439Z",codex-sol,"Baseline run 43627397337: full gate steps Node 22 npm 182m51s, Node 26 npm 56m33s, Node 26 Bun 41m08s. Current main has three runtime legs, so deep restores the requested Node 22 Bun combination as well. The pinned CLI dispatches detached telemetry flush children; replacement diagnostic environments drop test suppression. Child test environments now explicitly disable telemetry. An independent probe confirmed Node --test-timeout does not terminate an idle file after its last passing test, so an unreferenced per-file failure watchdog is required. No coverage thresholds or source scope changed."
   "2026-11-15T03:50:36.924Z",codex-sol,"Recovered baseline test timings from the successful main Node 26 job log: model 1302.75s, forward-only update boundary sweep 544.59s, owned state 441.94s, 220-source round trip 395.36s, grammar 365.66s. The canceled run 43616440465 last emitted test 346 and retained model/coverage children, so its logs do not prove all tests finished. Explicit watchdog regression now fails an idle file after a passing test. The real-CLI probe demonstrates unsuppressed detached telemetry dispatch and zero dispatch with isolated child settings; diagnostic assertions and cleanup failures remain load-bearing."
@@ -40,6 +40,8 @@ comments[27]{created_at,author,text}:
   "2026-11-15T07:55:20.056Z",codex-sol,"Published PR #76 (https://github.com/unbraind/pm-memory/pull/76), initial head 8729cdd, after the shared dispatch hold expired. Exact published body verified against the prepared body, with Fixes #75, main tracker link, full tier inventory and local proof. Protected check names remain test (22), test (26), codeql; CodeQL path filters deliberately omitted because it is protected. Awaiting jobs-API queue/execution/wall measurements before final receipt."
   "2026-11-15T08:13:05.447Z",codex-sol,"Initial hosted Node 26 passed at head 8729cdd: job wall 16m11s, queue 2s; release gate 15m55s. Coverage took 832.562s and packed acceptance 110.037s. Largest test: the fixed 220-source contract 231.64s, then model prefix 97.42s. Node 22 remains running. This exceeds the requested 15-minute target. Node sorts test files, preventing a heavy-first argument order; the runner still serializes independent files into only two lanes. Raising file concurrency to four while retaining the existing shared model-worker slot cap, all seed counts and every assertion; will rerun validation and hosted measurements."
   "2026-11-15T08:14:36.533Z",codex-sol,"Four-file scheduling targeted validation passed 60/60 in 22.612s (ci-lifecycle, release-ci, tooling, worker-budget), plus typecheck, lint and changelog consistency. Only the independent unit-file concurrency changes from two to four; packed acceptance retains two and the shared model-worker cap is unchanged. Repeating the complete local quick release gate with the final configuration. Initial hosted Node 22 is still executing; a superseding push will cancel it, so it is explicitly missing evidence rather than approval."
+  "2026-11-15T08:33:54.826Z",codex-sol,"The four-file coverage experiment exceeded the earlier 16m13s hosted pass, so coverage returns to two file slots; Node 22 npm test retains four. Stopped the owned superseded local gate; no passing result is claimed for that attempt. The largest fixed contract is adapted by payload shape: quick uses 25 sources × 32 KiB, full keeps the original 220 × 4 KiB. Both still require a manifest larger than 1 MiB and verify every restored body through both real harnesses. This keeps the original many-source contract in CI Deep while avoiding hundreds of repeated SDK publications in every PR. Running its targeted quick check before repeating complete validation."
+  "2026-11-15T08:36:46.402Z",codex-sol,"Revised quick aggregate test passed: 25 × 32 KiB sources, both harnesses and >1 MiB manifest, 142.552s test / 143.802s runner versus 891.261s for the previous local 220-source quick test. Full keeps exactly 220 × 4 KiB. Static gates passed with zero duplication. Restoring both unit and coverage file concurrency to the original two: the four-file hosted attempt is slower and is not accepted as evidence. Next hosted head isolates this inventory-shape improvement; the complete local quick release gate will be rerun from that head."
 files[44]{path,scope}:
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
@@ -85,7 +87,7 @@ files[44]{path,scope}:
   test/support/time.ts,project
   test/tooling.test.ts,project
   test/worker-budget.test.ts,project
-tests[6]:
+tests[7]:
   - command: "npm run typecheck && npm run lint && npm run duplication && npm run changelog:check"
     scope: project
     timeout_seconds: 300
@@ -134,6 +136,13 @@ tests[6]:
     provenance:
       author: codex-sol
       created_at: "2026-11-15T06:32:56.649Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: "PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-name-pattern=\"benign.*sources round trip\" test/sdk-review-r8.test.ts"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-15T08:34:40.558Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
 docs[1]{path,scope}:

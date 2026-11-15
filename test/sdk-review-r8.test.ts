@@ -93,20 +93,22 @@ test('aggregate inventories have an independent limit and actionable remedy befo
   assert.deepEqual(await snapshot(target.workspace), before);
 });
 
-test('220 benign 4 KiB sources round trip through both harnesses', async t => {
+const inventoryCount = testDepth(220);
+const inventoryBytes = inventoryCount === 220 ? 4096 : 32768;
+test(`${inventoryCount} benign ${inventoryBytes / 1024} KiB sources round trip through both harnesses`, async t => {
   const target = await tracker(t); withoutGit(t, target.root); const input = join(target.root, 'input'); await mkdir(input);
-  const body = 'Public guidance. '.repeat(256).slice(0, 4096);
-  assert.equal(Buffer.byteLength(body), 4096);
-  for (let at = 0; at < 220; at++) await writeFile(join(input, 'guide-' + at + '.md'), body);
-  assert.equal((await importDir(input, { ...target.options, from: 'agents-md' })).imported, 220);
+  const body = 'Public guidance. '.repeat(Math.ceil(inventoryBytes / 17)).slice(0, inventoryBytes);
+  assert.equal(Buffer.byteLength(body), inventoryBytes);
+  for (let at = 0; at < inventoryCount; at++) await writeFile(join(input, 'guide-' + at + '.md'), body);
+  assert.equal((await importDir(input, { ...target.options, from: 'agents-md' })).imported, inventoryCount);
   for (const to of ['agents-md', 'claude-code'] as const) {
     const output = join(target.root, to); await exportDir(output, { ...target.options, to });
     const companion = POLICY_MANIFEST;
     assert.ok((await readFile(join(output, companion))).length > 1024 * 1024);
     const restored = await tracker(t);
-    assert.equal((await importDir(output, { ...restored.options, from: to })).imported, 220);
+    assert.equal((await importDir(output, { ...restored.options, from: to })).imported, inventoryCount);
     const items = (await restored.client.listAllComplete({ includeBody: true })).items;
-    assert.equal(items.filter(item => item.body === body).length, 220);
+    assert.equal(items.filter(item => item.body === body).length, inventoryCount);
   }
 });
 
