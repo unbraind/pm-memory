@@ -7,12 +7,12 @@ status: in_progress
 priority: 2
 tags[4]: ci,"gh:unbraind/pm-memory#75",performance,tests
 created_at: "2026-11-04T03:26:26.179Z"
-updated_at: "2026-11-15T04:15:35.488Z"
+updated_at: "2026-11-15T04:52:16.669Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: orchestrator
 acceptance_criteria: Hosted quick required checks complete within 15 minutes including queueing; full default and deep mode retain all original seed receipts and release checks; CLI delayed-writer isolation regression and file-watchdog regression pass; quick coverage remains 100 percent in every dimension; record local and PR measurements; leave this Task open for owner verification
-comments[10]{created_at,author,text}:
+comments[15]{created_at,author,text}:
   "2026-11-15T03:42:01.837Z",codex-sol,"Applying Fleet CI v2; companion pm-cli-website-dyhg. Reusing this existing CI/performance Task. Required checks confirmed: test (22), test (26), codeql. CodeQL stays unfiltered because it is required. Plan: hosted quick PR gates, exhaustive four-combination local deep tier, deterministic depth prefixes with unchanged 100% coverage, bounded test lifecycle and issue #75 regression, then measured PR checks. Release workflow and release verifiers are out of scope."
   "2026-11-15T03:48:18.439Z",codex-sol,"Baseline run 43627397337: full gate steps Node 22 npm 182m51s, Node 26 npm 56m33s, Node 26 Bun 41m08s. Current main has three runtime legs, so deep restores the requested Node 22 Bun combination as well. The pinned CLI dispatches detached telemetry flush children; replacement diagnostic environments drop test suppression. Child test environments now explicitly disable telemetry. An independent probe confirmed Node --test-timeout does not terminate an idle file after its last passing test, so an unreferenced per-file failure watchdog is required. No coverage thresholds or source scope changed."
   "2026-11-15T03:50:36.924Z",codex-sol,"Recovered baseline test timings from the successful main Node 26 job log: model 1302.75s, forward-only update boundary sweep 544.59s, owned state 441.94s, 220-source round trip 395.36s, grammar 365.66s. The canceled run 43616440465 last emitted test 346 and retained model/coverage children, so its logs do not prove all tests finished. Explicit watchdog regression now fails an idle file after a passing test. The real-CLI probe demonstrates unsuppressed detached telemetry dispatch and zero dispatch with isolated child settings; diagnostic assertions and cleanup failures remain load-bearing."
@@ -23,6 +23,11 @@ comments[10]{created_at,author,text}:
   "2026-11-15T04:12:09.425Z",codex-sol,"Preflight audit found zero production vulnerabilities and publish-attestation verification passed. Local strict health initially detected an unrelated global pm-github/locked-CLI version skew; using a disposable global PM context matching a fresh CI runner avoids that ambient extension collision. No global extension, repository variable, protection rule or release verifier was changed. Full-depth local coverage is not planned: the baseline hosted Node 26 gate already needed 56m33s and this shared host is slower; deep must certify full depth after merge, and the old 182m51s Node 22 gate remains a timeout risk until measured with these changes."
   "2026-11-15T04:14:09.792Z",codex-sol,"Final scaled touched-test command passed: PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/ci-lifecycle.test.ts test/release-ci.test.ts test/property-seeds.test.ts test/review-round4.test.ts test/review-r1.test.ts test/review-r11.test.ts test/source-safety.test.ts test/worker-budget.test.ts. Linked runner measured 244.103s (247.22s including wrapper). Strict health passes in a fresh global PM context, matching CI. Workflow/lifecycle smoke passes 8/8, shipped-doc acceptance 1/1, zero duplication and strict YAML validation pass. The complete quick coverage and release gates remain pending."
   "2026-11-15T04:15:35.465Z",codex-sol,"Refined full-depth measurement from main run 43627397337: the Node 26 coverage suite itself took 3208835.746ms (53m28.84s), with 893 tests and 39 measured sources meeting every threshold. This directly exceeds the roughly 45-minute condition for attempting full coverage locally, independently of the later audit/pack/acceptance steps. Full-depth verification remains assigned to ci-deep after merge."
+  "2026-11-15T04:27:59.528Z",codex-sol,"Current standalone quick coverage has completed the owned-state property prefix: all 50 sequences passed in 391.978s. This is a local shared-host measurement, not directly comparable to hosted full depth or PR queue-inclusive time. Increased the stored local quick-coverage timeout to 7200s for future invocations; the current invocation retains its original 2700s deadline. No test or workflow timeout was raised by this metadata change."
+  "2026-11-15T04:42:07.545Z",codex-sol,"The local Bun graph smoke (bun install --no-save) passed in 4.36 seconds. Required contexts rechecked live: test (22), test (26), codeql; CodeQL path exclusions remain intentionally absent. Standalone quick coverage is still running without reported failures on the shared host; the future linked coverage timeout is 7200 seconds, while this already-running invocation retains its original 2700-second harness limit."
+  "2026-11-15T04:45:02.351Z",codex-sol,Final fixed-count audit also applies testDepth to the 512-case enumerated quote/escape corpus. Quick uses 52 seeds plus all fixed spelling fixtures; the original complete verdict digest was reverified before freezing the selected prefix digest. Deep retains the original full digest. The 220-source test remains complete because its size is the contract.
+  "2026-11-15T04:46:37.949Z",codex-sol,"Both quoted-scanner parity runs passed: PM_TEST_DEPTH=quick node --import ./test/support/file-deadline.ts --test --test-name-pattern=\"quoted scanner\" test/sdk-review-r8.test.ts (1/1), and the same command at PM_TEST_DEPTH=full (1/1). The full verdict digest is unchanged. This targeted full corpus check is not full-depth suite certification."
+  "2026-11-15T04:52:16.658Z",codex-sol,"The standalone quick coverage command was terminated by the outer pm harness at 2700.062 seconds (SIGTERM), with no assertion failures reported before termination. This is incomplete evidence, not a coverage pass; any partial report is invalid. The complete quick release:check will now rerun coverage under the corrected 7200-second linked-test harness, then execute audit, pack, changelog, attestation and real packed npm/Bun acceptance."
 files[26]{path,scope}:
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
@@ -50,11 +55,41 @@ files[26]{path,scope}:
   test/support/depth.ts,project
   test/support/file-deadline.ts,project
   test/support/time.ts,project
-tests[4]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
-  "npm run typecheck && npm run lint && npm run duplication && npm run changelog:check",project,300,codex-sol,"2026-11-15T03:53:26.006Z",local_mutation,ci/quick-pr-tier-deep-local-tier
-  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,2700,codex-sol,"2026-11-15T04:06:27.063Z",local_mutation,ci/quick-pr-tier-deep-local-tier
-  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/ci-lifecycle.test.ts test/release-ci.test.ts test/property-seeds.test.ts test/review-round4.test.ts test/review-r1.test.ts test/review-r11.test.ts test/source-safety.test.ts test/worker-budget.test.ts,project,600,codex-sol,"2026-11-15T04:06:29.587Z",local_mutation,ci/quick-pr-tier-deep-local-tier
-  "PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run release:check",project,7200,codex-sol,"2026-11-15T04:06:31.612Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+tests[4]:
+  - command: "npm run typecheck && npm run lint && npm run duplication && npm run changelog:check"
+    scope: project
+    timeout_seconds: 300
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-15T03:53:26.006Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage
+    scope: project
+    timeout_seconds: 7200
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-15T04:06:27.063Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+    updated_by: codex-sol
+    updated_at: "2026-11-15T04:27:57.332Z"
+  - command: PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/ci-lifecycle.test.ts test/release-ci.test.ts test/property-seeds.test.ts test/review-round4.test.ts test/review-r1.test.ts test/review-r11.test.ts test/source-safety.test.ts test/worker-budget.test.ts
+    scope: project
+    timeout_seconds: 600
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-15T04:06:29.587Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+  - command: "PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run release:check"
+    scope: project
+    timeout_seconds: 7200
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-15T04:06:31.612Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
 docs[1]{path,scope}:
   docs/ci-tiers.md,project
 body: ""

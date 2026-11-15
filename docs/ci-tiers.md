@@ -42,8 +42,10 @@ unknown values retain full depth. The independent full seed manifest and its
 missing/duplicate/changed-seed guards remain exhaustive in both tiers. Worker
 receipts prove the selected complete prefix; seed formulas, batch sizes and
 per-sequence assertions are unchanged. Fixed input-size contracts, including the
-220-source aggregate round trip, and the frozen quoted-scanner parity digest
-remain complete. Coverage thresholds and source inventory never vary by depth.
+220-source aggregate round trip, remain complete. The quoted-scanner corpus
+uses 52 of 512 enumerated seeds in quick mode, with a separately frozen prefix
+digest verified against the unchanged full-corpus digest. Coverage thresholds
+and source inventory never vary by depth.
 
 The packed-documentation contract lives in `test/shipped-files.acceptance.ts`
 and runs through `test:install`, keeping the Node 22 PR leg free of pack commands.

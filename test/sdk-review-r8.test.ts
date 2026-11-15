@@ -10,6 +10,7 @@ import { aggregatePrivacy, aggregateSize, digest, privacy } from '../src/core.ts
 import { runCommand } from '../src/commands.ts';
 import { importPolicy, POLICY_MANIFEST } from '../src/portable.ts';
 import { snapshot, tracker, withoutGit } from './helpers.ts';
+import { testDepth } from './support/depth.ts';
 
 /** Capture only stable policy outcomes, never exception stacks or supplied values. */
 function verdict(value: string): string {
@@ -25,7 +26,7 @@ function quotedCorpus(): string[] {
     const json = JSON.stringify({ [name]: value });
     corpus.push(json, JSON.stringify(json), 'He is 5" tall. ' + JSON.stringify({ note: json }), '"' + name + '": ' + JSON.stringify(value), "'" + name + "': '" + value + "'", '"' + name + '": ' + JSON.stringify(value).slice(0, -1));
   }
-  for (let seed = 0; seed < 512; seed++) {
+  for (let seed = 0; seed < testDepth(512); seed++) {
     let bits = seed; let value = '';
     for (let at = 0; at < 9; at++, bits >>>= 1) value += (bits & 1) === 0 ? "'" : '\\';
     for (const quote of ['"', "'"]) corpus.push(quote + 'password' + quote + ': ' + quote + value, quote + 'password' + quote + ': ' + quote + value + '\n');
@@ -35,9 +36,12 @@ function quotedCorpus(): string[] {
 
 test('quoted scanner preserves the prior matcher corpus', () => {
   const corpus = quotedCorpus();
-  assert.equal(corpus.length, 2318);
+  assert.equal(corpus.length, 270 + testDepth(512) * 4);
   // Verdict digest captured from bb8fcd3 before replacing the quoted-value matchers.
-  assert.equal(digest(JSON.stringify(corpus.map(verdict))), 'b3cdcaf3dcd9a91eaa2e19fcd05635bb94aee726a98b0a20b8511e83b1d30bd1');
+  // The quick prefix was frozen after verifying this complete original digest.
+  assert.equal(digest(JSON.stringify(corpus.map(verdict))), testDepth(512) === 512
+    ? 'b3cdcaf3dcd9a91eaa2e19fcd05635bb94aee726a98b0a20b8511e83b1d30bd1'
+    : '968ab572638bd4858a24f528ef67486cdb49a8f0b9f31821086b32d4119f2488');
 });
 
 test('100k escaped-quote inputs complete without backtracking quote matchers', t => {
