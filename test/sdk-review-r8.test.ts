@@ -9,7 +9,7 @@ import { exportDir, importDir, MemoryError, remember } from '../index.ts';
 import { aggregatePrivacy, aggregateSize, digest, privacy } from '../src/core.ts';
 import { runCommand } from '../src/commands.ts';
 import { importPolicy, POLICY_MANIFEST } from '../src/portable.ts';
-import { snapshot, tracker } from './helpers.ts';
+import { snapshot, tracker, withoutGit } from './helpers.ts';
 
 /** Capture only stable policy outcomes, never exception stacks or supplied values. */
 function verdict(value: string): string {
@@ -79,7 +79,7 @@ test('aggregate inventories have an independent limit and actionable remedy befo
 });
 
 test('220 benign 4 KiB sources round trip through both harnesses', async t => {
-  const target = await tracker(t); const input = join(target.root, 'input'); await mkdir(input);
+  const target = await tracker(t); withoutGit(t, target.root); const input = join(target.root, 'input'); await mkdir(input);
   const body = 'Public guidance. '.repeat(256).slice(0, 4096);
   assert.equal(Buffer.byteLength(body), 4096);
   for (let at = 0; at < 220; at++) await writeFile(join(input, 'guide-' + at + '.md'), body);

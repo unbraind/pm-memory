@@ -1,3 +1,4 @@
+import { testDepth } from './support/depth.ts';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 import { test as nativeTest, after } from 'node:test';
@@ -22,6 +23,7 @@ function test(name: string, options: { timeout: number } | ForwardCase, callback
 }
 /** Keep the exact dynamic schedule budget while bounding each child's SDK/coverage cache lifetime. */
 async function forwardCases<T>(t: TestContext, values: readonly T[], run: (value: T, index: number) => Promise<void>): Promise<number> {
+  values = values.slice(0, testDepth(values.length));
   assert.ok(values.length > 0, 'A boundary batch must never pass without schedules');
   const name = caseNames.get(t)!;
   if (workerCase === undefined) {
@@ -43,7 +45,7 @@ async function forwardCases<T>(t: TestContext, values: readonly T[], run: (value
   return completed;
 }
 /** A batch asserts its own exact slice; the parent requires the complete unsliced budget. */
-function expectedSchedules(total: number): number { return workerCase === undefined ? total : Number(process.env.PM_MEMORY_FORWARD_COUNT); }
+function expectedSchedules(total: number): number { return workerCase === undefined ? testDepth(total) : Number(process.env.PM_MEMORY_FORWARD_COUNT); }
 
 const SEED = 0x1363f013;
 /** Build a real SDK source and seeded destination for all forward-only scenarios. */

@@ -1,5 +1,7 @@
+import { testTime } from './support/time.ts';
+import { testDepth } from './support/depth.ts';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess, type SpawnSyncReturns } from 'node:child_process';
 import { mkdtemp, rm, readdir, readlink, readFile, mkdir, writeFile, cp, link, rmdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir, availableParallelism } from 'node:os';
@@ -14,6 +16,25 @@ import type { ImportPlan } from '../src/portable-plan.ts';
 import { digest } from '../src/core.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import { assertSeedCoverage, type SeedExecution } from './property-seeds.ts';
+
+/** Active child shutdowns run before the fixture root is removed, regardless of hook order. */
+const fixtureChildren = new WeakMap<TestContext, Set<() => Promise<void>>>();
+/** Own a process through stdio closure, including its asynchronous final filesystem writes. */
+export function ownFixtureChild(t: TestContext, child: ChildProcess): void {
+  const closed = new Promise<void>(resolve => { child.once('close', () => resolve()); });
+  const shutdown = async () => {
+    let escalation: ReturnType<typeof setTimeout> | undefined;
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill();
+      escalation = setTimeout(() => { child.kill('SIGKILL'); }, testTime(5000)).unref();
+    }
+    try { await closed; } finally { clearTimeout(escalation); }
+  };
+  const active = fixtureChildren.get(t) ?? new Set<() => Promise<void>>();
+  active.add(shutdown); fixtureChildren.set(t, active);
+  child.once('close', () => { active.delete(shutdown); });
+  t.after(shutdown);
+}
 
 /** A slot whose recorded owner process no longer exists was left by a hard-killed run and may be reclaimed. */
 export async function ownerIsGone(file: string): Promise<boolean> {
@@ -60,7 +81,7 @@ export async function runModelWorker(t: TestContext, worker: URL, variables: Rec
   let cleanup = async () => { await release?.(); await rm(scratch, { recursive: true, force: true }); };
   try {
     release = await workerSlot(t);
-    const child = spawn(process.execPath, ['--test', '--test-concurrency=1', '--test-reporter=tap', fileURLToPath(worker)], { env: { ...testEnvironment(process.env), ...variables, TMPDIR: scratch, TMP: scratch, TEMP: scratch }, stdio: ['ignore', 'pipe', 'pipe'], signal: t.signal });
+    const child = spawn(process.execPath, ['--import', new URL('./support/file-deadline.ts', import.meta.url).href, '--test', '--test-concurrency=1', '--test-reporter=tap', fileURLToPath(worker)], { env: { ...testEnvironment(process.env), ...variables, TMPDIR: scratch, TMP: scratch, TEMP: scratch }, stdio: ['ignore', 'pipe', 'pipe'], signal: t.signal });
     let output = ''; child.stdout.on('data', chunk => { output += String(chunk); }); child.stderr.on('data', chunk => { output += String(chunk); });
     const ended = new Promise<number | null>(resolve => { child.once('close', resolve); });
     const closed = Promise.race([ended, new Promise<never>((_resolve, reject) => { child.once('error', reject); })]);
@@ -139,9 +160,9 @@ export async function runModelWorkerPool(t: TestContext, worker: URL, configurat
 
 /** Execute the complete fixed-size property budget without duplicating worker scheduling in each law. */
 export async function modelBatches(t: TestContext, worker: URL, stem: string, batch: number, receipt: (start: number, count: number) => string): Promise<void> {
-  const starts = Array.from({ length: 500 / batch }, (_, index) => index * batch);
-  await runModelWorkerPool(t, worker, starts.map(start => ({ [`PM_MEMORY_${stem}_START`]: String(start), [`PM_MEMORY_${stem}_COUNT`]: String(batch) })), starts.map(start => receipt(start, batch)), stem);
-  assert.equal(starts.length * batch, 500);
+  const starts = Array.from({ length: Math.ceil(testDepth(500) / batch) }, (_, index) => index * batch);
+  await runModelWorkerPool(t, worker, starts.map(start => ({ [`PM_MEMORY_${stem}_START`]: String(start), [`PM_MEMORY_${stem}_COUNT`]: String(Math.min(batch, testDepth(500) - start)) })), starts.map(start => receipt(start, Math.min(batch, testDepth(500) - start))), stem);
+  assert.equal(starts.reduce((sum, start) => sum + Math.min(batch, testDepth(500) - start), 0), testDepth(500));
 }
 
 /** Initialize a real tracker and register cleanup before any mutations. */
@@ -161,7 +182,10 @@ export async function propertyTracker(t: TestContext) {
 /** Allocate one independently owned temporary SDK fixture before initialization or cloning. */
 async function trackerFixture(t: TestContext) {
   const root = await mkdtemp(join(tmpdir(), 'memory-test-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(async () => {
+    await Promise.all([...(fixtureChildren.get(t) ?? [])].map(shutdown => shutdown()));
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
   const workspace = join(root, '.agents', 'pm');
   const client = new PmClient({ cwd: root, pmRoot: workspace, author: 'memory-test', noExtensions: true });
   const options = { workspace, author: 'memory-test' }; const store = new Store(options);

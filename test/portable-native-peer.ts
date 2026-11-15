@@ -1,3 +1,5 @@
+import { testEnvironment } from '../scripts/environment.ts';
+import { ownFixtureChild } from './helpers.ts';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -5,8 +7,8 @@ import type { TestContext } from 'node:test';
 
 /** Keep one real native writer in another OS process; IPC separates dispatch from completion; it does not certify lock isolation. */
 export async function peerWriter(t: TestContext, root: string) {
-  const child = fork(fileURLToPath(new URL('./portable-peer.worker.ts', import.meta.url)), [], { env: { PATH: root, HOME: root, GIT_CEILING_DIRECTORIES: dirname(root), ...(process.env.NODE_V8_COVERAGE === undefined ? {} : { NODE_V8_COVERAGE: process.env.NODE_V8_COVERAGE }) }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
-  t.after(() => { if (child.connected) child.disconnect(); child.kill(); });
+  const child = fork(fileURLToPath(new URL('./portable-peer.worker.ts', import.meta.url)), [], { env: { ...testEnvironment({ PATH: root }), HOME: root, GIT_CEILING_DIRECTORIES: dirname(root), ...(process.env.NODE_V8_COVERAGE === undefined ? {} : { NODE_V8_COVERAGE: process.env.NODE_V8_COVERAGE }) }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  ownFixtureChild(t, child);
   let stderr = ''; child.stderr!.on('data', bytes => { stderr += String(bytes); });
   await new Promise<void>((resolve, reject) => { child.once('message', () => resolve()); child.once('error', reject); child.once('exit', (code, signal) => { reject(new Error(`Peer exited before readiness (${code ?? signal}): ${stderr}`)); }); });
   let token = 0;

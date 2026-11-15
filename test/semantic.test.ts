@@ -1,3 +1,4 @@
+import { testTime } from './support/time.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
@@ -57,7 +58,7 @@ async function whileEmbedding<T>(pending: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([pending, new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error('Writer blocked while embedding response is withheld')), 45000);
+      timer = setTimeout(() => reject(new Error('Writer blocked while embedding response is withheld')), testTime(45000));
     })]);
   } finally { clearTimeout(timer!); }
 }
@@ -96,7 +97,7 @@ test('embedding assertion tolerates the writer wait and still bounds a blocked w
   assert.deepEqual(await result, { value: 'completed' });
   const blocked = whileEmbedding(new Promise<never>(() => {}));
   const rejection = assert.rejects(blocked, /Writer blocked while embedding response is withheld/);
-  t.mock.timers.tick(45000);
+  t.mock.timers.tick(testTime(45000));
   await rejection;
 });
 

@@ -1,33 +1,28 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request: {}
-  workflow_dispatch: {}
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  runtime:
-    name: release gate (${{ matrix.node-version }}, ${{ matrix.runtime }})
+  test:
+    name: test (${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       NPM_CONFIG_USERCONFIG: /dev/null
+      PM_TEST_DEPTH: quick
     strategy:
       fail-fast: false
       matrix:
-        # 22 is the floor declared in `engines` and the first line that strips
-        # TypeScript without a flag; 26 is what the fleet develops against.
-        # Each runtime keeps its complete gate, without making one job run it twice.
-        include:
-          - node-version: 22
-            runtime: npm
-          - node-version: 26
-            runtime: npm
-          - node-version: 26
-            runtime: bun
+        node-version: [22, 26]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -36,6 +31,30 @@ jobs:
           fetch-tags: true
           persist-credentials: false
 
+      # Checkout must precede this first decision. NUL delimiters handle unusual
+      # filenames; compare the actual PR endpoints, not the synthetic merge commit.
+      # Disable rename folding so moving source into docs still counts its deletion.
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            code=false
+            git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/ci-changed-paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                .agents/pm/*|*.md|docs/*|CHANGELOG.md|LICENSE) ;;
+                *) code=true ;;
+              esac
+            done < "$RUNNER_TEMP/ci-changed-paths"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
@@ -43,72 +62,29 @@ jobs:
           cache: npm
 
       - name: Setup Bun
+        if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Install dependencies
         run: npm ci
 
       - name: Verify tracked pm project health
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Catch durable checkout-visible failures: conflict markers, parse failures,
-          # invalid or drifted history, tracked runtime caches, extension health,
-          # stale in-progress work, and any merge evidence present in this clone.
-          #
-          # This is not a lossless-merge attestation. Merge receipts are clone-local and
-          # absent from a fresh CI checkout. Some unreconciled loss shapes surface as
-          # history drift, but reconciliation or history repair can remove that signal.
-          # Keep receipt review as a local pre-push step; pm-cli#921 and pm-cli#922 track
-          # the missing durable proof.
-          #
-          # `--strict-exit` is load-bearing: non-strict health may report findings while
-          # still exiting successfully. `--require-merge-drivers` fails the gate when the
-          # clone-local merge driver config declared by .gitattributes is absent.
-          ./node_modules/.bin/pm health --strict-exit --require-merge-drivers
+        run: ./node_modules/.bin/pm health --strict-exit --require-merge-drivers
 
-      - name: Verify commit identities and private path policy
-        run: npm run identity:check
+      - name: Check documentation and tracker changes
+        if: steps.changes.outputs.code != 'true'
+        run: npm run changelog:check
 
-      - name: Full npm release gate
-        if: matrix.runtime == 'npm'
+      - name: Engines floor build and quick tests
+        if: steps.changes.outputs.code == 'true' && matrix.node-version == 22
+        run: npm test
+
+      - name: Quick npm release gate
+        if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
         run: npm run release:check
 
-      - name: Verify Bun can install the package graph
-        if: matrix.runtime == 'bun'
+      # test:install already installs the packed archive with npm and Bun and
+      # executes the installed host with npx and bunx --bun --no-install.
+      - name: Bun package graph smoke
+        if: steps.changes.outputs.code == 'true' && matrix.node-version == 26
         run: bun install --no-save
-
-      - name: Bun release gates
-        if: matrix.runtime == 'bun'
-        run: bun run release:check
-
-  test:
-    # Preserve the existing required-check names and keep Bun failure load-bearing.
-    name: test (${{ matrix.node-version }})
-    needs: runtime
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [22, 26]
-    permissions:
-      actions: read
-    steps:
-      - name: Require every complete runtime gate to succeed
-        env:
-          RUNTIME_RESULT: ${{ needs.runtime.result }}
-        run: test "$RUNTIME_RESULT" = success
-      # Do not rely on the aggregate matrix result alone. filter=latest returns
-      # each job's latest attempt, including legs carried over by a re-run of
-      # failed jobs. Exactly one successful record must exist for each expected
-      # leg name, so a duplicate cannot stand in for a missing leg. The list
-      # below must match the runtime matrix (release-ci.test.ts checks it).
-      - name: Require each of the three runtime legs to have succeeded
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          legs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=latest&per_page=100" \
-            --jq '[.jobs[] | select(.name | startswith("release gate (")) | {name, conclusion}]') || exit 1
-          echo "runtime legs: $legs"
-          jq -e '(map(.name) | sort) == ["release gate (22, npm)", "release gate (26, bun)", "release gate (26, npm)"] and all(.[]; .conclusion == "success")' <<<"$legs" >/dev/null

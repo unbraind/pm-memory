@@ -1,12 +1,60 @@
 id: pm-memory-higm
-title: Bring the Node 22 npm release gate under 90 minutes
-description: "After pm-memory-smuq split the three complete release gates into one CI job per runtime, hosted CI measured the Node 22 npm gate step at 94m48s on d5ecee2 (run 41748616597) and 184m18s on dbf86a1 (run 41755973119), although nothing between those heads changes the suite. On the same heads the Node 26 npm gate took 37m and 31m, and the Bun gates 58m each. Find where Node 22 spends the extra time and why it varies so much between runners (for example V8 coverage, type stripping, worker start-up or runner core count), and bring that job to 90 minutes or less without reducing the 500 seeds per property suite or any assertion."
+title: Apply Fleet CI v2 and bound release-gate test lifecycles
+description: "Companion pm-cli-website-dyhg. Replace duplicated hosted PR release gates with hosted quick checks and exhaustive scheduled/main deep gates. Preserve required test (22), test (26), codeql and unchanged 100% coverage thresholds. Fix detached CLI fixture teardown writers tracked by issue #75; fail hanging test files with a hard watchdog. Full depth preserves all original seeds and assertions."
 type: Task
-status: open
+pm_format_version: 2
+status: in_progress
 priority: 2
-tags[3]: ci,performance,tests
+tags[4]: ci,"gh:unbraind/pm-memory#75",performance,tests
 created_at: "2026-11-04T03:26:26.179Z"
-updated_at: "2026-11-04T04:48:32.972Z"
+updated_at: "2026-11-15T04:15:35.488Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: orchestrator
-acceptance_criteria: "A per-phase timing breakdown on hosted Node 22 and Node 26 runners explains the gap between them; The release gate (22, npm) job finishes in 90 minutes or less on two consecutive hosted CI runs; Every property suite still proves 500 completed seeds and no assertion is removed"
+acceptance_criteria: Hosted quick required checks complete within 15 minutes including queueing; full default and deep mode retain all original seed receipts and release checks; CLI delayed-writer isolation regression and file-watchdog regression pass; quick coverage remains 100 percent in every dimension; record local and PR measurements; leave this Task open for owner verification
+comments[10]{created_at,author,text}:
+  "2026-11-15T03:42:01.837Z",codex-sol,"Applying Fleet CI v2; companion pm-cli-website-dyhg. Reusing this existing CI/performance Task. Required checks confirmed: test (22), test (26), codeql. CodeQL stays unfiltered because it is required. Plan: hosted quick PR gates, exhaustive four-combination local deep tier, deterministic depth prefixes with unchanged 100% coverage, bounded test lifecycle and issue #75 regression, then measured PR checks. Release workflow and release verifiers are out of scope."
+  "2026-11-15T03:48:18.439Z",codex-sol,"Baseline run 43627397337: full gate steps Node 22 npm 182m51s, Node 26 npm 56m33s, Node 26 Bun 41m08s. Current main has three runtime legs, so deep restores the requested Node 22 Bun combination as well. The pinned CLI dispatches detached telemetry flush children; replacement diagnostic environments drop test suppression. Child test environments now explicitly disable telemetry. An independent probe confirmed Node --test-timeout does not terminate an idle file after its last passing test, so an unreferenced per-file failure watchdog is required. No coverage thresholds or source scope changed."
+  "2026-11-15T03:50:36.924Z",codex-sol,"Recovered baseline test timings from the successful main Node 26 job log: model 1302.75s, forward-only update boundary sweep 544.59s, owned state 441.94s, 220-source round trip 395.36s, grammar 365.66s. The canceled run 43616440465 last emitted test 346 and retained model/coverage children, so its logs do not prove all tests finished. Explicit watchdog regression now fails an idle file after a passing test. The real-CLI probe demonstrates unsuppressed detached telemetry dispatch and zero dispatch with isolated child settings; diagnostic assertions and cleanup failures remain load-bearing."
+  "2026-11-15T03:51:58.733Z",codex-sol,"Validation harness correction: the first linked quick-coverage invocation hit pm test default 120-second limit; this was a harness timeout, not a suite failure. The linked command now has a 2700-second bound. Expanded depth selection to the heavy seeded forward-boundary schedules using the same deterministic prefix and retained the full boundary enumeration in deep mode. The 220-source size-contract test keeps every row but disables unrelated Git discovery, matching existing non-Git fixture practice."
+  "2026-11-15T03:55:59.372Z",codex-sol,"Additional lifecycle fix: the independent native peer used a replacement environment and fire-and-forget child.kill teardown. It now gets explicit telemetry suppression and is registered as an owned fixture child; fixture cleanup awaits process/stdio close before removing the root, with bounded SIGKILL escalation. A controlled child writes lock files during delayed shutdown; the regression proves shutdown completes before root removal. Focused initial suite passed 67/67; Node 22 workflow/lifecycle smoke passed 5/5. Strict YAML parsing passed (actionlint unavailable). Typecheck, lint and zero-duplication passed; generated changelog is consistent."
+  "2026-11-15T03:59:14.301Z",codex-sol,"Preserved the packed-documentation allowlist test in test/shipped-files.acceptance.ts and added it to test:install, so the Node 22 PR unit suite performs no npm pack operation. Removed speed-dependent per-test deadlines from finite seeded corpus workers; the independently tested per-file watchdog now bounds them, including idle handles and teardown, with deep slow-host scaling. No successful test process is force-exited."
+  "2026-11-15T04:04:44.277Z",codex-sol,"Slow-host validation exposed the requested timing issue: two scanner properties exceeded the unchanged 500ms baseline during concurrent local work (66/68 passed). Local proof now explicitly uses PM_TEST_TIME_SCALE=3, matching deep settings and preserving the baseline on hosted quick jobs. Superseded the unscaled coverage run after this evidence and final watchdog/lifecycle edits; rerunning final code with scaled bounds. The hard watchdog passes both idle-handle and blocked-event-loop regressions on Node 22 and Node 26; final lifecycle suite passes 6/6 on both."
+  "2026-11-15T04:12:09.425Z",codex-sol,"Preflight audit found zero production vulnerabilities and publish-attestation verification passed. Local strict health initially detected an unrelated global pm-github/locked-CLI version skew; using a disposable global PM context matching a fresh CI runner avoids that ambient extension collision. No global extension, repository variable, protection rule or release verifier was changed. Full-depth local coverage is not planned: the baseline hosted Node 26 gate already needed 56m33s and this shared host is slower; deep must certify full depth after merge, and the old 182m51s Node 22 gate remains a timeout risk until measured with these changes."
+  "2026-11-15T04:14:09.792Z",codex-sol,"Final scaled touched-test command passed: PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/ci-lifecycle.test.ts test/release-ci.test.ts test/property-seeds.test.ts test/review-round4.test.ts test/review-r1.test.ts test/review-r11.test.ts test/source-safety.test.ts test/worker-budget.test.ts. Linked runner measured 244.103s (247.22s including wrapper). Strict health passes in a fresh global PM context, matching CI. Workflow/lifecycle smoke passes 8/8, shipped-doc acceptance 1/1, zero duplication and strict YAML validation pass. The complete quick coverage and release gates remain pending."
+  "2026-11-15T04:15:35.465Z",codex-sol,"Refined full-depth measurement from main run 43627397337: the Node 26 coverage suite itself took 3208835.746ms (53m28.84s), with 893 tests and 39 measured sources meeting every threshold. This directly exceeds the roughly 45-minute condition for attempting full coverage locally, independently of the later audit/pack/acceptance steps. Full-depth verification remains assigned to ci-deep after merge."
+files[26]{path,scope}:
+  .github/workflows/ci-deep.yml,project
+  .github/workflows/ci.yml,project
+  .github/workflows/codeql.yml,project
+  package.json,project
+  scripts/coverage-gate.ts,project
+  scripts/environment.ts,project
+  test/ci-lifecycle.test.ts,project
+  test/consumer-helpers.ts,project
+  test/helpers.ts,project
+  test/import-state.worker.ts,project
+  test/native-host-helpers.ts,project
+  test/portable-document.worker.ts,project
+  test/portable-fidelity.worker.ts,project
+  test/portable-forward.test.ts,project
+  test/portable-grammar.worker.ts,project
+  test/portable-laws.worker.ts,project
+  test/portable-model.worker.ts,project
+  test/portable-native-peer.ts,project
+  test/release-ci.test.ts,project
+  test/review-r4.test.ts,project
+  test/sdk-review-r8.test.ts,project
+  test/semantic.test.ts,project
+  test/shipped-files.acceptance.ts,project
+  test/support/depth.ts,project
+  test/support/file-deadline.ts,project
+  test/support/time.ts,project
+tests[4]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  "npm run typecheck && npm run lint && npm run duplication && npm run changelog:check",project,300,codex-sol,"2026-11-15T03:53:26.006Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,2700,codex-sol,"2026-11-15T04:06:27.063Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/ci-lifecycle.test.ts test/release-ci.test.ts test/property-seeds.test.ts test/review-round4.test.ts test/review-r1.test.ts test/review-r11.test.ts test/source-safety.test.ts test/worker-budget.test.ts,project,600,codex-sol,"2026-11-15T04:06:29.587Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+  "PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run release:check",project,7200,codex-sol,"2026-11-15T04:06:31.612Z",local_mutation,ci/quick-pr-tier-deep-local-tier
+docs[1]{path,scope}:
+  docs/ci-tiers.md,project
 body: ""

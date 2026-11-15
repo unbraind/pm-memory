@@ -77,7 +77,7 @@ async function writeBody(directory: string, body: string, slug = 'alpha'): Promi
 function generator(seed: number): () => number { return () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; }; }
 
 // Each independent sequence uses a real non-git clone of one initialized SDK tracker.
-test(`model batch ${START}: seeded stateful replay, SDK provenance and relationships`, { timeout: 600000 }, async t => {
+test(`model batch ${START}: seeded stateful replay, SDK provenance and relationships`, async t => {
   const executed = seedLedger(t, 'MODEL', START, SEQUENCES);
   t.diagnostic(`MASTER_SEED=0x${MASTER_SEED.toString(16)} sequences=${SEQUENCES}`);
   const base = await tracker(t);
