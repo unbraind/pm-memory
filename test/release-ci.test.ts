@@ -1,3 +1,4 @@
+import { workflowBash } from './support/bash.ts';
 /** Required PR checks must preserve routing, coverage and the exhaustive deep gate. */
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -44,13 +45,7 @@ test('required checks run directly on hosted quick jobs; deep preserves all runt
 });
 
 test('PR change detection handles docs, source, deletions, renames and unusual filenames', t => {
-  const bash = spawnSync('bash', ['--version'], { encoding: 'utf8' });
-  if ((bash.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT' && !process.env.CI) {
-    t.skip('bash is unavailable on PATH');
-    return;
-  }
-  assert.equal(bash.error, undefined, 'bash is required in CI');
-  assert.equal(bash.status, 0, bash.stderr);
+  if (!workflowBash(t)) return;
   const script = workflow('ci').jobs.test.steps.find((step: { id?: string }) => step.id === 'changes').run;
   const root = mkdtempSync(join(tmpdir(), 'memory-ci-routing-'));
   const git = (...args: string[]) => {

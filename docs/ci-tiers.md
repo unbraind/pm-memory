@@ -140,3 +140,9 @@ Tracking: [pm-memory-higm](https://github.com/unbraind/pm-memory/blob/main/.agen
 companion `pm-cli-website-dyhg`.
 
 Documentation and tracker changes retain identity/private-path validation, package dry-run, publish attestation and tooling documentation contracts. Executable tracker scripts select code CI.
+
+## Review round E
+
+PRRT_kwDOVPw2oc63t_LY, PRRT_kwDOVPw2oc63t_LZ and PRRT_kwDOVPw2oc63t_Ld are valid. Raise the recorded targeted check timeout to 600 seconds; share Bash prerequisite detection with CI enforcement; use the npm JavaScript entrypoint on Windows with discrete arguments in packed acceptance. Tooling validation caught duplicated Bash checks; extracting the shared prerequisite helper restored zero duplication. Targeted docs, routing, npm launcher, packed-file and identity checks passed.
+
+The cheap tier excludes only inert tracker record formats; executable tracker changes keep product gates. `test/ci-routing.test.ts` executes each detector with inert and executable tracker paths. Product deadlines, full-depth cases and coverage thresholds are unchanged.

@@ -1,3 +1,4 @@
+import { packageManagerInvocation } from './support/package-manager.ts';
 import { testTime } from './support/time.ts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -9,7 +10,8 @@ import { gitEnvironment, npmEnvironment, testEnvironment } from '../scripts/envi
 
 /** Execute a real consumer command against only its isolated package/settings directory. */
 export function execute(cwd: string, args: string[], executable: string, env: NodeJS.ProcessEnv, expected = 0): string {
-  const child = spawnSync(executable, args, { cwd, env, encoding: 'utf8', timeout: testTime(300000) });
+  const { command, prefix } = packageManagerInvocation(executable);
+  const child = spawnSync(command, [...prefix, ...args], { cwd, env, encoding: 'utf8', timeout: testTime(300000) });
   assert.equal(child.error, undefined); assert.equal(child.status, expected, child.stderr + child.stdout);
   return expected === 0 ? child.stdout : child.stderr + child.stdout;
 }
