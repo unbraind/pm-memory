@@ -43,7 +43,8 @@ missing/duplicate/changed-seed guards remain exhaustive in both tiers. Worker
 receipts prove the selected complete prefix; seed formulas, batch sizes and
 per-sequence assertions are unchanged. Fixed input-size contracts, including the
 220-source aggregate round trip, remain complete. The quoted-scanner corpus
-uses 52 of 512 enumerated seeds in quick mode, with a separately frozen prefix
+uses 52 of 512 enumerated seeds in quick mode, and packet-budget properties
+use 30 of 300 generated sets. The scanner has a separately frozen prefix
 digest verified against the unchanged full-corpus digest. Coverage thresholds
 and source inventory never vary by depth.
 
