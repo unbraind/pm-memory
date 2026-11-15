@@ -34,8 +34,25 @@ class HostClient extends PmClient {
 }
 /** One currently held publication fence; detached async continuations cannot retain its authority. */
 interface ActiveFence { lease: LockLease; active: boolean }
+// Node 22 retains every enabled AsyncLocalStorage instance until disable().
+// Per-Store engines accumulate across SDK calls; disabling them at write exit
+// would erase released-lease context from detached continuations. One engine
+// with separate keys preserves both instance isolation and stale-writer checks.
+const storeContexts = new AsyncLocalStorage<ReadonlyMap<symbol, unknown>>();
+/** One isolated binding in the shared asynchronous context engine. */
+class StoreContext<T> {
+  /** An unforgeable key keeps unrelated Store instances and binding kinds apart. */
+  readonly key = Symbol();
+  /** Read only this binding, including from detached asynchronous continuations. */
+  getStore(): T | undefined { return storeContexts.getStore()?.get(this.key) as T | undefined; }
+  /** Extend an immutable parent scope and restore it when this invocation returns. */
+  run<R>(value: T, run: () => R): R {
+    const scope = new Map(storeContexts.getStore()); scope.set(this.key, value);
+    return storeContexts.run(scope, run);
+  }
+}
 /** Reuse only this async context's live fence, avoiding nested SDK-hook deadlocks. */
-async function fenceLease<T>(leases: AsyncLocalStorage<LockLease>, fences: AsyncLocalStorage<ActiveFence>, run: () => Promise<T>): Promise<T> {
+async function fenceLease<T>(leases: StoreContext<LockLease>, fences: StoreContext<ActiveFence>, run: () => Promise<T>): Promise<T> {
   const lease = leases.getStore(); const held = fences.getStore();
   if (lease === undefined || held?.lease === lease && held.active) return run();
   return lease.fence(async () => {
@@ -48,11 +65,11 @@ class FencedClient extends PmClient {
   /** Underlying SDK or injected host client. */
   readonly delegate: PmClient;
   /** Current asynchronous writer generation, absent outside a write. */
-  readonly leases: AsyncLocalStorage<LockLease>;
+  readonly leases: StoreContext<LockLease>;
   /** Shared publication scope for nested native hooks and intent writes. */
-  readonly fences: AsyncLocalStorage<ActiveFence>;
+  readonly fences: StoreContext<ActiveFence>;
   /** Wrap native dispatch without replacing its schema or attribution behavior. */
-  constructor(delegate: PmClient, leases: AsyncLocalStorage<LockLease>, fences: AsyncLocalStorage<ActiveFence>) { super(); this.delegate = delegate; this.leases = leases; this.fences = fences; }
+  constructor(delegate: PmClient, leases: StoreContext<LockLease>, fences: StoreContext<ActiveFence>) { super(); this.delegate = delegate; this.leases = leases; this.fences = fences; }
   /** Refuse stale writers before native item or schema publication begins. */
   override run(action: PmActionName, args: PmClientRunArgs = {}): Promise<unknown> {
     return fenceLease(this.leases, this.fences, () => this.delegate.run(action, args));
@@ -61,9 +78,9 @@ class FencedClient extends PmClient {
 /** Tracker-bound native SDK client and cooperating package mutation boundary. */
 export class Store {
   /** Per-operation ownership context also isolates simultaneous writes on one Store. */
-  readonly leases = new AsyncLocalStorage<LockLease>();
+  readonly leases = new StoreContext<LockLease>();
   /** Async-local, live-only publication scopes shared with the native dispatcher. */
-  readonly fences = new AsyncLocalStorage<ActiveFence>();
+  readonly fences = new StoreContext<ActiveFence>();
   /** Fenced host dispatcher, or standalone SDK client with extension recursion disabled. */
   readonly client: PmClient;
   /** Explicit initialized tracker storage directory. */

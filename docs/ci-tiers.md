@@ -100,6 +100,27 @@ Logs alone do not establish that this run had finished all tests or identify an
 idle handle. The watchdog prevents an unbounded wait either way. Do not confuse
 that observation with the separately demonstrated detached telemetry writer.
 
+## Node 22 context lifetime
+
+Each Store previously allocated two AsyncLocalStorage engines. Node 22 keeps
+an enabled engine registered until it is disabled, making asynchronous work
+progressively more expensive as API calls create more Stores. Store now uses
+one shared engine with separate symbol keys and immutable scope maps for each
+instance and binding. Nested work restores its parent scope; detached callbacks
+retain their original released lease and still fail publication. Disabling all
+contexts at write exit would lose that refusal, so contexts are preserved.
+
+The regression measures bounded engine count across repeated writers and
+verifies nested Stores keep separate leases/fences. Replaying prior source
+produces 52 engines after 26 writers instead of the warmed two. A controlled
+Node 22 model batch previously exceeded a 240-second diagnostic limit and now
+passes in 65.39 seconds on the same shared host. The SDK lease fixture also
+uses an absolute watchdog module URL when forking into a different working
+directory and awaits the owned child's close before cleanup.
+
+This lifetime requirement is documented in
+[Node's AsyncLocalStorage reference](https://nodejs.org/download/release/v22.15.0/docs/api/async_context.html#asynclocalstoragedisable).
+
 ## Measurements
 
 Baseline successful main run [43627397337](https://github.com/unbraind/pm-memory/actions/runs/43627397337)
