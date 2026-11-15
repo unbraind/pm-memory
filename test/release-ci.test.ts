@@ -43,7 +43,14 @@ test('required checks run directly on hosted quick jobs; deep preserves all runt
   assert.equal(codeql.on.schedule[0].cron, '47 1 * * 1');
 });
 
-test('PR change detection handles docs, source, deletions, renames and unusual filenames', () => {
+test('PR change detection handles docs, source, deletions, renames and unusual filenames', t => {
+  const bash = spawnSync('bash', ['--version'], { encoding: 'utf8' });
+  if ((bash.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT' && !process.env.CI) {
+    t.skip('bash is unavailable on PATH');
+    return;
+  }
+  assert.equal(bash.error, undefined, 'bash is required in CI');
+  assert.equal(bash.status, 0, bash.stderr);
   const script = workflow('ci').jobs.test.steps.find((step: { id?: string }) => step.id === 'changes').run;
   const root = mkdtempSync(join(tmpdir(), 'memory-ci-routing-'));
   const git = (...args: string[]) => {

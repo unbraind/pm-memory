@@ -73,3 +73,14 @@ console.log('ready'); setInterval(() => {}, 1000);`;
   assert.equal(await readFile(finished, 'utf8'), 'closed');
   await assert.rejects(access(root), { code: 'ENOENT' });
 });
+
+
+test('fractional runner scale rounds spawnSync deadlines up to integer milliseconds', t => {
+  const previous = process.env.PM_TEST_TIME_SCALE;
+  t.after(() => { if (previous === undefined) delete process.env.PM_TEST_TIME_SCALE; else process.env.PM_TEST_TIME_SCALE = previous; });
+  process.env.PM_TEST_TIME_SCALE = '1.1';
+  assert.equal(testTime(101), 112);
+  const result = spawnSync(process.execPath, ['-e', ''], { timeout: testTime(10_001), encoding: 'utf8' });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0);
+});

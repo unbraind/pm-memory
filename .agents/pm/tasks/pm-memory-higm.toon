@@ -5,14 +5,12 @@ type: Task
 pm_format_version: 2
 status: in_progress
 priority: 2
-tags[4]: ci,"gh:unbraind/pm-memory#75",performance,tests
+tags[5]: ci,"gh:unbraind/pm-memory#75","gh:unbraind/pm-memory#76",performance,tests
 created_at: "2026-11-04T03:26:26.179Z"
-updated_at: "2026-11-15T09:24:24.998Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-15T13:50:33.648Z"
 author: orchestrator
 acceptance_criteria: Hosted quick required checks complete within 15 minutes including queueing; full default and deep mode retain all original seed receipts and release checks; CLI delayed-writer isolation regression and file-watchdog regression pass; quick coverage remains 100 percent in every dimension; record local and PR measurements; leave this Task open for owner verification
-comments[32]{created_at,author,text}:
+comments[34]{created_at,author,text}:
   "2026-11-15T03:42:01.837Z",codex-sol,"Applying Fleet CI v2; companion pm-cli-website-dyhg. Reusing this existing CI/performance Task. Required checks confirmed: test (22), test (26), codeql. CodeQL stays unfiltered because it is required. Plan: hosted quick PR gates, exhaustive four-combination local deep tier, deterministic depth prefixes with unchanged 100% coverage, bounded test lifecycle and issue #75 regression, then measured PR checks. Release workflow and release verifiers are out of scope."
   "2026-11-15T03:48:18.439Z",codex-sol,"Baseline run 43627397337: full gate steps Node 22 npm 182m51s, Node 26 npm 56m33s, Node 26 Bun 41m08s. Current main has three runtime legs, so deep restores the requested Node 22 Bun combination as well. The pinned CLI dispatches detached telemetry flush children; replacement diagnostic environments drop test suppression. Child test environments now explicitly disable telemetry. An independent probe confirmed Node --test-timeout does not terminate an idle file after its last passing test, so an unreferenced per-file failure watchdog is required. No coverage thresholds or source scope changed."
   "2026-11-15T03:50:36.924Z",codex-sol,"Recovered baseline test timings from the successful main Node 26 job log: model 1302.75s, forward-only update boundary sweep 544.59s, owned state 441.94s, 220-source round trip 395.36s, grammar 365.66s. The canceled run 43616440465 last emitted test 346 and retained model/coverage children, so its logs do not prove all tests finished. Explicit watchdog regression now fails an idle file after a passing test. The real-CLI probe demonstrates unsuppressed detached telemetry dispatch and zero dispatch with isolated child settings; diagnostic assertions and cleanup failures remain load-bearing."
@@ -45,6 +43,8 @@ comments[32]{created_at,author,text}:
   "2026-11-15T08:40:10.324Z",codex-sol,"Downloaded superseded four-file logs: Node 26 fixed inventory increased from 231.64s to 337.38s and model from 97.42s to 252.34s; Node 22 forward-boundary file hit the explicit 600s deadline. Four-file scheduling was therefore reverted in both unit and coverage runners. Node 22 compile-cache cold/warm SDK startup probe showed no repeatable gain (uncached 0.60-1.17s, warm 0.92-1.27s); cache not introduced, preserving precise coverage behavior. Third hosted head 3d5e6b4 isolates the smaller quick inventory with original scheduling. Repeating complete local release proof now."
   "2026-11-15T09:21:27.021Z",codex-sol,"Root cause of Node 22 throughput: Store allocated two AsyncLocalStorage engines per instance; Node 22 retains enabled engines until disable(), causing per-async-operation work to grow. Reproduction: 500 enabled engines increased a 5000-await loop from 2.85ms to 962.17ms on Node 22, while Node 26 stayed 1.24ms. New Store shares one engine with per-instance/per-binding symbol scopes; contexts are not disabled at write exit, preserving stale detached-writer refusal. The allocation regression rejects prior source (52 engines versus warmed 2), and new nested-scope/Node 22 tests passed. A real 5-sequence model control previously hit 240s; with the fix it passed in 65.39s. The third hosted Node 22 job reached its 30-minute timeout (no pass); Node 26 passed 14m38s, 898 tests and all 39 coverage sources. Also fixed a relative watchdog import inherited by the cwd-changing SDK lease fork, and made that fixture child owned through close. Rechecking stale-writer and cross-scope behavior before publication."
   "2026-11-15T09:24:24.991Z",codex-sol,"Final targeted context/lifecycle/fence suite passed 15/15 on Node 22 (8.485s) and Node 26 (6.127s), including detached stale publication refusal, expired-writer item/file/export refusal, nested Store scope restoration and bounded context-engine reuse. The same linked test passed through pm test index 8. Typecheck, lint, zero duplication, docstring and changelog checks passed. The temporary unread-pipe hypothesis was discarded; fork cancellation was caused by a relative inherited watchdog import after cwd changed, fixed with an absolute module URL. Source and tests are ready for the complete quick gate and new hosted measurements."
+  "2026-11-15T13:42:44.336Z",codex-sol,"Review round: preserve cheap-path privacy and identity checks where applicable, restore portable test behavior, and verify generated-case assertions. Run targeted gates and required revert proofs; leave review threads untouched and wait for the dispatch hold before pushing."
+  "2026-11-15T13:48:53.747Z",codex-sol,"Review findings PRRT_kwDOVPw2oc63o98b and PRRT_kwDOVPw2oc63o98h fixed. Linked gates passed: typecheck, build, test compilation, lint, 52 targeted lifecycle/workflow/tooling tests, strict unique-key YAML, changelog and identity checks. Missing-bash control: local skips with exit 0; CI=true fails with exit 1. Scale 1.1 regression passes with integer ceiling; a scratch copy reverting the ceiling fails (111.10000000000001 versus 112). No measured coverage sources changed; package coverage was not run."
 files[47]{path,scope}:
   .github/workflows/ci-deep.yml,project
   .github/workflows/ci.yml,project
@@ -93,7 +93,7 @@ files[47]{path,scope}:
   test/support/time.ts,project
   test/tooling.test.ts,project
   test/worker-budget.test.ts,project
-tests[8]:
+tests[9]:
   - command: "npm run typecheck && npm run lint && npm run duplication && npm run changelog:check"
     scope: project
     timeout_seconds: 300
@@ -158,6 +158,14 @@ tests[8]:
       created_at: "2026-11-15T09:21:30.890Z"
       source_kind: local_mutation
       source_ref: ci/quick-pr-tier-deep-local-tier
-docs[1]{path,scope}:
+  - command: "npm run typecheck && npm run build && npm run build:test && npm run lint && PM_TEST_DEPTH=quick node --test --test-concurrency=2 test/release-ci.test.ts test/ci-lifecycle.test.ts test/tooling.test.ts test/release-workflow.test.ts && node --input-type=module -e 'import {readFileSync,readdirSync} from \"node:fs\"; import assert from \"node:assert/strict\"; import {parseDocument} from \"yaml\"; for (const file of readdirSync(\".github/workflows\").filter(f=>/\\.ya?ml$/.test(f))) { const doc=parseDocument(readFileSync(\".github/workflows/\"+file,\"utf8\"),{uniqueKeys:true,strict:true}); assert.deepEqual(doc.errors,[],file); } console.log(\"Strict workflow YAML: passed\");' && npm run changelog:check && npm run identity:check"
+    scope: project
+    provenance:
+      author: codex-sol
+      created_at: "2026-11-15T13:45:56.706Z"
+      source_kind: local_mutation
+      source_ref: ci/quick-pr-tier-deep-local-tier
+docs[2]{path,scope}:
   docs/ci-tiers.md,project
+  README.md,project
 body: ""
