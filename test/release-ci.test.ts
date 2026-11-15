@@ -23,7 +23,7 @@ test('required checks run directly on hosted quick jobs; deep preserves all runt
   assert.equal(gate.if, "steps.changes.outputs.code == 'true' && matrix.node-version == 26");
   assert.equal(steps.some((step: { run?: string }) => step.run === 'bun run release:check'), false);
   assert.equal(steps.find((step: { run?: string }) => step.run === 'npm test').if, "steps.changes.outputs.code == 'true' && matrix.node-version == 22");
-  assert.equal(steps.find((step: { run?: string }) => step.run === 'npm run changelog:check').if, "steps.changes.outputs.code != 'true'");
+  assert.equal(steps.find((step: { name?: string }) => step.name === 'Check documentation and tracker changes').if, "steps.changes.outputs.code != 'true'");
   assert.ok(steps.some((step: { run?: string; if?: string }) => step.run === './node_modules/.bin/pm health --strict-exit --require-merge-drivers' && step.if === undefined));
   assert.deepEqual(Object.keys(deep.on).sort(), ['push', 'schedule', 'workflow_dispatch']);
   assert.deepEqual(deep.on.push.branches, ['main']);
@@ -66,7 +66,7 @@ test('PR change detection handles docs, source, deletions, renames and unusual f
       const result = spawnSync('bash', ['-c', script], { cwd: root, encoding: 'utf8', env: { ...process.env, BASE_SHA: base, HEAD_SHA: git('rev-parse', 'HEAD'), GITHUB_EVENT_NAME: 'pull_request', RUNNER_TEMP: root, GITHUB_OUTPUT: output } });
       assert.equal(result.status, 0, result.stderr); assert.equal(readFileSync(output, 'utf8'), `code=${expected}\n`, label);
     };
-    const cases: [string, boolean][] = [['README.md', false], ['docs/guide.txt', false], ['.agents/pm/tasks/sample.toon', false], ['LICENSE', false], ['src/new.ts', true]];
+    const cases: [string, boolean][] = [['README.md', false], ['docs/guide.txt', false], ['.agents/pm/tasks/sample.toon', false], ['LICENSE', false], ['src/new.ts', true], ['.agents/pm/check.ts', true], ['.agents/pm/scripts/check.mjs', true]];
     // Windows rejects control characters in filenames; retain all portable cases there.
     if (process.platform !== 'win32') cases.push(['source\nname.ts', true]);
     for (const [path, expected] of cases) {

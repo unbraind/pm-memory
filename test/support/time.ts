@@ -1,5 +1,9 @@
-/** Scale harness deadlines on slow hardware; invalid settings keep the baseline. */
+/** Scale harness deadlines only and validate before starting child processes. */
 export function testTime(milliseconds: number): number {
-  const scale = Number(process.env.PM_TEST_TIME_SCALE ?? 1);
-  return Math.ceil(milliseconds * (Number.isFinite(scale) && scale > 0 ? scale : 1));
+  const scale = Number(process.env.PM_TEST_TIME_SCALE ?? '1');
+  const result = Math.ceil(milliseconds * scale);
+  if (!Number.isFinite(scale) || scale <= 0 || !Number.isSafeInteger(result) || result < 1 || result > 2_147_483_647) {
+    throw new Error('Invalid PM_TEST_TIME_SCALE');
+  }
+  return result;
 }

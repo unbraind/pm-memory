@@ -83,16 +83,19 @@ test('child launcher preserves shell metacharacters as literal arguments with an
   }
 });
 
-test('embedding assertion tolerates the writer wait and still bounds a blocked writer', async t => {
+for (const scale of ['0.5', '1', '3']) test(`embedding assertion tolerates the writer wait and bounds a blocked writer at scale ${scale}`, async t => {
+  const previous = process.env.PM_TEST_TIME_SCALE;
+  process.env.PM_TEST_TIME_SCALE = scale;
+  t.after(() => { if (previous === undefined) delete process.env.PM_TEST_TIME_SCALE; else process.env.PM_TEST_TIME_SCALE = previous; });
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const writer = Promise.withResolvers<string>();
   let finished = false;
   const pending = whileEmbedding(writer.promise).finally(() => { finished = true; });
   // Attach rejection handling before advancing time, including during the revert proof.
   const result = pending.then(value => ({ value }), error => ({ error }));
-  t.mock.timers.tick(30001);
+  t.mock.timers.tick(testTime(30001));
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-  assert.equal(finished, false, 'the assertion must allow the entire 30-second writer wait');
+  assert.equal(finished, false, 'the harness must allow its scaled writer-wait interval');
   writer.resolve('completed');
   assert.deepEqual(await result, { value: 'completed' });
   const blocked = whileEmbedding(new Promise<never>(() => {}));

@@ -5,7 +5,7 @@ import { readFile, writeFile, access } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { testEnvironment } from '../scripts/environment.ts';
-import { ownFixtureChild, tracker } from './helpers.ts';
+import { ownFixtureChild, runModelWorker, tracker } from './helpers.ts';
 import { testDepth } from './support/depth.ts';
 import { testTime } from './support/time.ts';
 
@@ -55,7 +55,7 @@ test('depth keeps full default and deterministic quick budgets; slow-host scale 
   process.env.PM_TEST_DEPTH = 'unknown'; assert.equal(testDepth(500), 500);
   delete process.env.PM_TEST_TIME_SCALE; assert.equal(testTime(100), 100);
   process.env.PM_TEST_TIME_SCALE = '3'; assert.equal(testTime(100), 300);
-  for (const value of ['0', '-1', 'invalid']) { process.env.PM_TEST_TIME_SCALE = value; assert.equal(testTime(100), 100); }
+  for (const value of ['0', '-1', 'invalid']) { process.env.PM_TEST_TIME_SCALE = value; assert.throws(() => testTime(100), /PM_TEST_TIME_SCALE/); }
 });
 
 // The child deliberately creates lock files during asynchronous shutdown. The
@@ -83,4 +83,13 @@ test('fractional runner scale rounds spawnSync deadlines up to integer milliseco
   const result = spawnSync(process.execPath, ['-e', ''], { timeout: testTime(10_001), encoding: 'utf8' });
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0);
+});
+
+// Invalid configuration must fail in the parent before dispatching a model worker.
+test('model worker validates scale before dispatch', async t => {
+  const previous = process.env.PM_TEST_TIME_SCALE;
+  process.env.PM_TEST_TIME_SCALE = 'invalid';
+  try {
+    await assert.rejects(runModelWorker(t, new URL('./fixtures/worker-budget.worker.ts', import.meta.url), {}, 'unused'), /PM_TEST_TIME_SCALE/);
+  } finally { if (previous === undefined) delete process.env.PM_TEST_TIME_SCALE; else process.env.PM_TEST_TIME_SCALE = previous; }
 });

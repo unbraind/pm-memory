@@ -76,6 +76,7 @@ export async function workerSlot(t: Pick<TestContext, 'signal'>): Promise<() => 
 
 /** Bound child model lifetimes, retain coverage and require their complete assertion receipt. */
 export async function runModelWorker(t: TestContext, worker: URL, variables: Record<string, string>, receipt: string, suite?: string): Promise<SeedExecution[]> {
+  testTime(5000); // Validate the worker's watchdog scale before it can spawn.
   const scratch = await mkdtemp(join(tmpdir(), 'memory-worker-'));
   let release: (() => Promise<void>) | undefined;
   let cleanup = async () => { await release?.(); await rm(scratch, { recursive: true, force: true }); };

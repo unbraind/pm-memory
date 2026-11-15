@@ -3,8 +3,7 @@
 Required checks remain `test (22)`, `test (26)` and `codeql`. PR checks run on
 GitHub-hosted Ubuntu, cancel superseded PR runs, and have 30-minute job limits.
 The CI workflow runs on PRs and dispatch, with no push trigger. Docs/tracker-only
-PRs run npm installation, strict tracker health and changelog consistency in both
-Node jobs. CodeQL is required by branch protection, so its PR/push triggers have
+PRs retain npm installation, strict tracker health, identity/private-path checks, changelog consistency, package and attestation checks, and tooling contracts in both Node jobs. CodeQL is required by branch protection, so its PR/push triggers have
 no path exclusions; skipping that workflow would block docs-only PRs.
 
 | Check / contract | PR Node 22 | PR Node 26 | Docs/tracker-only | Deep Node 22/26 × npm/Bun |
@@ -12,14 +11,14 @@ no path exclusions; skipping that workflow would block docs-only PRs.
 | npm ci / prepare merge drivers | yes | yes | both | all four |
 | Strict pm health / required merge drivers | yes | yes | both | all four |
 | Build and test suite | quick | quick via coverage | — | full |
-| Commit identity / private-path policy | — | release gate | — | release gate |
+| Commit identity / private-path policy | — | release gate | yes | release gate |
 | Typecheck and lint | — | release gate | — | release gate |
 | Duplication / docstring gates | — | release gate | — | release gate |
 | Coverage: 100% statements, branches, functions, lines | — | quick, unchanged scope | — | full, unchanged scope |
 | Production dependency audit | — | release gate | — | release gate |
-| Pack dry-run / shipped file contracts | — | release gate | — | release gate |
+| Pack dry-run / shipped file contracts | — | release gate | yes | release gate |
 | Changelog consistency | — | release gate | both | release gate |
-| Publish attestation verifier | — | release gate | — | release gate |
+| Publish attestation verifier | — | release gate | yes | release gate |
 | Packed npm/npx and Bun/bunx consumer acceptance | — | test:install via gate | — | test:install via gate |
 | Bun package graph installation | — | smoke | — | Bun legs |
 | CodeQL | separate required workflow | separate required workflow | still runs | main pushes / weekly schedule |
@@ -139,3 +138,5 @@ Workflow timeout and cancellation semantics follow the
 
 Tracking: [pm-memory-higm](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-higm.toon),
 companion `pm-cli-website-dyhg`.
+
+Documentation and tracker changes retain identity/private-path validation, package dry-run, publish attestation and tooling documentation contracts. Executable tracker scripts select code CI.
