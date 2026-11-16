@@ -7,6 +7,10 @@
 - Adopt public SDK transaction inspection and native hash preconditions ([pm-memory-sdk-transaction-reader](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-transaction-reader.toon))
 - Delegate memory credential detection to SDK mutation secret scanner ([pm-memory-sdk-secret-scan](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-secret-scan.toon))
 
+### Fixed
+
+- Repair scheduled GitHub issue sync failure ([pm-memory-issue-sync-1116](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-issue-sync-1116.toon))
+
 ### Other
 
 - Apply Fleet CI v2 and bound release-gate test lifecycles ([pm-memory-higm](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-higm.toon))
