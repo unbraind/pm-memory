@@ -6,9 +6,9 @@ for (const suite of Object.keys(PROPERTY_MASTERS)) {
   test(`property seed guard: ${suite} requires all declared 500 completed seeds`, () => {
     const complete = declaredSeeds(suite);
     assert.equal(complete.length, 500);
-    assertSeedCoverage(suite, complete);
-    assert.throws(() => assertSeedCoverage(suite, complete.filter(row => row.sequence !== 237)), /completed seed count/);
-    assert.throws(() => assertSeedCoverage(suite, [...complete.slice(0, 499), complete[0]]), /completed seed list/);
-    assert.throws(() => assertSeedCoverage(suite, complete.map(row => row.sequence === 237 ? { ...row, seed: row.seed ^ 1 } : row)), /completed seed list/);
+    assertSeedCoverage(suite, complete, 0, 500);
+    assert.throws(() => assertSeedCoverage(suite, complete.filter(row => row.sequence !== 237), 0, 500), /completed seed count/);
+    assert.throws(() => assertSeedCoverage(suite, [...complete.slice(0, 499), complete[0]], 0, 500), /completed seed list/);
+    assert.throws(() => assertSeedCoverage(suite, complete.map(row => row.sequence === 237 ? { ...row, seed: row.seed ^ 1 } : row), 0, 500), /completed seed list/);
   });
 }

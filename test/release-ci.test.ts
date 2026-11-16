@@ -1,95 +1,76 @@
-/** CI must invoke both complete package release gate entrypoints. */
+import { workflowBash } from './support/bash.ts';
+/** Required PR checks must preserve routing, coverage and the exhaustive deep gate. */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test, type TestContext } from 'node:test';
+import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { parse } from 'yaml';
 
-/**
- * The workflow steps under test are bash scripts that use jq, as on GitHub's
- * runners. Locally a missing tool skips them with its name; under CI it fails,
- * so the hosted check can never pass by skipping.
- */
-function requireWorkflowTools(t: TestContext): boolean {
-  const missing = ['bash', 'jq'].filter(tool => spawnSync(tool, ['--version'], { stdio: 'ignore' }).error !== undefined);
-  if (missing.length === 0) return true;
-  assert.equal(process.env.CI, undefined, `CI must provide ${missing.join(' and ')} for the workflow step tests`);
-  t.skip(`${missing.join(' and ')} not installed; the workflow step tests need them`);
-  return false;
-}
+const workflow = (name: string) => parse(readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
 
-test('CI invokes the complete npm and Bun release gates', () => {
-  const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-  assert.match(ci, /^\s+run: npm run release:check$/mu);
-  assert.match(ci, /^\s+run: bun run release:check$/mu);
-});
-
-
-test('CI separates full runtime gates while required checks refuse failed, canceled or skipped runtimes', t => {
-  if (!requireWorkflowTools(t)) return;
-  const ci = parse(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'));
-  assert.deepEqual(ci.jobs.runtime.strategy.matrix.include, [
-    { 'node-version': 22, runtime: 'npm' }, { 'node-version': 26, runtime: 'npm' }, { 'node-version': 26, runtime: 'bun' },
-  ]);
-  assert.equal(ci.jobs.runtime.strategy['fail-fast'], false);
-  const steps = ci.jobs.runtime.steps;
-  assert.equal(steps.find((step: { run?: string }) => step.run === 'npm run release:check').if, "matrix.runtime == 'npm'");
-  assert.equal(steps.find((step: { run?: string }) => step.run === 'bun run release:check').if, "matrix.runtime == 'bun'");
-  const required = ci.jobs.test;
-  assert.equal(required.name, 'test (${{ matrix.node-version }})');
-  assert.deepEqual(required.strategy.matrix['node-version'], [22, 26]);
-  assert.equal(required.needs, 'runtime'); assert.equal(required.if, '${{ always() }}');
-  assert.equal(required.steps[0].env.RUNTIME_RESULT, '${{ needs.runtime.result }}');
-  for (const result of ['success', 'failure', 'cancelled', 'skipped']) {
-    const actual = spawnSync('bash', ['-c', required.steps[0].run], { env: { ...process.env, RUNTIME_RESULT: result } });
-    assert.equal(actual.status, result === 'success' ? 0 : 1, result);
+test('required checks run directly on hosted quick jobs; deep preserves all runtime gates', () => {
+  const ci = workflow('ci'); const deep = workflow('ci-deep'); const codeql = workflow('codeql');
+  assert.deepEqual(Object.keys(ci.on).sort(), ['pull_request', 'workflow_dispatch']);
+  assert.equal(ci.concurrency['cancel-in-progress'], "${{ github.event_name == 'pull_request' }}");
+  assert.equal(ci.jobs.test.name, 'test (${{ matrix.node-version }})');
+  assert.deepEqual(ci.jobs.test.strategy.matrix['node-version'], [22, 26]);
+  assert.equal(ci.jobs.test['runs-on'], 'ubuntu-latest');
+  assert.equal(ci.jobs.test.needs, undefined);
+  assert.equal(ci.jobs.test.env.PM_TEST_DEPTH, 'quick');
+  const steps = ci.jobs.test.steps;
+  const gate = steps.find((step: { run?: string }) => step.run === 'npm run release:check');
+  assert.equal(gate.if, "steps.changes.outputs.code == 'true' && matrix.node-version == 26");
+  assert.equal(steps.some((step: { run?: string }) => step.run === 'bun run release:check'), false);
+  assert.equal(steps.find((step: { run?: string }) => step.run === 'npm test').if, "steps.changes.outputs.code == 'true' && matrix.node-version == 22");
+  assert.equal(steps.find((step: { name?: string }) => step.name === 'Check documentation and tracker changes').if, "steps.changes.outputs.code != 'true'");
+  assert.ok(steps.some((step: { run?: string; if?: string }) => step.run === './node_modules/.bin/pm health --strict-exit --require-merge-drivers' && step.if === undefined));
+  assert.deepEqual(Object.keys(deep.on).sort(), ['push', 'schedule', 'workflow_dispatch']);
+  assert.deepEqual(deep.on.push.branches, ['main']);
+  assert.deepEqual(deep.jobs.deep.strategy.matrix, { 'node-version': [22, 26], runtime: ['npm', 'bun'] });
+  assert.deepEqual(deep.jobs.deep.env, { NPM_CONFIG_USERCONFIG: '/dev/null', PM_TEST_DEPTH: 'full', PM_TEST_TIME_SCALE: 3 });
+  assert.equal(deep.jobs.deep['timeout-minutes'], 120);
+  assert.match(deep.jobs.deep['runs-on'], /PM_LOCAL_DEEP != 'off'/);
+  assert.equal(deep.jobs.deep.steps.find((step: { run?: string }) => step.run === 'npm run release:check').if, "matrix.runtime == 'npm'");
+  assert.equal(deep.jobs.deep.steps.find((step: { run?: string }) => step.run === 'bun run release:check').if, "matrix.runtime == 'bun'");
+  assert.notEqual(deep.jobs.deep.name, ci.jobs.test.name);
+  for (const config of [ci, codeql]) for (const job of Object.values(config.jobs) as Record<string, unknown>[]) {
+    assert.ok(Number(job['timeout-minutes']) > 0 && Number(job['timeout-minutes']) <= 30);
   }
+  // CodeQL is required here: docs-only PRs must still receive its result.
+  assert.equal(codeql.on.pull_request['paths-ignore'], undefined);
+  assert.equal(codeql.on.push['paths-ignore'], undefined);
+  assert.equal(codeql.on.schedule[0].cron, '47 1 * * 1');
 });
 
-test('required checks also verify each runtime leg, including legs carried over by a re-run', t => {
-  if (!requireWorkflowTools(t)) return;
-  const ci = parse(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'));
-  const required = ci.jobs.test;
-  assert.deepEqual(required.permissions, { actions: 'read' });
-  const legs = required.steps[1];
-  assert.equal(legs.env.GH_TOKEN, '${{ github.token }}');
-  assert.match(legs.run, /actions\/runs\/\$GITHUB_RUN_ID\/jobs\?filter=latest/u);
-  // A stand-in gh applies the workflow's own --jq filter to job objects, or fails like an API error.
-  const bin = mkdtempSync(join(tmpdir(), 'memory-ci-gh-'));
+test('PR change detection handles docs, source, deletions, renames and unusual filenames', t => {
+  if (!workflowBash(t)) return;
+  const script = workflow('ci').jobs.test.steps.find((step: { id?: string }) => step.id === 'changes').run;
+  const root = mkdtempSync(join(tmpdir(), 'memory-ci-routing-'));
+  const git = (...args: string[]) => {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
+  };
   try {
-    writeFileSync(join(bin, 'gh'), '#!/usr/bin/env bash\n[ -n "$JOBS" ] || exit 1\nwhile [ $# -gt 0 ]; do [ "$1" = --jq ] && { jq -c "$2" <<<"$JOBS"; exit; }; shift; done\nexit 2\n', { mode: 0o755 });
-    // Job names come from the workflow's own name template and matrix, as GitHub renders them.
-    const legNames = (ci.jobs.runtime.strategy.matrix.include as { 'node-version': number; runtime: string }[]).map(leg =>
-      String(ci.jobs.runtime.name).replace('${{ matrix.node-version }}', String(leg['node-version'])).replace('${{ matrix.runtime }}', leg.runtime));
-    assert.deepEqual(legNames, ['release gate (22, npm)', 'release gate (26, npm)', 'release gate (26, bun)']);
-    // The step's expected-name list must be exactly the rendered matrix names.
-    const expected = /== (\[[^\]]*\])/u.exec(legs.run)?.[1];
-    assert.ok(expected, 'the step must compare against an explicit leg-name list');
-    assert.deepEqual(JSON.parse(expected), [...legNames].sort());
-    const jobs = (conclusions: (string | null)[], others: [string, string | null][] = []) => JSON.stringify({ jobs: [
-      ...legNames.slice(0, conclusions.length).map((name, index) => ({ name, conclusion: conclusions[index] })),
-      ...conclusions.slice(legNames.length).map(conclusion => ({ name: 'release gate (26, npm)', conclusion })),
-      ...others.map(([name, conclusion]) => ({ name, conclusion })),
-    ] });
-    // While an aggregator runs, both aggregators are still in progress (conclusion null).
-    const running: [string, string | null][] = [['test (22)', null], ['test (26)', null]];
-    const cases: [string, number, string][] = [
-      [jobs(['success', 'success', 'success'], running), 0, 'three successful legs beside running aggregators'],
-      [jobs(['success', 'success', 'success'], [...running, ['unrelated', 'failure']]), 0, 'an unrelated failed job is not a runtime leg'],
-      [jobs(['success', 'failure', 'success'], [...running, ['unrelated', 'success']]), 1, 'a failed leg beside an unrelated success'],
-      [jobs(['success', 'success'], [...running, ['unrelated', 'success']]), 1, 'a missing leg'],
-      [jobs(['success', 'success', 'success', 'success'], running), 1, 'a duplicated leg'],
-      [JSON.stringify({ jobs: [...[legNames[0], legNames[1], legNames[1]].map(name => ({ name, conclusion: 'success' })), ...running.map(([name, conclusion]) => ({ name, conclusion }))] }), 1, 'a duplicated leg standing in for a missing one'],
-      [jobs(['success', 'cancelled', 'success'], running), 1, 'a cancelled leg'],
-      [jobs(['success', 'skipped', 'success'], running), 1, 'a skipped leg'],
-      [jobs(['success', null, 'success'], running), 1, 'a leg without a conclusion'],
-      ['', 1, 'an API failure'],
-    ];
-    for (const [payload, status, label] of cases) {
-      const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, JOBS: payload, GITHUB_REPOSITORY: 'unbraind/pm-memory', GITHUB_RUN_ID: '1' };
-      assert.equal(spawnSync('bash', ['-c', legs.run], { env }).status, status, label);
+    git('init', '-q'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.test');
+    writeFileSync(join(root, 'source.ts'), 'export const value = 1;'); git('add', 'source.ts'); git('commit', '-qm', 'Fixture');
+    const base = git('rev-parse', 'HEAD');
+    const detect = (expected: boolean, label: string) => {
+      const output = join(root, 'output');
+      const result = spawnSync('bash', ['-c', script], { cwd: root, encoding: 'utf8', env: { ...process.env, BASE_SHA: base, HEAD_SHA: git('rev-parse', 'HEAD'), GITHUB_EVENT_NAME: 'pull_request', RUNNER_TEMP: root, GITHUB_OUTPUT: output } });
+      assert.equal(result.status, 0, result.stderr); assert.equal(readFileSync(output, 'utf8'), `code=${expected}\n`, label);
+    };
+    const cases: [string, boolean][] = [['README.md', false], ['docs/guide.txt', false], ['.agents/pm/tasks/sample.toon', false], ['LICENSE', false], ['src/new.ts', true], ['.agents/pm/check.ts', true], ['.agents/pm/scripts/check.mjs', true]];
+    // Windows rejects control characters in filenames; retain all portable cases there.
+    if (process.platform !== 'win32') cases.push(['source\nname.ts', true]);
+    for (const [path, expected] of cases) {
+      git('reset', '--hard', base); git('clean', '-fd');
+      mkdirSync(join(root, path, '..'), { recursive: true }); writeFileSync(join(root, path), 'fixture');
+      git('add', '--', path); git('commit', '-qm', 'Fixture change');
+      detect(expected, path);
     }
-  } finally { rmSync(bin, { recursive: true, force: true }); }
+    git('reset', '--hard', base); git('clean', '-fd'); git('mv', 'source.ts', 'guide.md'); git('commit', '-qm', 'Rename fixture');
+    detect(true, 'source-to-docs rename still includes source deletion');
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

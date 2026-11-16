@@ -7,15 +7,17 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import { acquireLockLease, PmCliError } from '@unbrained/pm-cli/sdk';
 import { remember, MemoryError } from '../index.ts';
-import { tracker } from './helpers.ts';
+import { ownFixtureChild, tracker } from './helpers.ts';
 
 /** Start a package writer with Git unavailable and wait for its live lease. */
 async function writer(t: TestContext, root: string, workspace: string, mode = 'item') {
   const child = fork(new URL('./lease-writer.ts', import.meta.url), [workspace, mode, join(root, 'published')], {
     silent: true, cwd: root,
+    // The fork changes cwd; a relative inherited --import cannot resolve there.
+    execArgv: ['--import', new URL('./support/file-deadline.ts', import.meta.url).href],
     env: { ...process.env, PM_LOCK_WAIT_MS: '0', PATH: root, GIT_CEILING_DIRECTORIES: dirname(root) },
   });
-  t.after(() => { child.kill('SIGKILL'); });
+  ownFixtureChild(t, child);
   assert.deepEqual(await once(child, 'message'), ['holding', undefined]);
   return child;
 }

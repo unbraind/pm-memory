@@ -28,7 +28,7 @@ async function emittedFile(directory: string, slug: string, fallback: string) {
 /** Only SDK-managed clocks differ between independent SDK writes and the import transaction. */
 function nativeState(rows: Awaited<ReturnType<PmClient['listAllComplete']>>['items'], changed: string, content: boolean) { return rows.map(row => row.id === changed ? { ...row, ...(content ? { memory_changed_at: '<content revision clock>' } : {}), updated_at: '<SDK modification clock>' } : row).sort((a, b) => a.id.localeCompare(b.id)); }
 
-test(`current grammar law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }, async t => {
+test(`current grammar law ${START}-${START + COUNT - 1}`, async t => {
   const executed = seedLedger(t, 'GRAMMAR', START, COUNT);
   const isolated = await tracker(t); withoutGit(t, isolated.root); await isolated.store.register();
   const templates = new Map<string, Awaited<ReturnType<typeof tracker>>>();

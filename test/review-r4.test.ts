@@ -1,3 +1,4 @@
+import { testTime } from './support/time.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer } from 'node:http';
@@ -98,7 +99,7 @@ test('network verification releases writers and skips changed, archived and nati
   const writing = remember('Acknowledged newer guidance', { ...options, kind: 'project', update: changed.slug });
   let writable: boolean;
   try {
-    writable = await Promise.race([writing.then(() => true), delay(15000, false, { ref: false })]);
+    writable = await Promise.race([writing.then(() => true), delay(testTime(15000), false, { ref: false })]);
     if (writable) {
       await client.update(archived.id, { status: 'canceled', closeReason: 'Synthetic concurrent archive' });
       await client.update(native.id, { body: 'Native edit without custom changed timestamp' });

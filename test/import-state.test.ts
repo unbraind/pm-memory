@@ -1,3 +1,4 @@
+import { testDepth } from './support/depth.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -142,14 +143,14 @@ test('empty source edits update ownership against the exported native baseline',
 });
 
 // Fresh workers bound Node 22 coverage bookkeeping without changing any seed or assertion.
-test('property: 500 seeded owned-field add/change/remove sequences equal SDK read-back and recall', { timeout: 14400000 }, async t => {
+test('property: depth-selected seeded owned-field add/change/remove sequences equal SDK read-back and recall', async t => {
   // Fresh worker processes bound Node 22 coverage bookkeeping; their independent
   // batches run concurrently through one bounded pool.
   const configurations: Record<string, string>[] = []; const receipts: string[] = [];
-  for (let start = 0; start < 500; start += 5) { configurations.push({ PM_MEMORY_OWNED_START: String(start), PM_MEMORY_OWNED_COUNT: '5' }); receipts.push(`OWNED_STATE_BATCH start=${start} count=5 STEPS=15 MASTER_SEED=0x1363f014`); }
+  for (let start = 0; start < testDepth(500); start += 5) { configurations.push({ PM_MEMORY_OWNED_START: String(start), PM_MEMORY_OWNED_COUNT: '5' }); receipts.push(`OWNED_STATE_BATCH start=${start} count=5 STEPS=15 MASTER_SEED=0x1363f014`); }
   await runModelWorkerPool(t, new URL('./import-state.worker.ts', import.meta.url), configurations, receipts, 'OWNED');
-  assert.equal(configurations.length * 5, 500);
-  t.diagnostic('OWNED_STATE_SEQUENCES=500 STEPS=1500 MASTER_SEED=0x1363f014 batches=100 wall=concurrent');
+  assert.equal(configurations.length * 5, testDepth(500));
+  t.diagnostic(`OWNED_STATE_SEQUENCES=${testDepth(500)} STEPS=${testDepth(500) * 3} MASTER_SEED=0x1363f014 batches=${testDepth(500) / 5} wall=concurrent`);
 });
 
 for (const mode of ['companion', 'policy'] as const) test(`actual exported source bounds removal ownership: ${mode}`, async t => {

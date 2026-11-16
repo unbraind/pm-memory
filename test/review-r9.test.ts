@@ -1,3 +1,4 @@
+import { testDepth } from './support/depth.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -38,7 +39,7 @@ test('randomized consolidation invariant assigns every memory at most one action
   const random = (limit: number): number => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state % limit; };
   const actions = new Set<string>();
   let total = 0;
-  for (let sample = 0; sample < 500; sample++) {
+  for (let sample = 0; sample < testDepth(500); sample++) {
     const memories = Array.from({ length: 6 + random(19) }, (_, index) => {
       const group = random(4); const verb = random(3);
       return { ...base, id: `synthetic-${index}`, slug: `policy-${group}-${index}`, title: `Policy ${group}`, body: `${['Enable', 'Disable', 'Enable'][verb]} audit logging for policy ${group}`, updated: `2020-01-${String(index + 1).padStart(2, '0')}`, verdict: random(3) === 0 ? 'stale' as const : 'unknown' as const, reason: 'symbol absent in 1 files searched', recalls: random(4) === 0 ? 1 : 0, pinned: random(5) === 0, status: random(8) === 0 ? 'canceled' : 'open', artifact: random(10) === 0, supersedes: random(4) === 0 ? [`synthetic-${random(index + 1)}`] : [] };
@@ -56,7 +57,7 @@ test('randomized consolidation invariant assigns every memory at most one action
   }
   assert.deepEqual([...actions].sort(), ['archive', 'merge', 'supersedes']);
   assert.ok(total > 100, `exercised ${total} actions`);
-  t.diagnostic(`500 deterministic randomized memory sets; ${total} actions; no repeated endpoint`);
+  t.diagnostic(`${testDepth(500)} deterministic randomized memory sets; ${total} actions; no repeated endpoint`);
 });
 
 test('recall accounts complete candidates with bounded serialization work', async t => {

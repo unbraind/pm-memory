@@ -1,0 +1,11 @@
+id: pm-memory-ci-health-skew
+title: Verify clone-local extension host skew before tracker health certification
+description: "An additional read-only health probe during Fleet CI v2 round 2 failed strict health with extension_host_pm_cli_version_skew for pm-github (host 2026.11.11 versus extension host 2026.11.14). It also reported three stale in-progress items as advisory. Requested typecheck, lint, focused tests, workflow/tooling tests, strict YAML and identity checks pass independently. Determine whether the extension state is clone-local and confirm fresh CI installation health before declaring tracker health certified. This follow-up does not change dependencies or installed extensions."
+type: Issue
+status: open
+priority: 2
+tags[3]: ci,follow-up,health
+created_at: "2026-11-15T14:33:48.561Z"
+updated_at: "2026-11-15T14:33:48.561Z"
+author: codex-sol
+body: ""

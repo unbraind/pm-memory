@@ -1,3 +1,4 @@
+import { testDepth } from './support/depth.ts';
 import assert from 'node:assert/strict';
 import type { TestContext } from 'node:test';
 
@@ -20,7 +21,7 @@ export function declaredSeeds(suite: string): SeedExecution[] {
   });
 }
 /** Fail on omissions, duplicate coordinates, altered seeds or extra executions. */
-export function assertSeedCoverage(suite: string, actual: readonly SeedExecution[], start = 0, count = 500): void {
+export function assertSeedCoverage(suite: string, actual: readonly SeedExecution[], start = 0, count = testDepth(500)): void {
   const expected = declaredSeeds(suite).slice(start, start + count);
   assert.equal(actual.length, count, `${suite}: completed seed count`);
   assert.deepEqual([...actual].sort((a, b) => a.sequence - b.sequence), expected, `${suite}: completed seed list`);

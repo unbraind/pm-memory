@@ -1,0 +1,65 @@
+name: CI Deep
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # The 120-minute window ends 30 minutes before release (03:23 UTC).
+    - cron: "53 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-deep-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deep:
+    name: deep (${{ matrix.node-version }}, ${{ matrix.runtime }})
+    runs-on: ${{ vars.PM_LOCAL_DEEP != 'off' && fromJSON('["self-hosted","pm-local"]') || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 26]
+        runtime: [npm, bun]
+    env:
+      NPM_CONFIG_USERCONFIG: /dev/null
+      PM_TEST_DEPTH: full
+      PM_TEST_TIME_SCALE: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tracked pm project health
+        run: ./node_modules/.bin/pm health --strict-exit --require-merge-drivers
+
+      - name: Full npm release gate
+        if: matrix.runtime == 'npm'
+        run: npm run release:check
+
+      - name: Verify Bun can install the package graph
+        if: matrix.runtime == 'bun'
+        run: bun install --no-save
+
+      - name: Full Bun release gate
+        if: matrix.runtime == 'bun'
+        run: bun run release:check
