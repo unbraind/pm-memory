@@ -1,3 +1,4 @@
+import { testTime } from './support/time.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
@@ -15,23 +16,23 @@ import { tracker, snapshot } from './helpers.ts';
 import { nativeHost } from './native-host-helpers.ts';
 
 // Each scanner must finish under an independent operating-system deadline.
-for (const [label, input] of [['URL', 'http://!:' + '!:'.repeat(50000)], ['base64 email', 'aB+/'.repeat(50000)], ['JWT header', 'eyJ-'.repeat(50000)], ['unterminated escaped quotes', '"password": ' + '\\"'.repeat(50000)], ['unterminated backslashes', '"password": "${X}", "note": "' + '\\\\'.repeat(50000)], ['escape run', '\\'.repeat(200000)], ['distinct quotes', Array.from({ length: 25000 }, (_, index) => '"a' + index + '" ').join('')], ['long distinct quotes', Array.from({ length: 2500 }, (_, index) => '"a' + index + 'x'.repeat(65) + '" ').join('')], ['reference explanations', 'password=${X}(provided by the environment); '.repeat(5000)]]) test(`privacy scans adversarial ${label} characters within a fixed time bound`, { timeout: 20000 }, async t => {
+for (const [label, input] of [['URL', 'http://!:' + '!:'.repeat(50000)], ['base64 email', 'aB+/'.repeat(50000)], ['JWT header', 'eyJ-'.repeat(50000)], ['unterminated escaped quotes', '"password": ' + '\\"'.repeat(50000)], ['unterminated backslashes', '"password": "${X}", "note": "' + '\\\\'.repeat(50000)], ['escape run', '\\'.repeat(200000)], ['distinct quotes', Array.from({ length: 25000 }, (_, index) => '"a' + index + '" ').join('')], ['long distinct quotes', Array.from({ length: 2500 }, (_, index) => '"a' + index + 'x'.repeat(65) + '" ').join('')], ['reference explanations', 'password=${X}(provided by the environment); '.repeat(5000)]]) test(`privacy scans adversarial ${label} characters within a fixed time bound`, { timeout: testTime(20000) }, async t => {
   const child = spawn(process.execPath, [fileURLToPath(new URL('./privacy-process.ts', import.meta.url))]);
   t.after(() => { child.kill('SIGKILL'); });
   const elapsed = await new Promise<number>((resolve, reject) => {
     let output = ''; let ready = false;
     const expire = () => { child.kill('SIGKILL'); reject(new Error('Adversarial scan exceeded its process deadline')); };
-    let timer = setTimeout(expire, 15000);
+    let timer = setTimeout(expire, testTime(15000));
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
       output += chunk;
       if (!ready && output.includes('ready\n')) {
-        ready = true; clearTimeout(timer); timer = setTimeout(expire, 2000); child.stdin.end(input);
+        ready = true; clearTimeout(timer); timer = setTimeout(expire, testTime(2000)); child.stdin.end(input);
       }
     });
     child.once('error', error => { clearTimeout(timer); reject(error); });
     child.once('close', code => { clearTimeout(timer); if (code === 0) resolve(Number(output.trim().split('\n').at(-1))); else reject(new Error('Adversarial scan process failed')); });
   });
-  assert.ok(elapsed < 500, 'privacy scan exceeded 500ms');
+  assert.ok(elapsed < testTime(500), `privacy scan exceeded ${testTime(500)}ms: ${elapsed}ms`);
   assert.throws(() => privacy('https://synthetic:fake000000000000@service.test/path'), /Credential/);
   privacy('https://service.test/path'); privacy('http://service.test:8000'); privacy('https://user@service.test', true);
 });

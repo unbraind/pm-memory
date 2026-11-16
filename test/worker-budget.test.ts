@@ -1,3 +1,4 @@
+import { testTime } from './support/time.ts';
 import assert from 'node:assert/strict';
 import { test, type TestContext } from 'node:test';
 import { access, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -137,7 +138,7 @@ test('a claimed slot is never visible without its owner PID', { skip: process.pl
   const owner = String(claimer.pid);
   // The claimer loads the whole helper module first; freeze only once it is claiming.
   for (let waited = 0; claimer.exitCode === null && (await readdir(directory).catch(() => [])).length === 0; waited += 25) {
-    assert.ok(waited < 60_000, 'the claimer never claimed a slot');
+    assert.ok(waited < testTime(60_000), 'the claimer never claimed a slot');
     await delay(25);
   }
   // Freezing the claimer at arbitrary moments leaves the files exactly as a hard kill would.
@@ -177,7 +178,7 @@ test('an orphaned slot claimer exits once its parent process is gone', { skip: p
     parent.kill('SIGKILL'); await parentExited;
     if (claimer > 0) {
       if (running(claimer)) process.kill(claimer, 'SIGKILL');
-      for (let waited = 0; running(claimer) && waited < 5000; waited += 25) await delay(25);
+      for (let waited = 0; running(claimer) && waited < testTime(5000); waited += 25) await delay(25);
     }
     await rm(root, { recursive: true, force: true });
   });
@@ -188,10 +189,10 @@ test('an orphaned slot claimer exits once its parent process is gone', { skip: p
   });
   const directory = join(root, `memory-worker-slots-${parent.pid}`);
   for (let waited = 0; (await readdir(directory).catch(() => [])).length === 0; waited += 25) {
-    assert.ok(waited < 60_000 && running(claimer), 'the claimer never claimed a slot');
+    assert.ok(waited < testTime(60_000) && running(claimer), 'the claimer never claimed a slot');
     await delay(25);
   }
   parent.kill('SIGKILL'); await parentExited;
-  for (let waited = 0; running(claimer) && waited < 15_000; waited += 25) await delay(25);
+  for (let waited = 0; running(claimer) && waited < testTime(15_000); waited += 25) await delay(25);
   assert.equal(running(claimer), false, 'an orphaned claimer must stop instead of spinning');
 });

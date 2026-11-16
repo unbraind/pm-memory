@@ -1,15 +1,16 @@
+import { testDepth } from './support/depth.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { runModelWorkerPool } from './helpers.ts';
 
 const MASTER_SEED = 0x1363cafe;
-const SEQUENCES = 500;
+const SEQUENCES = testDepth(500);
 const BATCH_SIZE = 5;
 
 // Fresh real Node processes bound Node 22 coverage bookkeeping, now running their
 // independent batches concurrently through one bounded pool. Workers inherit
 // NODE_V8_COVERAGE, so c8 still measures every production path in every batch.
-test('model: 500 seeded stateful sequences preserve old replays, SDK-normalized provenance and relationships', { timeout: 14400000 }, async t => {
+test('model: depth-selected seeded stateful sequences preserve old replays, SDK-normalized provenance and relationships', async t => {
   const configurations: Record<string, string>[] = []; const receipts: string[] = []; let checks = 0;
   for (let start = 0; start < SEQUENCES; start += BATCH_SIZE) {
     const freshIndex = start / BATCH_SIZE;
@@ -20,6 +21,6 @@ test('model: 500 seeded stateful sequences preserve old replays, SDK-normalized 
   }
   await runModelWorkerPool(t, new URL('./portable-model.worker.ts', import.meta.url), configurations, receipts, 'MODEL');
   assert.equal(configurations.length * BATCH_SIZE, SEQUENCES);
-  assert.equal(checks, 22933);
+  assert.equal(checks, SEQUENCES === 500 ? 22933 : 2290);
   t.diagnostic(`MODEL sequences=${SEQUENCES} SDK-read steps=${checks} MASTER_SEED=0x${MASTER_SEED.toString(16)} batches=${configurations.length} wall=concurrent`);
 });

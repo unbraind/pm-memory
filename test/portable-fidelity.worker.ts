@@ -40,7 +40,7 @@ async function copyTracker(from: string, to: string) {
   await cp(from, to, { recursive: true, filter: path => !['runtime', 'locks', 'search', 'checkpoints'].includes(relative(from, path).split('/')[0]) });
 }
 
-test(`fidelity sequences ${START}-${START + COUNT - 1}`, { timeout: 600000 }, async t => {
+test(`fidelity sequences ${START}-${START + COUNT - 1}`, async t => {
   const executed = seedLedger(t, 'FIDELITY', START, COUNT);
   const base = await tracker(t); const empty = await tracker(t); await empty.store.register();
   const raw = join(base.root, 'raw'); await mkdir(raw);

@@ -50,7 +50,7 @@ function compare(actual: Rows, expected: Rows, changedId: string | undefined, co
   assert.deepEqual(values(actual), values(expected), label);
 }
 
-test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, { timeout: 600000 }, async t => {
+test(`ownership law ${LAW} ${START}-${START + COUNT - 1}`, async t => {
   const executed = seedLedger(t, LAW, START, COUNT);
   const target = await tracker(t);
   const oldCeiling = process.env.GIT_CEILING_DIRECTORIES; const oldPath = process.env.PATH;

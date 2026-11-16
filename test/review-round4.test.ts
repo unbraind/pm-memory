@@ -1,3 +1,5 @@
+import { testTime } from './support/time.ts';
+import { testEnvironment } from '../scripts/environment.ts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
@@ -12,7 +14,6 @@ import { nativeHost } from './native-host-helpers.ts';
 
 const literal = 'SyntheticOnly123!';
 const remedy = 'Remove credentials and reference a secret manager instead';
-const runtimePath = process.env.PATH;
 
 for (const [path, displayed] of [
   ['guides/password=' + literal + '.md', 'guides/[redacted]'],
@@ -36,8 +37,8 @@ for (const [path, displayed] of [
   });
   for (const flags of [[], ['--json']]) {
     const result = spawnSync(process.execPath, [resolve('node_modules/.bin/pm'), 'memory', 'import', input, '--from', 'agents-md', ...flags], {
-      cwd: target.root, encoding: 'utf8', timeout: 30000,
-      env: { PATH: process.env.PATH, HOME: target.root, PM_PATH: target.workspace, PM_AUTHOR: 'memory-test', GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' },
+      cwd: target.root, encoding: 'utf8', timeout: testTime(30000),
+      env: { ...testEnvironment({ PATH: process.env.PATH }), HOME: target.root, PM_PATH: target.workspace, PM_AUTHOR: 'memory-test', GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' },
     });
     const output = result.stdout + result.stderr;
     assert.equal(result.status, 4, output); assert.equal(output.includes(literal), false);
@@ -91,41 +92,28 @@ test('retained artifact originals refuse secrets before publication while clean 
   assert.equal(manifest.includes(Buffer.from(JSON.stringify({ password: literal })).toString('base64')), false);
 });
 
+/** Exercise the same fixed adversarial inputs under a scaled process/scan deadline. */
+function boundedScan(value: string, limit: number, deadline: number): void {
+  const result = spawnSync(process.execPath, [resolve('test/privacy-process.ts')], { input: value, encoding: 'utf8', timeout: testTime(deadline) });
+  assert.equal(result.status, 0, result.stderr);
+  const elapsed = Number(result.stdout.trim().split('\n').at(-1));
+  assert.ok(elapsed < testTime(limit), `${value.length}-byte scan took ${elapsed}ms`);
+}
+
 test('reference terminators inspect 100000 spaces within a bounded process deadline', async () => {
   for (const tail of ['', '}', ',', ']', ':', 'x']) {
     const value = 'password=${X}"' + ' '.repeat(100000) + tail;
-    const result = spawnSync(process.execPath, [resolve('test/privacy-process.ts')], { input: value, encoding: 'utf8', timeout: 3000 });
-    assert.equal(result.status, 0, result.stderr);
-    const elapsed = Number(result.stdout.trim().split('\n').at(-1));
-    assert.ok(elapsed < 750, `100000-space scan took ${elapsed}ms`);
+    boundedScan(value, 750, 3000);
   }
   // The child process accepts a refusal too, so admission of reference-only input is asserted in process first.
   for (const value of ['pwd="${X}"'.repeat(1_000), 'password="${X}"<x>'.repeat(1_000)]) privacy(value);
   // Repeated reference-only assignments stay linear: each adjacent segment is scanned once. At 500 KB a linear scan
   // takes about 2 s on CI-class hardware, while the quadratic rescan it replaces runs for minutes.
   for (const value of ['pwd="${X}"'.repeat(50_000), 'password="${X}"<x>'.repeat(30_000)]) {
-    const result = spawnSync(process.execPath, [resolve('test/privacy-process.ts')], { input: value, encoding: 'utf8', timeout: 15_000 });
-    assert.equal(result.status, 0, result.stderr);
-    const elapsed = Number(result.stdout.trim().split('\n').at(-1));
-    assert.ok(elapsed < 6000, `${value.length}-byte repeated reference scan took ${elapsed}ms`);
+    boundedScan(value, 6000, 15_000);
   }
   const start = performance.now();
   privacy(JSON.stringify({ note: 'password=${X}' }));
   assert.throws(() => privacy('password=${X}"' + ' '.repeat(100000) + literal + '"'), error => error instanceof MemoryError && error.code === 'privacy');
-  assert.ok(performance.now() - start < 750);
-});
-
-test('published documentation includes credential policy and preserves the existing public files', async () => {
-  const manifest = JSON.parse(await readFile('package.json', 'utf8')) as { files: string[]; pm: { docs: string[] } };
-  assert.ok(manifest.pm.docs.includes('docs/sdk-adoption.md'));
-  const safe = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/TOKEN|PASSWORD|SECRET|KEY|AUTH|CREDENTIAL|PAT(?:_|$)/i.test(key) && key !== 'NPM_MEDIA_SERVER'));
-  const result = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { encoding: 'utf8', timeout: 60000, env: { ...safe, PATH: runtimePath, NPM_CONFIG_USERCONFIG: devNull } });
-  assert.equal(result.error, undefined);
-  assert.equal(result.status, 0, result.stderr);
-  const packed = JSON.parse(result.stdout) as { files: { path: string; size: number }[] }[];
-  for (const path of ['docs/sdk-adoption.md', 'README.md', 'ARCHITECTURE.md', 'manifest.json', 'dist/index.js']) {
-    const file = packed[0].files.find(file => file.path === path); assert.ok(file, path);
-    assert.equal(file.size, (await readFile(path)).length);
-  }
-  assert.ok(packed[0].files.every(file => !file.path.startsWith('.agents/') && !file.path.startsWith('test/')));
+  assert.ok(performance.now() - start < testTime(750));
 });

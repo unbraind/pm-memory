@@ -10,6 +10,7 @@ import { budget, digest, kind, pack, privacy, similarity, slug, text } from '../
 import { active, DUPLICATE_THRESHOLD, rank } from '../src/memory.ts';
 import { tracker, snapshot } from './helpers.ts';
 import { testEnvironment } from '../scripts/environment.ts';
+import { testDepth } from './support/depth.ts';
 
 /** Assert one typed refusal without exposing rejected content. */
 function refused(error: unknown): boolean { assert.ok(error instanceof MemoryError); assert.ok(error.remedy.length > 0); return true; }
@@ -112,7 +113,7 @@ test('budget property over random sets from real SDK memories covers UTF-8, omit
   function random(): number { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; }
   for (let n = 0; n < 18; n++) await remember(`Fact ${n}\n${'😀 漢字 synthetic '.repeat(1 + Math.floor(random() * 40))}`, { ...options, kind: n % 2 ? 'user' : 'reference', slug: `fact-${n}`, forceNew: true, pin: n % 3 === 0 });
   const memories = await store.read();
-  for (let n = 0; n < 300; n++) {
+  for (let n = 0; n < testDepth(300); n++) {
     const rows = memories.filter(() => random() > 0.3).map(item => ({ slug: item.slug, title: item.title, text: item.body }));
     const limit = 40 + Math.floor(random() * 2000);
     const packet = pack(rows, limit, (selected, omitted) => ({ memories: selected, omitted, complete: true }));

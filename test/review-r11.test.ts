@@ -1,3 +1,4 @@
+import { testTime } from './support/time.ts';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
@@ -38,7 +39,7 @@ async function blocked(store: Store): Promise<void> {
   });
 }
 
-test('SIGKILLed writer recovers promptly and completes a real SDK write with native recovery', { timeout: 60000 }, async t => {
+test('SIGKILLed writer recovers promptly and completes a real SDK write with native recovery', { timeout: testTime(60000) }, async t => {
   const { store, workspace } = await tracker(t);
   failFast(t);
   const child = await holder(t, workspace);
@@ -56,7 +57,7 @@ test('SIGKILLed writer recovers promptly and completes a real SDK write with nat
     assert.deepEqual(await snapshot(workspace), before, 'recovery alone preserves durable bytes');
     return store.client.run('create', { options: { title: 'Recovered writer transaction', type: 'Task' } });
   }));
-  assert.ok(elapsed < 5000, `dead-owner recovery took ${elapsed}ms`);
+  assert.ok(elapsed < testTime(5000), `dead-owner recovery took ${elapsed}ms`);
   assert.equal((await store.client.get(created.id)).item.title, 'Recovered writer transaction');
   assert.equal(payload.owner, 'writer-test');
   t.diagnostic(`SIGKILL recovery: ${elapsed.toFixed(2)}ms`);

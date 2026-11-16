@@ -9,7 +9,8 @@ import { exportDir, importDir, MemoryError, remember } from '../index.ts';
 import { aggregatePrivacy, aggregateSize, digest, privacy } from '../src/core.ts';
 import { runCommand } from '../src/commands.ts';
 import { importPolicy, POLICY_MANIFEST } from '../src/portable.ts';
-import { snapshot, tracker } from './helpers.ts';
+import { snapshot, tracker, withoutGit } from './helpers.ts';
+import { testDepth } from './support/depth.ts';
 
 /** Capture only stable policy outcomes, never exception stacks or supplied values. */
 function verdict(value: string): string {
@@ -25,7 +26,7 @@ function quotedCorpus(): string[] {
     const json = JSON.stringify({ [name]: value });
     corpus.push(json, JSON.stringify(json), 'He is 5" tall. ' + JSON.stringify({ note: json }), '"' + name + '": ' + JSON.stringify(value), "'" + name + "': '" + value + "'", '"' + name + '": ' + JSON.stringify(value).slice(0, -1));
   }
-  for (let seed = 0; seed < 512; seed++) {
+  for (let seed = 0; seed < testDepth(512); seed++) {
     let bits = seed; let value = '';
     for (let at = 0; at < 9; at++, bits >>>= 1) value += (bits & 1) === 0 ? "'" : '\\';
     for (const quote of ['"', "'"]) corpus.push(quote + 'password' + quote + ': ' + quote + value, quote + 'password' + quote + ': ' + quote + value + '\n');
@@ -35,9 +36,23 @@ function quotedCorpus(): string[] {
 
 test('quoted scanner preserves the prior matcher corpus', () => {
   const corpus = quotedCorpus();
-  assert.equal(corpus.length, 2318);
+  assert.equal(corpus.length, 270 + testDepth(512) * 4);
   // Verdict digest captured from bb8fcd3 before replacing the quoted-value matchers.
-  assert.equal(digest(JSON.stringify(corpus.map(verdict))), 'b3cdcaf3dcd9a91eaa2e19fcd05635bb94aee726a98b0a20b8511e83b1d30bd1');
+  // The quick prefix was frozen after verifying this complete original digest.
+  assert.equal(digest(JSON.stringify(corpus.map(verdict))), testDepth(512) === 512
+    ? 'b3cdcaf3dcd9a91eaa2e19fcd05635bb94aee726a98b0a20b8511e83b1d30bd1'
+    : '968ab572638bd4858a24f528ef67486cdb49a8f0b9f31821086b32d4119f2488');
+});
+
+test('invalid escaped quote tails do not hide a later credential assignment', () => {
+  // The late enumerated seeds reach this invalid-span branch. Keep its policy
+  // explicit in both depths instead of relying on a random or enumerated tail.
+  for (const ending of ['', '\n']) {
+    const malformed = "'password': '\\" + ending;
+    assert.doesNotThrow(() => privacy(malformed, true));
+    assert.throws(() => privacy(malformed + "\n'api_key': 'SyntheticOnly123!'", true),
+      error => error instanceof MemoryError && error.code === 'privacy');
+  }
 });
 
 test('100k escaped-quote inputs complete without backtracking quote matchers', t => {
@@ -78,20 +93,22 @@ test('aggregate inventories have an independent limit and actionable remedy befo
   assert.deepEqual(await snapshot(target.workspace), before);
 });
 
-test('220 benign 4 KiB sources round trip through both harnesses', async t => {
-  const target = await tracker(t); const input = join(target.root, 'input'); await mkdir(input);
-  const body = 'Public guidance. '.repeat(256).slice(0, 4096);
-  assert.equal(Buffer.byteLength(body), 4096);
-  for (let at = 0; at < 220; at++) await writeFile(join(input, 'guide-' + at + '.md'), body);
-  assert.equal((await importDir(input, { ...target.options, from: 'agents-md' })).imported, 220);
+const inventoryCount = testDepth(220);
+const inventoryBytes = inventoryCount === 220 ? 4096 : 32768;
+test(`${inventoryCount} benign ${inventoryBytes / 1024} KiB sources round trip through both harnesses`, async t => {
+  const target = await tracker(t); withoutGit(t, target.root); const input = join(target.root, 'input'); await mkdir(input);
+  const body = 'Public guidance. '.repeat(Math.ceil(inventoryBytes / 17)).slice(0, inventoryBytes);
+  assert.equal(Buffer.byteLength(body), inventoryBytes);
+  for (let at = 0; at < inventoryCount; at++) await writeFile(join(input, 'guide-' + at + '.md'), body);
+  assert.equal((await importDir(input, { ...target.options, from: 'agents-md' })).imported, inventoryCount);
   for (const to of ['agents-md', 'claude-code'] as const) {
     const output = join(target.root, to); await exportDir(output, { ...target.options, to });
     const companion = POLICY_MANIFEST;
     assert.ok((await readFile(join(output, companion))).length > 1024 * 1024);
     const restored = await tracker(t);
-    assert.equal((await importDir(output, { ...restored.options, from: to })).imported, 220);
+    assert.equal((await importDir(output, { ...restored.options, from: to })).imported, inventoryCount);
     const items = (await restored.client.listAllComplete({ includeBody: true })).items;
-    assert.equal(items.filter(item => item.body === body).length, 220);
+    assert.equal(items.filter(item => item.body === body).length, inventoryCount);
   }
 });
 

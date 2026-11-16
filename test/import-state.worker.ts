@@ -14,7 +14,7 @@ const COUNT = Number(process.env.PM_MEMORY_OWNED_COUNT);
 assert.ok(Number.isInteger(START) && START >= 0 && START < 500 && START % 5 === 0);
 assert.equal(COUNT, 5);
 
-test(`owned state batch ${START}: seeded field add/change/remove and recall`, { timeout: 600000 }, async t => {
+test(`owned state batch ${START}: seeded field add/change/remove and recall`, async t => {
   const executed = seedLedger(t, 'OWNED', START, COUNT);
   const master = 0x1363f014; let random = master;
   const base = await fixture(t, 'raw', undefined, propertyTracker); withoutGit(t, base.root);

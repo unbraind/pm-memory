@@ -21,7 +21,7 @@ function documentRandom(seed: number): () => number {
   return () => { state ^= state << 13; state ^= state >>> 17; state ^= state << 5; return state >>> 0; };
 }
 
-test(`complete document law ${START}-${START + COUNT - 1}`, { timeout: 1200000 }, async t => {
+test(`complete document law ${START}-${START + COUNT - 1}`, async t => {
   const executed = seedLedger(t, 'DOCUMENT', START, COUNT);
   const source = await tracker(t);
   const contexts = new Map<string, { target: Awaited<ReturnType<typeof tracker>>; input: string; name: string }>();
