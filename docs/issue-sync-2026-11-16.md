@@ -40,3 +40,7 @@ A passing plan proves completeness and identity planning, not successful writes 
 ## Validation
 
 Typecheck and lint pass. The pinned tracker validation returns `ok: true` with existing advisories. The seeded tracker validation and gated import preview also pass through `pm test --run --progress`. The initial quick package run hit the 600-second file watchdog in commands.test.ts and compound-credentials.test.ts under heavy host load; a longer-deadline compound test rerun is running. Package quick tests are still running at the initial draft; no full passing package suite is claimed. Remaining results are recorded in the linked sync repair item. CI is not dispatched manually, and no successful scheduled rerun is claimed.
+
+## Final bounded verification receipt
+
+Final bounded verification: typecheck, lint and changelog:check passed. The locked-CLI gated import preview passed (9 planned, zero skipped). The broad quick suite was stopped incomplete after multiple 600-second file watchdogs and is excluded from passing evidence. Direct rerun with PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=4 node --import ./test/support/file-deadline.ts --test --test-concurrency=1 test/compound-credentials.test.ts passed 59/59 with zero failures, cancellations or skips. No distinct shared-reference item was closed. The new item history verifies with strict exit.

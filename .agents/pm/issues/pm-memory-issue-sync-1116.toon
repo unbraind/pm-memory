@@ -7,14 +7,15 @@ status: in_progress
 priority: 1
 tags[2]: ci,issue-sync
 created_at: "2026-11-16T10:42:22.550Z"
-updated_at: "2026-11-16T11:02:30.472Z"
+updated_at: "2026-11-16T11:39:13.237Z"
 deadline: "2026-11-17T00:00:00.000Z"
 author: codex-sol
 estimated_minutes: 90
 acceptance_criteria: Record the exact failed command and verify the current fix or upstream blocker without weakening tracker governance.
-comments[2]{created_at,author,text}:
+comments[3]{created_at,author,text}:
   "2026-11-16T10:47:17.876Z",codex-sol,"Run 43706726398 failed the pm-github 2026.11.4 gate with three shared provenance tags and one conflicting target. Inspecting the complete 31-item corpus shows distinct work behind references #15, #51 and #52. Current main already includes PR #77 pinning 2026.11.15, whose ownership resolver permits shared reference tags and uses explicit import identity. The current pinned gated dry-run passes: 9 planned, 0 skipped, 0 matched, 0 adopted, 9 new. Preserve the separate task histories and record this as a stale failing-run diagnosis; no duplicate closure is justified."
   "2026-11-16T11:01:57.179Z",codex-sol,"Initial review receipt: the failed workflow log and current pin are documented in docs/issue-sync-2026-11-16.md. Seeded tracker validation passes through pm test --run --progress. Typecheck and lint pass. The quick package suite remains running under shared-host load; no complete passing suite is claimed. Two quick files reached their 600-second watchdog; a longer-deadline compound-credential rerun is underway.  Publish review evidence with pending gates explicit; no scheduled success is claimed."
+  "2026-11-16T11:39:13.198Z",codex-sol,"Final bounded verification: typecheck, lint and changelog:check passed. The locked-CLI gated import preview passed (9 planned, zero skipped). The broad quick suite was stopped incomplete after multiple 600-second file watchdogs and is excluded from passing evidence. Direct rerun with PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=4 node --import ./test/support/file-deadline.ts --test --test-concurrency=1 test/compound-credentials.test.ts passed 59/59 with zero failures, cancellations or skips. No distinct shared-reference item was closed. The new item history verifies with strict exit."
 files[1]{path,scope}:
   docs/issue-sync-2026-11-16.md,project
 tests[2]:
