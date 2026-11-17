@@ -6,25 +6,30 @@ status: in_progress
 priority: 1
 tags[1]: "gh:unbraind/pm-memory#79"
 created_at: "2026-11-17T18:26:55.328Z"
-updated_at: "2026-11-17T19:00:25.447Z"
+updated_at: "2026-11-17T19:36:45.202Z"
 author: codex-sol
 repro_steps: npm run typecheck with the pm-toolchain update
 expected_result: New SDK rules preserve type compatibility and refuse credential literals.
 actual_result: TS2741 reports the missing credential_key_assignment policy.
-comments[6]{created_at,author,text}:
+comments[8]{created_at,author,text}:
   "2026-11-17T18:30:56.656Z",codex-sol,"Job 133996528357 fails TS2741: SDK SecretGuardFinding.rule gained credential_key_assignment. The exhaustive Record made an additive SDK rule a consumer compile break. Use Partial with an explicit fail-closed default; real SDK positives remain refused and references remain allowed. An API-shape concern is recorded for the upstream draft."
   "2026-11-17T18:37:56.774Z",codex-sol,"Release notes refine the boundary: credential_key_assignment was introduced in SDK 2026.11.13 (GH-1704). The dependency branch jumps from 2026.11.11 to 2026.11.14, so both 2026.11.13 and 2026.11.14 reject the old exhaustive map. The upstream draft records an additive API-shape concern, not a claim that the new credential detection is incorrect."
   "2026-11-17T18:44:06.551Z",codex-sol,The original exhaustive map typechecks on the exact prior pin 2026.11.11 and fails on both 2026.11.13 and 2026.11.14. The new XML credential-key test isolates the SDK finding rather than the local assignment fallback; its pm-linked run passes. Typecheck and lint pass on the repaired policy.
   "2026-11-17T18:52:58.019Z",codex-sol,"The wider gate exposed an existing recall bug: Promise.all readUtility calls enter the same writer lease fence concurrently and can exhaust the SDK cleanup-gate wait with lock_lost. A fresh public SDK probe with twelve simultaneous fences reproduces 9 successes and 3 refusals on BOTH 2026.11.11 and 2026.11.14, so this is package misuse rather than a new SDK regression. Serialize the ledger reads before any counter writes; preserve every ownership fence and the original all-read-before-write boundary."
   "2026-11-17T18:58:03.071Z",codex-sol,"The real budget-property reproduction now passes after serializing ledger reads: 1 passed, 0 failed, 0 skipped. Typecheck and lint pass on both source changes. The additive XML credential regression also passes through pm. The core-reference full-depth run and final recall-reference selection remain in progress; no full-suite pass is claimed."
   "2026-11-17T19:00:13.788Z",codex-sol,"Implementation/dependency commit: a6d62db. The original exhaustive SDK policy also compiles on 2026.11.12, establishing the immediate last-good type shape before 2026.11.13. The repaired real recall budget property passes directly; its final reference-file selection also reports that property passing. Replaced the expensive full-depth exploratory reference run with the same quick deterministic seed prefix used by CI, using the existing harness timeout scale; complete reference results remain pending."
-files[6]{path,scope}:
+  "2026-11-17T19:23:09.121Z",codex-sol,"The complete core-reference selection reports 260 passes and one inventory-policy failure: this repository requires the peer floor and manifest loader floor to equal its reviewed SDK development pin. Preserve that existing security-inventory assertion; explicitly raise both SDK floors to 2026.11.14 and update the install guidance. This is an advertised SDK-host compatibility change; Node remains >=22.18.0. The recall-reference selection passes all 108 tests."
+  "2026-11-17T19:36:43.496Z",codex-sol,"Final metadata-reference selection passes 118/118. The 108 recall-reference tests pass; the 261 core-reference cases had only the reviewed-floor mismatch, resolved by the passing 32-case inventory/adoption repeat, also repeated successfully through pm. SDK floor and loader floor are now explicitly 2026.11.14 per the existing policy, README and lock metadata match, and Node remains >=22.18.0. Typecheck, lint and build pass; keep the PR draft pending final-head CI."
+files[8]{path,scope}:
   CHANGELOG.md,project
+  manifest.json,project
   package-lock.json,project
   package.json,project
+  README.md,project
   src/core.ts,project
   src/memory.ts,project
   test/full-value-privacy.test.ts,project
-tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+tests[2]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
   "node --test --test-name-pattern=\"additive SDK credential-key findings\" test/full-value-privacy.test.ts",project,240,codex-sol,"2026-11-17T18:34:40.479Z",local_mutation,fix/deps-memory-1117
+  node --test --test-concurrency=2 test/sdk-review-r5.test.ts test/sdk-adoption.test.ts test/sdk-final-round.test.ts,project,600,codex-sol,"2026-11-17T19:32:30.857Z",local_mutation,fix/deps-memory-1117
 body: ""
