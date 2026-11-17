@@ -118,7 +118,10 @@ async function commitRecall(store: Store, current: readonly Memory[], ranked: Aw
   const packet = recallPacket(rows, memories, query, limit, ranked.note, receipt);
   const emitted = packet.memories!.map(row => current.find(memory => memory.slug === row.slug)!);
   if (emitted.some(item => item.recalls === Number.MAX_SAFE_INTEGER)) throw new MemoryError('counter', 'Recall counter exhausted', 'Archive this memory or migrate its counter before recalling again');
-  const ledgers = await Promise.all(emitted.map(item => readUtility(store, item)));
+  // These reads share one writer lease; concurrent commit fences can exhaust
+  // the SDK's cleanup-gate wait even while the lease remains valid.
+  const ledgers: Awaited<ReturnType<typeof readUtility>>[] = [];
+  for (const item of emitted) ledgers.push(await readUtility(store, item));
   if (emitted.length > 0) await store.register();
   for (const [position, item] of emitted.entries()) {
     const ledger = ledgers[position];

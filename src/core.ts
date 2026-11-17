@@ -77,18 +77,18 @@ export function privacyRefusal(error: unknown): MemoryError {
   if (!(error instanceof MemoryError) || error.code !== 'privacy') throw error;
   return error;
 }
-/** Review SDK rule additions through its public literal union; unknown runtime findings refuse conservatively. */
+/** Keep policy keys typed while additive SDK findings default to credential refusal. */
 const SDK_FINDING_POLICY = {
   private_key: true, github_token: true, npm_token: true, aws_access_key: true, google_api_key: true,
   slack_token: true, anthropic_api_key: true, openai_api_key: true, gitlab_token: true, jwt_like_token: true,
   npm_auth_token_assignment: true, sentry_user_token: true, sentry_org_token: true,
   private_ip: false, private_ssh_target: false, sshpass_inline_password: true, password_assignment: true,
   absolute_home_path: false, user_at_private_host: false, high_entropy_assignment: true,
-} satisfies Record<SecretGuardFinding['rule'], boolean>;
+} satisfies Partial<Record<SecretGuardFinding['rule'], boolean>>;
 const SDK_FINDINGS = new Map<string, boolean>(Object.entries(SDK_FINDING_POLICY));
 /** Apply the shared credential findings while leaving identity/path policy local. */
 function sharedSecret(value: string): boolean {
-  return scanMutationSecrets(value).some(finding => SDK_FINDINGS.get(finding.rule) !== false);
+  return scanMutationSecrets(value).some(finding => SDK_FINDINGS.get(finding.rule) ?? true);
 }
 /** Bounded transport decoding supplements the SDK, which normalizes paths but scans credential rules literally. */
 function credentialViews(value: string): string[] {
