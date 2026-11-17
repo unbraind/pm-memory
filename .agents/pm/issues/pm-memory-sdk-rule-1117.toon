@@ -6,12 +6,12 @@ status: in_progress
 priority: 1
 tags[1]: "gh:unbraind/pm-memory#79"
 created_at: "2026-11-17T18:26:55.328Z"
-updated_at: "2026-11-17T19:36:45.202Z"
+updated_at: "2026-11-17T19:52:26.605Z"
 author: codex-sol
 repro_steps: npm run typecheck with the pm-toolchain update
 expected_result: New SDK rules preserve type compatibility and refuse credential literals.
 actual_result: TS2741 reports the missing credential_key_assignment policy.
-comments[8]{created_at,author,text}:
+comments[9]{created_at,author,text}:
   "2026-11-17T18:30:56.656Z",codex-sol,"Job 133996528357 fails TS2741: SDK SecretGuardFinding.rule gained credential_key_assignment. The exhaustive Record made an additive SDK rule a consumer compile break. Use Partial with an explicit fail-closed default; real SDK positives remain refused and references remain allowed. An API-shape concern is recorded for the upstream draft."
   "2026-11-17T18:37:56.774Z",codex-sol,"Release notes refine the boundary: credential_key_assignment was introduced in SDK 2026.11.13 (GH-1704). The dependency branch jumps from 2026.11.11 to 2026.11.14, so both 2026.11.13 and 2026.11.14 reject the old exhaustive map. The upstream draft records an additive API-shape concern, not a claim that the new credential detection is incorrect."
   "2026-11-17T18:44:06.551Z",codex-sol,The original exhaustive map typechecks on the exact prior pin 2026.11.11 and fails on both 2026.11.13 and 2026.11.14. The new XML credential-key test isolates the SDK finding rather than the local assignment fallback; its pm-linked run passes. Typecheck and lint pass on the repaired policy.
@@ -20,6 +20,7 @@ comments[8]{created_at,author,text}:
   "2026-11-17T19:00:13.788Z",codex-sol,"Implementation/dependency commit: a6d62db. The original exhaustive SDK policy also compiles on 2026.11.12, establishing the immediate last-good type shape before 2026.11.13. The repaired real recall budget property passes directly; its final reference-file selection also reports that property passing. Replaced the expensive full-depth exploratory reference run with the same quick deterministic seed prefix used by CI, using the existing harness timeout scale; complete reference results remain pending."
   "2026-11-17T19:23:09.121Z",codex-sol,"The complete core-reference selection reports 260 passes and one inventory-policy failure: this repository requires the peer floor and manifest loader floor to equal its reviewed SDK development pin. Preserve that existing security-inventory assertion; explicitly raise both SDK floors to 2026.11.14 and update the install guidance. This is an advertised SDK-host compatibility change; Node remains >=22.18.0. The recall-reference selection passes all 108 tests."
   "2026-11-17T19:36:43.496Z",codex-sol,"Final metadata-reference selection passes 118/118. The 108 recall-reference tests pass; the 261 core-reference cases had only the reviewed-floor mismatch, resolved by the passing 32-case inventory/adoption repeat, also repeated successfully through pm. SDK floor and loader floor are now explicitly 2026.11.14 per the existing policy, README and lock metadata match, and Node remains >=22.18.0. Typecheck, lint and build pass; keep the PR draft pending final-head CI."
+  "2026-11-17T19:52:24.253Z",codex-sol,"SDK floor alignment commit: b78236a. The 32-case inventory/adoption selection also passes through pm, and shipped-files acceptance passes 1/1. Final local evidence is 108 recall-reference passes, 118 metadata-reference passes, and the 261 core-reference cases with their sole reviewed-floor mismatch cleared by the passing complete inventory file. No assertions or coverage thresholds were reduced; Node remains >=22.18.0. All source and tracker history are committed for orchestrator review."
 files[8]{path,scope}:
   CHANGELOG.md,project
   manifest.json,project
