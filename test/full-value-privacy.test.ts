@@ -14,6 +14,15 @@ const prefix = 'Public documentation line.\n'.repeat(2600);
 const bodies = { XML: xml, JSON: JSON.stringify({ example: xml }), 'after 64 KiB': prefix + xml };
 const paths = ['remember', 'import agents-md', 'import claude-code', 'export agents-md', 'export claude-code'] as const;
 
+test('additive SDK credential-key findings default to refusal while references remain usable', () => {
+  // This XML spelling exercises the SDK rule rather than the local assignment fallback.
+  const body = '<service_token>Zq8vN3kLmP0wXy7Ab</service_token>';
+  assert.ok(scanMutationSecrets(body).some(finding => finding.rule === 'credential_key_assignment'));
+  assert.throws(() => privacy(body), refusal);
+  privacy('service_token=${BUILD_SECRET}');
+  privacy('Read the local configuration from ./settings.json');
+});
+
 /** Require a real credential finding rather than passing through a resource-bound refusal. */
 function refusal(error: unknown): boolean {
   assert.ok(error instanceof MemoryError && error.code === 'privacy');

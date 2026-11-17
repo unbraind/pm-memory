@@ -7,6 +7,10 @@
 - Adopt public SDK transaction inspection and native hash preconditions ([pm-memory-sdk-transaction-reader](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-transaction-reader.toon))
 - Delegate memory credential detection to SDK mutation secret scanner ([pm-memory-sdk-secret-scan](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-sdk-secret-scan.toon))
 
+### Fixed
+
+- Accept additive SDK secret rules without weakening memory privacy ([pm-memory-sdk-rule-1117](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-sdk-rule-1117.toon))
+
 ### Other
 
 - Apply Fleet CI v2 and bound release-gate test lifecycles ([pm-memory-higm](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-higm.toon))
@@ -26,15 +30,15 @@
 
 ### Fixed
 
-- Pool-lane stop test assumes the failing batch wins the first worker slot ([pm-memory-x47g](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-x47g.toon))
 - Daily release never publishes: npm reads release-artifact/package.tgz as a GitHub repository ([pm-memory-ielg](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-ielg.toon))
 - Refuse stale merge receipts after intervening memory edits ([pm-memory-c3gv](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-c3gv.toon))
+- Pool-lane stop test assumes the failing batch wins the first worker slot ([pm-memory-x47g](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-x47g.toon))
 
 ### Other
 
+- Run each property-suite release gate in its own CI job ([pm-memory-smuq](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-smuq.toon))
 - Migrate the November 4 toolchain and verification collision fixtures ([pm-memory-toolchain-1104](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-toolchain-1104.toon))
 - Address PR 48 rejection and caller-stop review findings ([pm-memory-review48](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-review48.toon))
-- Run each property-suite release gate in its own CI job ([pm-memory-smuq](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-smuq.toon))
 
 ## 2026.11.2 - 2026-11-02
 
