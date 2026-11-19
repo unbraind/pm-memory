@@ -57,8 +57,15 @@ test('native task resume ranks eligible relationships and leaves work and memory
   }
   for (const [flag, value, code] of [['--token-budget', '1', 'budget'], ['--for', 'unmatched', 'intent']]) {
     const refused = cli([flag, value, '--json']);
-    assert.equal(refused.status, 2, refused.stdout + refused.stderr);
-    assert.equal(JSON.parse(refused.stdout || refused.stderr).code, code);
+    const diagnostic = `${flag} ${value} exited with status ${refused.status}\nstdout:\n${refused.stdout}\nstderr:\n${refused.stderr}`;
+    assert.equal(refused.status, 2, diagnostic);
+    let payload: { code?: unknown } | null;
+    try {
+      payload = JSON.parse(refused.stderr);
+    } catch {
+      assert.fail(`Expected a JSON refusal on stderr\n${diagnostic}`);
+    }
+    assert.equal(payload?.code, code, diagnostic);
   }
   assert.deepEqual(await Promise.all(paths.map(path => readFile(path))), before);
 });
