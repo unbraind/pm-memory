@@ -1,0 +1,25 @@
+id: pm-memory-github-f33c4a70a040-75
+title: Release gate intermittently fails while removing a CLI fixture lock directory
+description: "GH issue #75: https://github.com/unbraind/pm-memory/issues/75 · author @unbraind · state reason completed · created 2026-11-14T23:07:34Z · updated 2026-11-16T00:04:09Z"
+type: Issue
+status: closed
+priority: 2
+tags[2]: "gh:unbraind/pm-memory#75","github_author:unbraind"
+created_at: "2026-11-14T23:07:34Z"
+updated_at: "2026-11-19T11:45:45.367Z"
+closed_at: "2026-11-16T00:04:08Z"
+completed_at: "2026-11-16T00:04:08Z"
+author: pm-github
+release: v2026.11.14
+close_reason: "Closed on GitHub as completed on 2026-11-16T00:04:08Z; closing PR https://github.com/unbraind/pm-memory/pull/76 (\"Split CI tiers and prevent Node 22 async context buildup\")"
+github_close_reason: "Closed on GitHub as completed on 2026-11-16T00:04:08Z; closing PR https://github.com/unbraind/pm-memory/pull/76 (\"Split CI tiers and prevent Node 22 async context buildup\")"
+github_closed_at: "2026-11-16T00:04:08Z"
+github_created_at: "2026-11-14T23:07:34Z"
+github_link_only: false
+github_number: 75
+github_release: v2026.11.14
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-16T00:04:09Z"
+github_url: "https://github.com/unbraind/pm-memory/issues/75"
+body: "## Observed\nOn exact main `6404b558cfb0a520089d83047a010ddc2b46c5d4` (release candidate 2026.11.14), [Daily Release prepare](https://github.com/unbraind/pm-memory/actions/runs/43627397269/job/132546260622) exits 1 after 892/893 passes. Import diagnostic test 668 is marked `hookFailed` with `ENOTEMPTY` while recursively removing the synthetic fixture's `.pm-cli/locks`. The next two diagnostic cases pass. This is a teardown failure, not evidence that a path was exposed or a diagnostic assertion failed. This single exact run proves the failure occurred, not a recurrence rate.\n\n## Reproduction and scope\nRun the locked CI suite at that revision in a disposable workspace; the failing area is the real-child SDK/CLI diagnostic fixture in [review-round4.test.ts](https://github.com/unbraind/pm-memory/blob/6404b558cfb0a520089d83047a010ddc2b46c5d4/test/review-round4.test.ts#L38-L40). [The shared fixture teardown](https://github.com/unbraind/pm-memory/blob/6404b558cfb0a520089d83047a010ddc2b46c5d4/test/helpers.ts#L164) immediately removes the scratch root. The child uses a replacement environment, so inherited test-context or no-telemetry settings may be lost; a surviving writer is plausible, but neither its identity nor telemetry causality is established. This is distinct from the self-hosted memory/timeout failure in #73. Related precedents: [CLI #1423](https://github.com/unbraind/pm-cli/issues/1423) and [CLI #1484](https://github.com/unbraind/pm-cli/issues/1484); neither proves the cause here. The observed failure blocked preparation before publication.\n\n## Acceptance\n- Identify the process/operation touching the scratch lock path after the tested command exits. Ensure the fixture's shutdown waits for filesystem activity to settle and retains required isolation; do not swallow cleanup failures or weaken diagnostic assertions.\n- Add a deterministic delayed-writer/teardown regression or an equivalent controlled test that fails on the old lifecycle and passes after correction. Confirm the diagnostic cases and full release gate pass without leaked child activity or lock files. Keep the separate #73 runner issue separate."

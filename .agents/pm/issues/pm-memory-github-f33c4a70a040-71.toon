@@ -1,0 +1,21 @@
+id: pm-memory-github-f33c4a70a040-71
+title: README calls published pm-memory an unreleased package
+description: "GH issue #71: https://github.com/unbraind/pm-memory/issues/71 · author @unbraind · created 2026-11-14T11:08:48Z · updated 2026-11-14T11:08:48Z"
+type: Issue
+status: open
+priority: 2
+tags[2]: "gh:unbraind/pm-memory#71","github_author:unbraind"
+created_at: "2026-11-14T11:08:48Z"
+updated_at: "2026-11-19T11:45:45.392Z"
+author: pm-github
+github_close_reason: ""
+github_closed_at: ""
+github_created_at: "2026-11-14T11:08:48Z"
+github_link_only: false
+github_number: 71
+github_release: ""
+github_state: open
+github_state_reason: unspecified
+github_updated_at: "2026-11-14T11:08:48Z"
+github_url: "https://github.com/unbraind/pm-memory/issues/71"
+body: "The [README on main at f885a8ab](https://github.com/unbraind/pm-memory/blob/f885a8ab652fe3b7311fb6402d3320cfad3b24c2/README.md#L3-L35) describes this package as unreleased and puts installation under “After publication.” The same wording is in `package/README.md` in the integrity-verified [official npm 2026.11.13 artifact](https://registry.npmjs.org/pm-memory/-/pm-memory-2026.11.13.tgz). npm reports 2026.11.13 as latest, and the [corresponding GitHub release](https://github.com/unbraind/pm-memory/releases/tag/v2026.11.13) is published.\n\n**Reproduction:** Compare `npm view pm-memory version` with lines 5, 9, 15, and 35 of that packed README. The checks here verify publication and docs, not runtime installation or hosted availability.\n\n**Expected:** A consumer or agent can see that the package is available, identify the supported PM host, and find the current install and activation steps without mistaking maintainer release-gate instructions for a prerequisite.\n\n**Acceptance:** Put the current consumer install and activation path up front, distinguish it from maintainer-only release approval, and remove the stale pending-first-release wording from main and the next packed README. Add a focused packed-doc check or an explicit release checklist check. This does not require changing the approval gate or the runtime."
