@@ -2,17 +2,15 @@ id: pm-memory-recall-freshness
 title: Report stale or contradictory knowledge in task recall
 description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
 type: Feature
-status: in_progress
+status: open
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-19T20:47:31.448Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-19T21:47:00.862Z"
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[12]{created_at,author,text}:
+comments[14]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -25,6 +23,8 @@ comments[12]{created_at,author,text}:
   "2026-11-19T19:44:35.656Z",codex-sol,"CodeRabbit thread PRRT_kwDOVPw2oc65mhxy on pm-memory#87 maps to 3ec0e45a45ac5a8a2c087226060872fd056b6728. The implementation advances the content clock and clears verification in the update itself. Real content, CLI body and title, and standalone and injected host edits all produce unverified recall. Typecheck, lint, duplication, docstrings, and changelog check passed. Full quick coverage is running."
   "2026-11-19T19:53:24.831Z",codex-sol,Follow-up pm-memory-native-input-revision tracks two confirmed native input limits. Bulk body edits and document edits that echo prior verification fields currently refuse without persisting changed guidance.
   "2026-11-19T20:47:25.906Z",codex-sol,The full suite exposed a recovery test whose in-process peer shared the newly active admission guard. The fixture now uses the existing independent SDK writer process for both peer writes and retains the post-no-op dependency assertions. The focused recovery case passed.
+  "2026-11-19T21:19:40.464Z",codex-sol,The first full quick run completed with 922 of 923 tests passing and 99.97% branch coverage. Its only test failure and uncovered branch were the portable recovery no-op case corrected in d85c6ba3549449fabc47d2802a59f58768d4e9f3. The corrected case passed with V8 instrumentation and reached the formerly uncovered branch. The full quick command is running on the corrected commit.
+  "2026-11-19T21:46:59.406Z",codex-sol,"Full quick coverage passed on d85c6ba3549449fabc47d2802a59f58768d4e9f3 with 923 passing tests, zero failures or skips, and 100% statements, branches, functions and lines across 40 source files. The linked recall, content and host command passed all 28 tests. The shipped-file check, typecheck, lint, duplication, docstrings, identity and changelog checks passed. CodeRabbit thread PRRT_kwDOVPw2oc65mhxy maps to implementation commit 3ec0e45a45ac5a8a2c087226060872fd056b6728."
 files[13]{path,scope}:
   index.ts,project
   manifest.json,project
