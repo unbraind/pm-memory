@@ -1,8 +1,9 @@
-import { createPmCliExpectedError, isPmCliExpectedError } from '@unbrained/pm-cli/sdk';
+import { createPmCliExpectedError, isPmCliExpectedError, OutputEnvelopeFitError } from '@unbrained/pm-cli/sdk';
 import { defineCommand } from '@unbrained/pm-cli/sdk/authoring';
 import type { CommandHandlerContext, ExtensionApi, FlagDefinition } from '@unbrained/pm-cli/sdk/authoring';
 import { kind, MemoryError, text } from './core.ts';
 import { remember, recall, index, get } from './memory.ts';
+import { recallTask } from './task-recall.ts';
 import { exportDir, harness, importDir } from './transfer.ts';
 import { verify } from './verify.ts';
 import { consolidate } from './consolidate.ts';
@@ -27,6 +28,14 @@ function sdkSecretRefusal(error: unknown): boolean {
   }
   return false;
 }
+/** Keep typed domain refusals and give the SDK's read errors CLI-specific remedies. */
+function commandRefusal(error: unknown): MemoryError {
+  if (sdkSecretRefusal(error)) return new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
+  if (error instanceof MemoryError) return error;
+  if (error instanceof OutputEnvelopeFitError) return new MemoryError('budget', 'Task recall could not fit a verified packet', 'Use a budget that can hold the receipt, or inspect a known slug with pm memory get', { cause: error });
+  if (isPmCliExpectedError(error) && error.code === 'unknown_context_intent') return new MemoryError('intent', 'Unknown task recall intent', 'Use --for resume', { cause: error });
+  return new MemoryError('sdk', 'Memory operation could not complete', 'Check source permissions, tracker integrity and pm health before retrying', { cause: error });
+}
 /** Dispatch native command operands to the documented in-process API. */
 export async function runCommand(command: string, ctx: CommandHandlerContext): Promise<unknown> {
   try {
@@ -39,6 +48,7 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     if (command === 'view') return await createView(text(ctx.args[0]), { ...base, purpose: text(options.purpose), fields: viewFields(text(options.fields).split(',')), budget: options.budget === undefined ? undefined : Number(options.budget) });
     if (command === 'renew') return await renew(text(ctx.args[0]), { ...base, from: text(options.validFrom), until: text(options.validUntil), evidence: text(options.evidence) });
     if (command === 'recall') return await recall(text(ctx.args[0]), { ...base, validity: guidancePolicy(options.validity), budget: options.budget === undefined ? undefined : Number(options.budget), semantic: semanticMode(options.semantic), kind: options.kind === undefined ? undefined : kind(options.kind) });
+    if (command === 'recall-task') return await recallTask(text(ctx.args[0]), { ...base, intent: options.for === undefined ? undefined : text(options.for), tokenBudget: options.tokenBudget === undefined ? undefined : Number(options.tokenBudget) });
     if (command === 'observe') return await observe(text(ctx.args[0]), { ...base, recall: text(options.recall), task: text(options.task), feedback: text(options.feedback) as ObserveOptions['feedback'], outcome: text(options.outcome) as ObserveOptions['outcome'], attribution: text(options.attribution) as ObserveOptions['attribution'], evidence: text(options.evidence) });
     if (command === 'utility') return await utility(text(ctx.args[0]), base);
     if (command === 'get') return await get(text(ctx.args[0]), base);
@@ -49,7 +59,7 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     if (command === 'consolidate') return await consolidate({ ...base, apply: options.apply === true, semantic: semanticMode(options.semantic), minAgeDays: options.minAgeDays === undefined ? undefined : Number(options.minAgeDays) });
     throw new MemoryError('invalid', 'Unknown memory command', 'Run pm memory --help');
   } catch (error) {
-    const refusal = sdkSecretRefusal(error) ? new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead') : error instanceof MemoryError ? error : new MemoryError('sdk', 'Memory operation could not complete', 'Check source permissions, tracker integrity and pm health before retrying', { cause: error });
+    const refusal = commandRefusal(error);
     // Privacy refusals must also replace the host's default argv recovery bundle,
     // which otherwise echoes refused operands and flag values in every output format.
     throw createPmCliExpectedError(`memory ${refusal.code}: ${refusal.message}. Remedy: ${refusal.remedy}`, { ...(refusal.code === 'privacy' ? {} : { cause: error }), exitCode: refusal.code === 'privacy' ? 4 : refusal.code === 'duplicate' || refusal.code === 'conflict' ? 3 : 2, context: { code: refusal.code, required: refusal.remedy, ...(refusal.code === 'privacy' ? { recovery: { attempted_command: `pm memory ${command} [redacted]`, normalized_args: ['memory', command], provided_fields: [] } } : {}) } });
@@ -57,6 +67,8 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
 }
 /** Native flag descriptions include concrete examples in every option's help entry. */
 const OPTIONS: Record<string, string> = {
+  for: 'Apply the resume projection (example: --for resume)',
+  'token-budget': 'Bound the whole task recall packet (example: --token-budget 450)',
   purpose: 'Explicit recall purpose identifier (example: --purpose release-review)',
   fields: 'Comma-separated authorized content fields (example: --fields title,body)',
   recall: 'Link the receipt returned by recall (example: --recall <receipt>)',
@@ -100,6 +112,7 @@ const HELP: Record<string, [string, string, string]> = {
   remember: ['Create or revise durable agent knowledge with privacy and duplicate checks', 'A durable fact or guidance to retain', 'pm memory remember "Run both release gates" --kind project --slug release-policy --pin'],
   renew: ['Renew pinned guidance with explicit validity bounds and evidence', 'Pinned memory slug', 'pm memory renew release-policy --valid-from 2026-10-21T00:00:00.000Z --valid-until 2026-11-21T00:00:00.000Z --evidence "Release checklist reviewed"'],
   recall: ['Rank memories and return compact rows then excerpts within a token budget', 'Words describing the context needed', 'pm memory recall "release workflow" --budget 800'],
+  'recall-task': ['Recall relevant durable knowledge for a native work item without recording exposure', 'Full native work item ID', 'pm memory recall-task pm-example --for resume --token-budget 450'],
   observe: ['Record explicit memory feedback and a later native task outcome idempotently', 'Recalled memory slug', 'pm memory observe build --recall <receipt> --task task-id --feedback helpful --outcome improved --attribution isolated --evidence "Same gate, fewer failures"'],
   utility: ['Report memory outcome evidence with complete source denominators', 'Memory slug, including archived guidance', 'pm memory utility build'],
   get: ['Read the full memory selected by its stable slug', 'Memory slug from recall or index', 'pm memory get release-policy'],
@@ -122,6 +135,7 @@ export function register(api: ExtensionApi): void {
     ['remember', ['kind', 'slug', 'update', 'why', 'how', 'link'], ['pin', 'force-new', 'allow-email'], 'fact'],
     ['renew', ['valid-from', 'valid-until', 'evidence'], [], 'slug'],
     ['recall', ['budget', 'kind', 'semantic', 'validity'], [], 'query'],
+    ['recall-task', ['for', 'token-budget'], [], 'id'],
     ['observe', ['recall', 'task', 'feedback', 'outcome', 'attribution', 'evidence'], [], 'slug'],
     ['utility', [], [], 'slug'],
     ['get', [], [], 'slug'],

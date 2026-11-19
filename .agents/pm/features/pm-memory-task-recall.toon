@@ -1,0 +1,37 @@
+id: pm-memory-task-recall
+title: Recall durable memory by native task ID
+description: "Use an existing work item to retrieve relevant durable knowledge in a bounded, read-only resume packet."
+type: Feature
+status: in_progress
+priority: 2
+tags: []
+created_at: "2026-11-19T06:00:02.150Z"
+updated_at: "2026-11-19T11:00:24.077Z"
+author: codex-sol
+acceptance_criteria: "A real task ID retrieves related eligible knowledge without a hand-written query.; The SDK and CLI share a typed intent projection, a whole-packet token ceiling and recoverable omissions.; Real tracker tests cover ranking, exclusion, budget handling and absence of writes, and the README reports a public before-and-after measurement."
+parent: pm-memory-0kwy
+comments[11]{created_at,author,text}:
+  "2026-11-19T06:00:07.036Z",codex-sol,"Gaps ranked by expected recurring output savings under pm core 2026.11.18: (1) task-ranked recall avoids a 134-token projected item read plus triage of generic recall for a known task; (2) freshness and contradiction checks avoid rereading competing sources, with value on loops that encounter divergent facts; (3) federation avoids repeated repository lookups on cross-project loops. Consolidation already offers review and apply, so it ranks below these gaps. Public main baseline on pm-memory-higm: orientation 692 tokens, orientation with a 700-token ceiling 552, brief get 390 and projected get 134, using ceiling UTF-8 bytes divided by four. Implement task-ranked recall as a read-only SDK projection."
+  "2026-11-19T06:02:06.483Z",codex-sol,"Design: take a native item ID, read one certified SDK corpus, prefer explicitly linked eligible Knowledge, and fall back to task-title and description lexical matches when there are no eligible links. Exclude consent-managed, archived, stale and noncurrent guidance using existing metadata. The resume intent uses rank-order whole-row admission and the SDK output fit and omission receipts. Reads leave the exposure ledger unchanged and do not use embeddings."
+  "2026-11-19T06:08:35.666Z",codex-sol,"Public scratch tracker measurement, core 2026.11.18 at public commit 962af3e: both paths return the same two complete CI facts. Projected item read 134 plus generic recall 276 gives 410 TOON tokens versus 115, saving 295 (72%). Title-only read plus recall gives 307 versus 115, saving 192 (63%). JSON 615 versus 182 saves 433 (70%). Two public facts and four synthetic distractors were seeded only in the scratch copy. A second projected source read was 105 tokens (pm-memory-smuq), a gross cost proxy for freshness diagnostics. Another bounded orientation was 552 tokens on the same tracker layout, a gross cost proxy for cross-project loops. Those gaps are tracked by pm-memory-recall-freshness and pm-memory-recall-federation."
+  "2026-11-19T06:11:26.069Z",codex-sol,"Typecheck, lint, docstring, duplication and regenerated changelog checks passed. The linked native CLI and SDK tests passed 7/7 through pm test. Host contracts on the public scratch tracker exposed memory-recall-task:resume and the final implementation reproduced the TOON bytes. Full coverage and packed consumer acceptance are running."
+  "2026-11-19T06:53:26.289Z",codex-sol,"Implementation commit 9f94bc192010. Packed npm/Bun acceptance passed 4/4, and a native package install reproduced exactly 458 TOON bytes and 725 JSON bytes. The 100% focused task-recall coverage passed. The Node 26 quick coverage attempt reached the ten-minute watchdog in the existing portable-forward test file. Retrying the same gate with PM_TEST_TIME_SCALE=3 and unchanged thresholds."
+  "2026-11-19T07:33:13.120Z",codex-sol,The source-wide cause audit identified two SDK-to-package translations in task recall that could recode a typed error. The SDK path now propagates native intent and envelope errors intact; the CLI boundary supplies actionable typed remedies. All 17 focused command and cause-audit tests passed on Node 26. The repacked command reproduced the public-tracker TOON and JSON output byte for byte.
+  "2026-11-19T08:34:26.916Z",codex-sol,"Implementation 9f94bc192010 and typed-error correction 5295eb07887c. Final Node 26 gate PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage passed 918/918 with no failures or skips and 100% statements, branches, functions and lines across all 40 source files. The deadline scale preserves quick seed sets and thresholds. Linked package command and cause-audit tests passed 17/17 via pm test. PM_TEST_TIME_SCALE=3 npm run test:install passed 4/4 in real packed npm/Bun consumers. Typecheck, lint, build, docstring, duplication, identity and regenerated changelog checks passed. The packed public tracker benchmark reproduced both byte counts. Isolated strict tracker health passed; global extension skew evidence is in pm-memory-ci-health-skew."
+  "2026-11-19T10:04:28.714Z",codex-sol,"Round DO follows up CodeRabbit thread PRRT_kwDOVPw2oc65ao20 in PR #86. Verify the installed CLI JSON refusal format for both cases, then report parse failures with the original exit status and both output streams."
+  "2026-11-19T10:05:31.906Z",codex-sol,"The packaged PM CLI 2026.11.14 emitted both refusals as JSON on stderr with empty stdout and exit status 2. The wire codes are top-level budget and intent. The test reads stderr and includes the exit status and both streams for status, parse, or code failures. The focused suite passed both tests, and typecheck and lint passed."
+  "2026-11-19T10:06:22.347Z",codex-sol,"CodeRabbit thread PRRT_kwDOVPw2oc65ao20 maps to e7e32df03dbf14b913e435a9ec83f759f5fd3a17. The focused task-recall suite passed 2 of 2. Typecheck, lint and changelog check passed. The quick 100% coverage gate is running."
+  "2026-11-19T11:00:23.248Z",codex-sol,"Round DO final local gates passed on Node 24.19.0. node --test test/task-recall.test.ts passed 2 of 2. npm run typecheck, npm run lint, and npm run changelog:check passed. PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage passed 918 of 918 with zero skips and measured 100% statements, branches, functions, and lines across all 40 source files. A synthetic malformed stderr probe confirmed the assertion retains exit status, stdout, and stderr."
+files[4]{path,scope}:
+  index.ts,project
+  src/commands.ts,project
+  src/task-recall.ts,project
+  test/task-recall.test.ts,project
+tests[4]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/task-recall.test.ts test/commands.test.ts,project,codex-sol,"2026-11-19T06:09:15.729Z",local_mutation,feat/task-ranked-recall
+  node --import ./test/support/file-deadline.ts --test test/review-boundaries.test.ts,project,codex-sol,"2026-11-19T07:32:08.906Z",local_mutation,feat/task-ranked-recall
+  node --test test/task-recall.test.ts,project,codex-sol,"2026-11-19T10:05:30.019Z",local_mutation,feat/task-ranked-recall
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-19T10:05:30.949Z",local_mutation,feat/task-ranked-recall
+docs[1]{path,scope,note}:
+  README.md,project,Task recall projection and measured public example
+body: ""

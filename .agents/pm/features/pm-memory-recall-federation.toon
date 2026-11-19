@@ -1,0 +1,13 @@
+id: pm-memory-recall-federation
+title: Federate recall across explicitly selected trackers
+description: "Explore bounded recall across explicitly named trackers, with per-source completeness and consent enforced."
+type: Feature
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-19T06:08:33.597Z"
+updated_at: "2026-11-19T06:08:33.597Z"
+author: codex-sol
+acceptance_criteria: "An agent can distinguish omitted, unavailable and ineligible sources without silently crossing tracker boundaries."
+parent: pm-memory-0kwy
+body: ""

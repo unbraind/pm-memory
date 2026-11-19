@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Recall durable memory by native task ID ([pm-memory-task-recall](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-task-recall.toon))
+
 ## 2026.11.14 - 2026-11-18
 
 ### Added

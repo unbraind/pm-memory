@@ -122,6 +122,7 @@ Every command returns native host TOON by default and accepts `--json`. Expected
 | --- | --- | --- |
 | remember | `pm memory remember "Run the build before review" --kind project --slug build --why "Catch regressions" --how "Run npm test" --pin` | Create Knowledge or revise an exact slug |
 | recall | `pm memory recall "release workflow" --budget 800 --kind project` | Compact ranked rows, then excerpts; counts emitted memories |
+| recall-task | `pm memory recall-task pm-memory-higm --for resume` | Read-only task-ranked rows with complete guidance fields and omission counts |
 | observe | `pm memory observe build --recall <receipt> --task task-id --feedback helpful --outcome improved --attribution isolated --evidence "Same gate and fixture; fewer failures"` | Immutable explicit feedback linked to recalled content and a native task |
 | utility | `pm memory utility build` | Compact lifetime/current-content counts, including excluded evidence |
 | get | `pm memory get build` | Full selected memory, including its complete body |
@@ -136,6 +137,70 @@ Every command returns native host TOON by default and accepts `--json`. Expected
 The privacy gate examines facts, rationale, application instructions, tags and imported source bytes before mutations. It refuses recognizable API/token prefixes, JWTs, private keys, password/key/secret assignments, authenticated URLs and credential-shaped token assignments. Complete values are checked by both the SDK scanner and the local compound-key policy. Local variable-reference exemptions never suppress an SDK credential finding; short plain `token:` accounting prose remains accepted. Whole-value resource limits refuse oversized or excessively costly input instead of inspecting a window (see [the credential contract](docs/sdk-adoption.md#credential-policy)). Emails require explicit `--allow-email`, also supported by import. Import reports every offending relative file, whole-document location and matched class before writing anything; edit the listed files or permit email explicitly. This heuristic is an input guard, not a proof that arbitrary prose contains no private information. Do not store credentials in memory.
 
 Recall defaults to 800 estimated tokens; index defaults to 1500. The entire packet, including the estimated-token field and omission receipt, is measured in both pretty JSON and native TOON with the host's UTF-8 byte estimator. An impossibly small budget refuses before counter writes. Recall packs compact rows first (slug, kind, pinned, description, score), in rank order; it then spends spare space on query-centered excerpts. A top result is never replaced by a smaller lower-ranked result. At 200 tokens a maximum-length slug retains its top row with the recall receipt; smaller budgets may refuse. Truncated excerpts carry an explicit marker pointing to `pm memory get <slug>`. Index entries may be omitted when oversized. All truncation is Unicode-safe. An index orders pinned guidance first, then kind, then recency.
+
+### Recall by work item
+
+Pass the full native work item ID when you already know which item to resume.
+The `resume` intent defaults to `450` estimated tokens across JSON and TOON.
+It reads one certified tracker corpus and ranks eligible Knowledge linked in
+either direction. With no eligible links, it uses lexical matches against the
+item title and description and ignores common English connective words. The
+`basis` field reports which path was used. Archived, stale, consent-managed,
+and noncurrent guidance is excluded.
+
+The projection returns each selected memory's slug, complete body and any
+authored `why` and `how` fields. If a row does not fit, the packet preserves
+the ranked prefix. Check `output_fit.omitted_count` and increase
+`--token-budget` to restore omitted rows. If the receipt itself cannot fit,
+the CLI returns a typed budget refusal. SDK callers receive the native
+`OutputEnvelopeFitError` with the measured minimum. Task recall makes no
+embeddings call and records no utility exposure. Use `memory recall` when
+you need a receipt for `memory observe`.
+
+```ts
+import { recallTask } from 'pm-memory';
+
+const packet = await recallTask('pm-memory-higm', {
+  workspace: '.agents/pm',
+  intent: 'resume',
+  tokenBudget: 450,
+});
+```
+
+#### Measured public example
+
+On pm core 2026.11.18, a scratch copy of the public pm-memory tracker at
+`962af3e` was seeded with two facts from its public CI lifecycle task and
+four unrelated synthetic memories. The commands and all writes ran in that
+copy. [Public tracker item](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-higm.toon)
+
+To reproduce the measurement, activate the extension in a scratch copy and
+seed the same rows.
+
+```sh
+pm memory remember 'Keep the required Node 22 and Node 26 test jobs alongside CodeQL.' --kind project --slug required-ci-jobs --link pm-memory-higm
+pm memory remember 'Keep exhaustive property seeds in the scheduled and main deep gates.' --kind project --slug deep-gate-seeds --link pm-memory-higm
+pm memory remember 'Release approval uses the repository release variable.' --kind project --slug release-approval
+pm memory remember 'The install gate exercises npm and Bun consumers.' --kind project --slug install-consumers
+pm memory remember 'The lexical model is the default for memory recall.' --kind project --slug lexical-default
+pm memory remember 'CI release jobs upload benchmark reports for later inspection.' --kind project --slug benchmark-archive
+```
+
+```sh
+pm get pm-memory-higm --fields title,description
+pm memory recall 'Fleet CI release test gates' --budget 450
+pm memory recall-task pm-memory-higm --for resume --token-budget 450
+```
+
+Both paths supplied the same two complete actionable facts. The projected
+item read cost 134 TOON tokens and free-form recall cost 276. Task recall
+cost 115, saving **295 estimated tokens (72%)**. Using only the title for the
+item read cost 307 tokens in total, so task recall still saved **192 (63%)**.
+In JSON, the projected item read and free-form recall took 615 tokens and
+task recall took 182, saving 433 (70%). These estimates use the pm SDK's
+`ceil(UTF-8 stdout bytes / 4)` rule for each response. Project orientation is
+outside those totals. The same unseeded tracker took 692 TOON tokens for
+`pm context --for orient` and 552 with `--token-budget 700`.
 
 Import supports `--from claude-code|agents-md|cursor`, directories or individual regular UTF-8 files. Claude Code frontmatter recognizes `name`, `description`, `metadata.type` and legacy top-level `type`; optional `**Why:**` and `**How to apply:**` lines become fields. Unknown memory kinds and malformed YAML refuse. Plain unquoted `name`/`description` values containing a colon are accepted without altering their original bytes. A valid frontmatter `name` is the canonical kebab-case key. The original file stem remains a link alias; canonical names take precedence, and ambiguous aliases stay unresolved. Frontmatter descriptions populate the native description field and participate in ranking and compact recall. Claude Code MEMORY.md indexes are retained as export artifacts and excluded from retrieval. Import deliberately retains source duplicates for review instead of discarding source files. Re-importing unchanged bytes and links performs no durable writes. Source revisions preserve native lifecycle, utility and other native-only metadata, including archived status. Content changes clear prior verification evidence and reset the verdict to `unknown` in the same native mutation. Independently revised items refuse source replacement.
 

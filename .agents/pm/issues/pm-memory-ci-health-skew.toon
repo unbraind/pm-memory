@@ -6,6 +6,8 @@ status: open
 priority: 2
 tags[3]: ci,follow-up,health
 created_at: "2026-11-15T14:33:48.561Z"
-updated_at: "2026-11-15T14:33:48.561Z"
+updated_at: "2026-11-19T06:33:39.261Z"
 author: codex-sol
+comments[1]{created_at,author,text}:
+  "2026-11-19T06:33:39.260Z",codex-sol,Round DJ independently reproduced strict health failure with the development host 2026.11.14 and a global pm-github activated for 2026.11.18. The same strict check with merge drivers required passed when PM_GLOBAL_PATH selected an empty scope. The existing stale in-progress warning remained advisory.
 body: ""
