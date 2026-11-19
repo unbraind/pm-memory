@@ -1,10 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { createMutationGuardSdk, readSettings, resolveItemTypeRegistry, runActiveBeforeMutationHooks } from '@unbrained/pm-cli/sdk';
+import { createMutationGuardSdk, readSettings, PmClient, resolveItemTypeRegistry, runActiveBeforeMutationHooks } from '@unbrained/pm-cli/sdk';
 import type { CreateResult, UpdateResult } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook, ExtensionApi } from '@unbrained/pm-cli/sdk/authoring';
 import type { Store } from './store.ts';
 import { MemoryError } from './core.ts';
+import { isGuidanceField, nativeContentRevision } from './content.ts';
 
 /** Private discovery operation denies before persistence and never represents an item transition. */
 const PROBE = 'pm-memory-verification-guard-probe';
@@ -21,9 +22,34 @@ function unavailable(): MemoryError { return new MemoryError('host_guard', 'Host
 /** Deny discovery and any unexpected write in a read-only attestation with the same typed refusal. */
 function denyHostWrite(): never { throw unavailable(); }
 
-/** Register the revision guard and a read-only handshake without replacing any host hook set. */
+/** Match the native item identity used by memory reads. */
+function isMemory(item: { type?: string; memory_slug?: unknown }): boolean {
+  return item.type === 'Knowledge' && item.memory_slug !== undefined;
+}
+
+/** Verify the final SDK proposal after input normalization, with the item lock held. */
+function invalidatedVerification(before: Record<string, unknown>, after: Record<string, unknown>): boolean {
+  const prior = Date.parse(String(before.memory_changed_at ?? before.created_at));
+  const changed = Date.parse(String(after.memory_changed_at));
+  return Number.isFinite(changed) && !(changed <= prior) && after.memory_verdict === 'unknown'
+    && after.memory_verified_at === undefined && after.memory_reason === undefined;
+}
+
+/** Prepare CLI content updates and register the native mutation and revision guards. */
 export function registerNativeHost(api: ExtensionApi): void {
+  api.registerParser('update', async ({ args, options, pm_root }) => {
+    const client = PmClient.forActiveExtensionHost({ pmRoot: pm_root });
+    const { item } = await client.get(args[0], { full: true });
+    if (!isMemory(item)) return {};
+    nativeContentRevision(options, item);
+    return { options };
+  });
   api.hooks.beforeMutation(async context => {
+    const { before, after, changed_fields } = context;
+    if (before !== null && after !== null && isMemory(before.metadata) && changed_fields.some(isGuidanceField)
+      && !invalidatedVerification(before.metadata, after.metadata)) {
+      return { allow: false, code: 'memory_revision_required', message: 'Memory guidance edits must invalidate verification', remediation: 'Use pm update or update the content with pm memory remember --update' };
+    }
     const task = expectations.getStore();
     if (task === undefined || resolve(context.pm_root) !== resolve(task.store.workspace)) return;
     if (task.phase === 'probe' && context.operation === PROBE) {
@@ -61,7 +87,12 @@ async function guardedHostMutation(store: Store, id: string, guard: BeforeMutati
 }
 /** Preserve the merged native verification path and every active host mutation policy. */
 export function guardedHostUpdate(store: Store, client: Store['client'], id: string, guard: BeforeMutationHook, options: Record<string, unknown>): Promise<UpdateResult> {
-  return guardedHostMutation(store, id, guard, () => client.get(id, { full: true }), () => store.client.run('update', { id, options, fullChangedFields: true }) as Promise<UpdateResult>) as Promise<UpdateResult>;
+  return guardedHostMutation(store, id, guard, () => client.get(id, { full: true }), async () => {
+    const { item } = await client.get(id, { full: true });
+    const revision = { ...options };
+    nativeContentRevision(revision, item);
+    return store.client.run('update', { id, options: revision, fullChangedFields: true }) as Promise<UpdateResult>;
+  }) as Promise<UpdateResult>;
 }
 /** Attest an active host even in an empty tracker before dispatching the actual guarded creation. */
 export function guardedHostCreate(store: Store, client: Store['client'], id: string, guard: BeforeMutationHook, options: Record<string, unknown>): Promise<CreateResult> {

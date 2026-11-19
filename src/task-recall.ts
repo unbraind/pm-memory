@@ -1,6 +1,7 @@
 import { encode } from '@toon-format/toon';
-import { certifyCompleteListResult, createOutputOmissionReceipt, fitOutputEnvelope, resolveContextIntentContract } from '@unbrained/pm-cli/sdk';
+import { certifyCompleteListResult, createOutputOmissionReceipt, fitOutputEnvelope, getHistoryPath, readHistoryEntries, resolveContextIntentContract, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
 import type { FittedOutputEnvelope, OutputOmissionReceipt, OutputProjectionFieldGroup, PmClient, PmContextIntentContract } from '@unbrained/pm-cli/sdk';
+import { isGuidanceField } from './content.ts';
 import { contradicts } from './consolidate.ts';
 import { budget, MemoryError, text, words } from './core.ts';
 import { eligibleGuidance } from './guidance.ts';
@@ -102,8 +103,20 @@ function supersessions(memories: readonly Memory[]): Supersessions {
   return incoming;
 }
 
-/** Judge freshness against the content revision, with a conservative legacy fallback. */
-function freshness(item: Memory, native: NativeItem, replaced: Supersessions): Freshness {
+/** Check history order when a legacy or extension-free edit may have bypassed native invalidation. */
+async function verificationCoversGuidance(workspace: string, { body, ...metadata }: NativeItem): Promise<boolean> {
+  const entries = await readHistoryEntries(getHistoryPath(workspace, metadata.id), metadata.id);
+  if (!verifyHistoryEntries(entries, { metadata, body: String(body) }).ok) return false;
+  const checked = entries.findLastIndex(entry => entry.patch.some(patch => patch.path === '/metadata/memory_verified_at'));
+  const edited = entries.findLastIndex(entry => entry.patch.some(patch => {
+    const [, scope, key] = patch.path.split('/');
+    return isGuidanceField(scope === 'metadata' ? key : scope);
+  }));
+  return checked > edited || checked === 0 && entries[0].op === 'create';
+}
+
+/** Judge freshness against the content clock and the native verification history. */
+async function freshness(item: Memory, native: NativeItem, replaced: Supersessions, workspace: string): Promise<Freshness> {
   const successorSource = replaced.get(item.id)?.values().next().value;
   if (successorSource !== undefined) return { freshness: 'superseded', source_id: successorSource, field: 'dependencies' };
   const source_id = item.id;
@@ -113,7 +126,8 @@ function freshness(item: Memory, native: NativeItem, replaced: Supersessions): F
   if (!Number.isFinite(verified)) return { freshness: 'unverified', source_id, field: 'memory_verified_at' };
   const field = native.memory_changed_at === undefined ? 'updated_at' : 'memory_changed_at';
   if (!(Date.parse(String(native[field])) <= verified)) return { freshness: 'unverified', source_id, field };
-  return { freshness: 'fresh', source_id, field: 'memory_verified_at' };
+  const covered = await verificationCoversGuidance(workspace, native).catch(() => false);
+  return { freshness: covered ? 'fresh' : 'unverified', source_id, field: 'memory_verified_at' };
 }
 
 /** An explicit edge takes precedence over a lexical match and stale verification. */
@@ -177,13 +191,14 @@ export async function recallTask(taskId: string, options: TaskRecallOptions): Pr
   const sources = new Map(withEvidence ? items.map(item => [item.id, item]) : []);
   const replaced = withEvidence ? supersessions(eligible) : new Map();
   const projectConflicts = withEvidence ? conflictProjection(ranked, replaced) : undefined;
-  const rows = ranked.map((item): TaskRecallRow => ({
+  const rows: TaskRecallRow[] = [];
+  for (const item of ranked) rows.push({
     slug: item.slug,
     body: item.body,
     ...(item.why ? { why: item.why } : {}),
     ...(item.how ? { how: item.how } : {}),
-    ...(withEvidence ? freshness(item, sources.get(item.id)!, replaced) : {}),
-  }));
+    ...(withEvidence ? await freshness(item, sources.get(item.id)!, replaced, store.workspace) : {}),
+  });
 
   return fitOutputEnvelope(rows, {
     tokenBudget: limit,

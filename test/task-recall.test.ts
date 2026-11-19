@@ -1,17 +1,24 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { estimatePmOutputTokens, getHistoryPath } from '@unbrained/pm-cli/sdk';
+import { estimatePmOutputTokens, getHistoryPath, parseMutationReceipt, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import { decodeToon } from '@unbrained/pm-cli/sdk/testing';
 import { grantConsent, recallTask, remember, renew, type TaskRecallPacket } from '../index.ts';
 import { installExtension, tracker } from './helpers.ts';
+import { hostPublication } from './native-host-helpers.ts';
+import { commitNativeFields, nativeState } from '../src/native-revision.ts';
 
-function pm(root: string, workspace: string, args: string[]) {
+function pm(root: string, workspace: string, args: string[], input?: string) {
   return spawnSync(process.execPath, [join(import.meta.dirname, '../node_modules/.bin/pm'), ...args], {
-    cwd: root, encoding: 'utf8', env: { ...process.env, PM_PATH: workspace, PM_GLOBAL_PATH: join(root, 'global') },
+    cwd: root, encoding: 'utf8', input, env: { ...process.env, PM_PATH: workspace, PM_GLOBAL_PATH: join(root, 'global') },
   });
+}
+
+function update(root: string, workspace: string, id: string, flags: readonly string[], input?: string): void {
+  const result = pm(root, workspace, ['update', id, ...flags, '--json'], input);
+  assert.equal(result.status, 0, result.stderr + result.stdout);
 }
 
 test('native task resume ranks eligible relationships and leaves work and memory history intact', async t => {
@@ -206,4 +213,117 @@ test('native verification classifies each row and names a persisted reason for o
   assert.deepEqual(unresolved.omission_receipt.omitted_field_groups, [
     { name: 'conflict_sources', restore_with: 'pm memory get <slug>' },
   ]);
+});
+
+
+test('guidance edits invalidate native verification in the same history entry', async t => {
+  const { client, options, root, store, workspace } = await tracker(t);
+  const taskId = (await client.create({ title: 'Review packaging instructions', type: 'Task' })).item.id;
+  const old = '2020-01-01T00:00:00.000Z';
+  const recall = () => recallTask(taskId, { ...options, intent: 'resume-evidence', tokenBudget: 1800 });
+  const memory = await remember('Use the original packaging instructions.', { ...options, kind: 'project', slug: 'packaging', links: [taskId] });
+  await installExtension(workspace);
+  const editNative = (flags: readonly string[], input?: string) => update(root, workspace, memory.id, flags, input);
+  const edits = [
+    { field: 'body', value: 'Use the revised packaging instructions.', edit: (value: string) => remember(value, { ...options, update: memory.slug, kind: 'project' }) },
+    { field: 'body', value: 'Read the packaging checklist.', edit: (value: string) => editNative(['--body', value]) },
+    { field: 'title', value: 'Packaging checklist', edit: (value: string) => editNative(['--title', value]) },
+    { field: 'body', value: 'Follow the file-backed checklist.', edit: async (value: string) => {
+      const file = join(root, 'guidance.md');
+      await writeFile(file, value);
+      editNative(['--body-file', file]);
+    } },
+    { field: 'body', value: 'Process the JSON packaging instructions.', edit: (value: string) => editNative(['--stdin-json'], JSON.stringify({ body: value })) },
+    { field: 'title', value: 'Standalone packaging guidance', edit: async (value: string) => {
+      const { proof } = await nativeState(store, memory.id);
+      assert.equal(await commitNativeFields(store, memory.id, proof, { title: value }), true);
+    } },
+    { field: 'body', value: 'Apply the signed packaging checklist.', edit: async (value: string) => {
+      const { proof } = await nativeState(store, memory.id);
+      assert.equal(await hostPublication({ id: memory.id, options }, proof, { body: value }), true);
+    } },
+  ] as const;
+  for (const [index, { field, value, edit }] of edits.entries()) {
+    const prior = index === 0 ? '2090-01-01T00:00:00.000Z' : old;
+    await store.fields(memory.id, { changed_at: prior, verdict: 'verified', verified_at: prior, reason: 'Approved packaging guidance' });
+    assert.equal((await recall()).memories[0].freshness, 'fresh', value);
+    const path = getHistoryPath(workspace, memory.id);
+    const before = await readHistoryEntries(path, memory.id);
+    await edit(value);
+    const { item } = await client.get(memory.id, { full: true });
+    assert.equal(item[field], value);
+    assert.ok(Date.parse(String(item.memory_changed_at)) > Date.parse(prior), value);
+    assert.equal(item.memory_verified_at, undefined, value);
+    assert.equal(item.memory_reason, undefined, value);
+    assert.equal((await recall()).memories[0].freshness, 'unverified', value);
+    const after = await readHistoryEntries(path, memory.id);
+    assert.equal(after.length, before.length + 1, value);
+    const paths = after.at(-1)!.patch.map(patch => patch.path);
+    for (const changed of [field === 'body' ? '/body' : '/metadata/title', '/metadata/memory_changed_at', '/metadata/memory_verified_at']) {
+      assert.ok(paths.includes(changed), changed);
+    }
+  }
+});
+
+
+test('native operational edits and identical guidance retain current verification', async t => {
+  const { client, options, root, store, workspace } = await tracker(t);
+  const task = (await client.create({ title: 'Unrelated work item', type: 'Task' })).item.id;
+  const memory = await remember('Read the instructions.', { ...options, kind: 'reference', slug: 'guidance', why: 'Use the published instructions' });
+  const old = '2020-01-01T00:00:00.000Z';
+  await store.fields(memory.id, { changed_at: old, verdict: 'verified', verified_at: old });
+  await installExtension(workspace);
+
+  update(root, workspace, task, ['--body', 'Unrelated work change']);
+  update(root, workspace, memory.id, ['--priority', '1', '--body', 'Read the instructions.']);
+  const { item } = await client.get(memory.id, { full: true });
+  assert.equal(item.priority, 1);
+  assert.equal(item.memory_verified_at, old);
+  assert.equal(item.memory_changed_at, old);
+
+  await client.update(memory.id, { unset: ['memory_changed_at'] });
+  for (const [field, value, flags] of [
+    ['tags', ['packaging'], ['--add-tags', 'packaging']],
+    ['tags', [], ['--remove-tags', 'packaging']],
+    ['memory_why', undefined, ['--unset', 'memory_why']],
+    ['memory_how', 'Use the checklist', ['--field', 'memory_how=Use the checklist']],
+  ] as const) {
+    await store.fields(memory.id, { verdict: 'verified', verified_at: old });
+    update(root, workspace, memory.id, flags);
+    const edited = (await client.get(memory.id, { full: true })).item;
+    assert.deepEqual(edited[field], value);
+    assert.equal(edited.memory_verified_at, undefined);
+  }
+});
+
+
+test('task recall requires history evidence for guidance changed outside extension hooks', async t => {
+  const { client, options, store, workspace } = await tracker(t);
+  const task = (await client.create({ title: 'Review historical packaging', type: 'Task' })).item.id;
+  const memory = await remember('Review the historic instructions.', { ...options, kind: 'reference', slug: 'history', links: [task] });
+  const old = '2020-01-01T00:00:00.000Z';
+  const state = async () => (await recallTask(task, { ...options, intent: 'resume-evidence' })).memories[0].freshness;
+  await store.fields(memory.id, { changed_at: old, verdict: 'verified', verified_at: old });
+  assert.equal(await state(), 'fresh');
+
+  await client.update(memory.id, { title: 'A native title changed with extensions disabled' });
+  assert.equal((await client.get(memory.id, { full: true })).item.memory_verified_at, old);
+  assert.equal(await state(), 'unverified');
+
+  await store.fields(memory.id, { verified_at: new Date().toISOString() });
+  assert.equal(await state(), 'fresh');
+  const path = getHistoryPath(workspace, memory.id);
+  const lines = (await readFile(path, 'utf8')).trimEnd().split('\n');
+  await writeFile(path, lines.slice(0, -1).join('\n') + '\n');
+  assert.equal(await state(), 'unverified');
+  await writeFile(path, 'incomplete history');
+  assert.equal(await state(), 'unverified');
+
+  const initial = parseMutationReceipt(await client.run('create', { options: {
+    title: 'Imported verification', body: 'Review the signed checklist.', type: 'Knowledge',
+    memorySlug: 'imported', memoryKind: 'reference', memoryChangedAt: old, memoryVerdict: 'verified', memoryVerifiedAt: old,
+  } }));
+  await store.link(initial.id, task);
+  const packet = await recallTask(task, { ...options, intent: 'resume-evidence', tokenBudget: 1800 });
+  assert.equal(packet.memories.find(row => row.slug === 'imported')?.freshness, 'fresh');
 });

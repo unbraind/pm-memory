@@ -9,6 +9,7 @@
   "capabilities": [
     "commands",
     "schema",
-    "hooks"
+    "hooks",
+    "parser"
   ]
 }

@@ -16,7 +16,7 @@ import { tracker } from './helpers.ts';
 
 /** Run real host clients under SDK-activated memory and independent policy hooks. */
 export async function nativeHost<T>(workspace: string, run: (client: PmClient, hooks: ExtensionHookRegistry) => Promise<T>, policy: BeforeMutationHook = () => {}) {
-  const memory = await createExtensionTestHarness(extension, { capabilities: ['commands', 'schema', 'hooks'] });
+  const memory = await createExtensionTestHarness(extension, { capabilities: ['commands', 'schema', 'hooks', 'parser'] });
   const peer = await createExtensionTestHarness(defineExtension({ name: 'test-native-policy', version: '1.0.0', activate(api) { api.hooks.beforeMutation(policy); } }), { capabilities: ['hooks'] });
   const hooks = { ...memory.activation.hooks, beforeMutation: [...peer.activation.hooks.beforeMutation, ...memory.activation.hooks.beforeMutation] };
   return runWithActiveExtensions({ path: workspace, noExtensions: true }, async () => {

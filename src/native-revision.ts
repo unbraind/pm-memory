@@ -2,6 +2,7 @@ import { canonicalDocument, serializeItemDocument, readSettings, resolveTransact
 import type { ItemDocument } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { Store } from './store.ts';
+import { nativeContentRevision } from './content.ts';
 import { digest, MemoryError } from './core.ts';
 import { guardedHostUpdate } from './native-host.ts';
 
@@ -42,9 +43,13 @@ export async function commitNativeFields(store: Store, id: string, expected: Nat
       if (!candidates.every(candidate => sameNativeProof(candidate, expected)) || !await certified()) { moved = true; throw new MemoryError('conflict', 'Native verification revision changed', 'Retry verification against the current native item; existing fields were retained'); }
     };
     if (store.hostClient === undefined) installStandaloneGuard(guard, 'pm-memory-verification-revision');
-    if (!await matches() || !await certified()) return false;
+    const base = await nativeState(store, id);
+    if (!sameNativeProof(base.proof, expected) || !await certified()) return false;
     try {
       const fields = { author: store.invocationAuthor, ...options, message };
+      if (store.hostClient === undefined) {
+        nativeContentRevision(fields, { ...base.document?.metadata, body: base.document?.body });
+      }
       const result = store.hostClient !== undefined ? await guardedHostUpdate(store, store.hostClient, id, guard, fields) : await update(id, fields, { pmRoot: store.workspace });
       return result.changed_fields.length > 0 || await matches() && await certified();
     } catch (error) { if (moved) return false; throw error; }
