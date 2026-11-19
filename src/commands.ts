@@ -1,4 +1,4 @@
-import { createPmCliExpectedError, isPmCliExpectedError } from '@unbrained/pm-cli/sdk';
+import { createPmCliExpectedError, isPmCliExpectedError, OutputEnvelopeFitError } from '@unbrained/pm-cli/sdk';
 import { defineCommand } from '@unbrained/pm-cli/sdk/authoring';
 import type { CommandHandlerContext, ExtensionApi, FlagDefinition } from '@unbrained/pm-cli/sdk/authoring';
 import { kind, MemoryError, text } from './core.ts';
@@ -28,6 +28,14 @@ function sdkSecretRefusal(error: unknown): boolean {
   }
   return false;
 }
+/** Keep typed domain refusals and give the SDK's read errors CLI-specific remedies. */
+function commandRefusal(error: unknown): MemoryError {
+  if (sdkSecretRefusal(error)) return new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
+  if (error instanceof MemoryError) return error;
+  if (error instanceof OutputEnvelopeFitError) return new MemoryError('budget', 'Task recall could not fit a verified packet', 'Use a budget that can hold the receipt, or inspect a known slug with pm memory get', { cause: error });
+  if (isPmCliExpectedError(error) && error.code === 'unknown_context_intent') return new MemoryError('intent', 'Unknown task recall intent', 'Use --for resume', { cause: error });
+  return new MemoryError('sdk', 'Memory operation could not complete', 'Check source permissions, tracker integrity and pm health before retrying', { cause: error });
+}
 /** Dispatch native command operands to the documented in-process API. */
 export async function runCommand(command: string, ctx: CommandHandlerContext): Promise<unknown> {
   try {
@@ -51,7 +59,7 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     if (command === 'consolidate') return await consolidate({ ...base, apply: options.apply === true, semantic: semanticMode(options.semantic), minAgeDays: options.minAgeDays === undefined ? undefined : Number(options.minAgeDays) });
     throw new MemoryError('invalid', 'Unknown memory command', 'Run pm memory --help');
   } catch (error) {
-    const refusal = sdkSecretRefusal(error) ? new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead') : error instanceof MemoryError ? error : new MemoryError('sdk', 'Memory operation could not complete', 'Check source permissions, tracker integrity and pm health before retrying', { cause: error });
+    const refusal = commandRefusal(error);
     // Privacy refusals must also replace the host's default argv recovery bundle,
     // which otherwise echoes refused operands and flag values in every output format.
     throw createPmCliExpectedError(`memory ${refusal.code}: ${refusal.message}. Remedy: ${refusal.remedy}`, { ...(refusal.code === 'privacy' ? {} : { cause: error }), exitCode: refusal.code === 'privacy' ? 4 : refusal.code === 'duplicate' || refusal.code === 'conflict' ? 3 : 2, context: { code: refusal.code, required: refusal.remedy, ...(refusal.code === 'privacy' ? { recovery: { attempted_command: `pm memory ${command} [redacted]`, normalized_args: ['memory', command], provided_fields: [] } } : {}) } });

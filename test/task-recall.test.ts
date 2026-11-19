@@ -55,9 +55,11 @@ test('native task resume ranks eligible relationships and leaves work and memory
     assert.deepEqual(receipt, format === 'json' ? expectedReceipt : 'complete');
     assert.ok(estimatePmOutputTokens(Buffer.byteLength(result.stdout)) <= actual.output_fit.estimated_tokens);
   }
-  const refused = cli(['--token-budget', '1', '--json']);
-  assert.equal(refused.status, 2, refused.stdout + refused.stderr);
-  assert.equal(JSON.parse(refused.stdout || refused.stderr).code, 'budget');
+  for (const [flag, value, code] of [['--token-budget', '1', 'budget'], ['--for', 'unmatched', 'intent']]) {
+    const refused = cli([flag, value, '--json']);
+    assert.equal(refused.status, 2, refused.stdout + refused.stderr);
+    assert.equal(JSON.parse(refused.stdout || refused.stderr).code, code);
+  }
   assert.deepEqual(await Promise.all(paths.map(path => readFile(path))), before);
 });
 
@@ -82,5 +84,6 @@ test('lexical fallback uses task description, preserves rank under pressure, and
   assert.deepEqual((await recallTask(unrelatedId, options)).memories, []);
   await assert.rejects(recallTask(first.id, options), { code: 'missing' });
   await assert.rejects(recallTask('memory-test-unknown', options), { code: 'missing' });
-  await assert.rejects(recallTask(taskId, { ...options, intent: 'unmatched' }), { code: 'intent' });
+  await assert.rejects(recallTask(taskId, { ...options, tokenBudget: 1 }), { code: 'output_envelope_infeasible' });
+  await assert.rejects(recallTask(taskId, { ...options, intent: 'unmatched' }), { code: 'unknown_context_intent' });
 });

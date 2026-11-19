@@ -152,9 +152,10 @@ The projection returns each selected memory's slug, complete body and any
 authored `why` and `how` fields. If a row does not fit, the packet preserves
 the ranked prefix. Check `output_fit.omitted_count` and increase
 `--token-budget` to restore omitted rows. If the receipt itself cannot fit,
-the command returns a typed budget refusal. Task recall makes no embeddings
-call and records no utility exposure. Use `memory recall` when you need a
-receipt for `memory observe`.
+the CLI returns a typed budget refusal. SDK callers receive the native
+`OutputEnvelopeFitError` with the measured minimum. Task recall makes no
+embeddings call and records no utility exposure. Use `memory recall` when
+you need a receipt for `memory observe`.
 
 ```ts
 import { recallTask } from 'pm-memory';

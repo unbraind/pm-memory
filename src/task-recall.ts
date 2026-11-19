@@ -55,12 +55,8 @@ const CONNECTIVES = new Set(['a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'f
 /** Rank a certified same-tracker snapshot without recording recall exposures or calling embeddings. */
 export async function recallTask(taskId: string, options: TaskRecallOptions): Promise<TaskRecallPacket> {
   const id = text(taskId).trim();
-  const intent = contextIntents[0];
-  try {
-    resolveContextIntentContract(intent.command, options.intent ?? intent.intent, contextIntents, [id]);
-  } catch (cause) {
-    throw new MemoryError('intent', 'Unknown task recall intent', 'Use --for resume', { cause });
-  }
+  const declaration = contextIntents[0];
+  const intent = resolveContextIntentContract(declaration.command, options.intent ?? declaration.intent, contextIntents, [id])!;
   const limit = budget(options.tokenBudget ?? intent.token_budget);
   const store = new Store(options);
   const { items } = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true }));
@@ -83,24 +79,20 @@ export async function recallTask(taskId: string, options: TaskRecallOptions): Pr
       ...(item.how ? { how: item.how } : {}),
     }));
 
-  try {
-    return fitOutputEnvelope(rows, {
-      tokenBudget: limit,
-      buildEnvelope: (memories, receipt): TaskRecallProjection => ({
-        task_id: task.id,
-        intent: intent.intent,
-        basis,
-        memories,
-        omission_receipt: createOutputOmissionReceipt(receipt.omitted_count > 0
-          ? [{ name: 'matching_memories', restore_with: '--token-budget <larger-number>' }]
-          : []),
-      }),
-      renderers: {
-        json: value => JSON.stringify(value, null, 2) + '\n',
-        toon: value => encode(value) + '\n',
-      },
-    }).envelope;
-  } catch (cause) {
-    throw new MemoryError('budget', 'Task recall could not fit a verified packet', 'Use a budget that can hold the receipt, or inspect a known slug with pm memory get', { cause });
-  }
+  return fitOutputEnvelope(rows, {
+    tokenBudget: limit,
+    buildEnvelope: (memories, receipt): TaskRecallProjection => ({
+      task_id: task.id,
+      intent: intent.intent,
+      basis,
+      memories,
+      omission_receipt: createOutputOmissionReceipt(receipt.omitted_count > 0
+        ? [{ name: 'matching_memories', restore_with: '--token-budget <larger-number>' }]
+        : []),
+    }),
+    renderers: {
+      json: value => JSON.stringify(value, null, 2) + '\n',
+      toon: value => encode(value) + '\n',
+    },
+  }).envelope;
 }
