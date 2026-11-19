@@ -1,0 +1,15 @@
+id: pm-memory-native-input-revision
+title: Prepare memory verification resets for bulk and full-document updates
+description: Support native input forms that require per-item guidance revision preparation before the locked SDK update.
+type: Task
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-19T19:53:23.139Z"
+updated_at: "2026-11-19T19:53:24.083Z"
+author: codex-sol
+parent: pm-memory-recall-freshness
+files[2]{path,scope}:
+  src/content.ts,project
+  src/native-host.ts,project
+body: A real update-many body edit was refused by the active memory mutation guard and kept the original guidance. A real update using stdin JSON with a revised body and prior memory_verified_at and memory_reason was refused by the SDK unset conflict check. Support both forms with one audited mutation per edited memory. Preserve ordinary item behavior in mixed batches and clear server-owned verification evidence when a full document changes guidance.

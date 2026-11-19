@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-19T19:43:07.091Z"
+updated_at: "2026-11-19T20:47:31.448Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[9]{created_at,author,text}:
+comments[12]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -22,7 +22,10 @@ comments[9]{created_at,author,text}:
   "2026-11-19T19:30:20.119Z",codex-sol,"Verified the reported native body edit with a real CLI and tracker. The content edit invalidated verification in one history entry, while pm update --body retained the prior content timestamp. The SDK mutation guard receives snapshots, so invalidation must be included in the native update options before admission."
   "2026-11-19T19:36:36.356Z",codex-sol,The CLI prepares native guidance invalidation before dispatch. The locked mutation guard checks that verification fields were cleared and the content clock advanced. Guarded and standalone SDK publication share the revision helper. Recall also checks persisted history for legacy and extension-free writes.
   "2026-11-19T19:43:01.320Z",codex-sol,"A clean archive of 14726bf reproduced the full report: a real pm update --body persisted changed guidance, kept both verification clocks, and task recall still returned fresh. The regression now checks persisted fields, one history entry, and the recall verdict for each edit path."
-files[12]{path,scope}:
+  "2026-11-19T19:44:35.656Z",codex-sol,"CodeRabbit thread PRRT_kwDOVPw2oc65mhxy on pm-memory#87 maps to 3ec0e45a45ac5a8a2c087226060872fd056b6728. The implementation advances the content clock and clears verification in the update itself. Real content, CLI body and title, and standalone and injected host edits all produce unverified recall. Typecheck, lint, duplication, docstrings, and changelog check passed. Full quick coverage is running."
+  "2026-11-19T19:53:24.831Z",codex-sol,Follow-up pm-memory-native-input-revision tracks two confirmed native input limits. Bulk body edits and document edits that echo prior verification fields currently refuse without persisting changed guidance.
+  "2026-11-19T20:47:25.906Z",codex-sol,The full suite exposed a recovery test whose in-process peer shared the newly active admission guard. The fixture now uses the existing independent SDK writer process for both peer writes and retains the post-no-op dependency assertions. The focused recovery case passed.
+files[13]{path,scope}:
   index.ts,project
   manifest.json,project
   src/commands.ts,project
@@ -34,8 +37,9 @@ files[12]{path,scope}:
   src/task-recall.ts,project
   test/content-age.test.ts,project
   test/native-host.test.ts,project
+  test/portable-recovery-controls.test.ts,project
   test/task-recall.test.ts,project
-tests[7]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[8]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   npm run typecheck && npm run lint,project,codex-sol,"2026-11-19T14:10:36.014Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-reporter=tap test/task-recall.test.ts,project,codex-sol,"2026-11-19T14:10:49.744Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-19T14:11:04.446Z",local_mutation,feat/recall-freshness
@@ -43,6 +47,7 @@ tests[7]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "git fetch --tags origin && npm run changelog:full && npm run changelog:check",project,codex-sol,"2026-11-19T14:11:28.942Z",local_mutation,feat/recall-freshness
   "PM_TEST_TIME_SCALE=3 npm run test:install",project,codex-sol,"2026-11-19T14:36:30.057Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/task-recall.test.ts test/content-age.test.ts test/native-host.test.ts,project,codex-sol,"2026-11-19T19:36:34.414Z",local_mutation,feat/recall-freshness
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-name-pattern='SDK no-op read-back rechecks' test/portable-recovery-controls.test.ts,project,codex-sol,"2026-11-19T20:47:31.314Z",local_mutation,feat/recall-freshness
 docs[2]{path,scope}:
   ARCHITECTURE.md,project
   README.md,project

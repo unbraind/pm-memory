@@ -13,6 +13,7 @@ import { assertBase, commitPortableBatch } from '../src/portable-write.ts';
 import { capturedPublication } from './portable-publication-helpers.ts';
 import { tracker, snapshot, readImportPlan } from './helpers.ts';
 import { nativeHost } from './native-host-helpers.ts';
+import { peerWriter } from './portable-native-peer.ts';
 
 /** Persist adversarial recovery input using the same owned envelope as genuine plans. */
 async function fixtureIntent(workspace: string, value: unknown): Promise<string> {
@@ -234,13 +235,15 @@ test('a native history append after SDK capture cannot publish against its stale
 
 test('SDK no-op read-back rechecks dependency revisions after a host retry dispatch', async t => {
   const { target, input } = await linkedFixture(t);
+  const peer = await peerWriter(t, target.root);
   const alpha = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'alpha')!;
   const beta = (await target.client.listAllComplete()).items.find(row => row.memory_slug === 'beta')!;
   await writeFile(join(input, 'alpha.md'), 'Alpha B [[beta]]'); let guarded = false; let attempts = 0;
   const result = await nativeHost(target.workspace, async (client, hooks) => {
     hooks.onRead.push({ layer: 'project', name: 'test-dependency-peer', run: async context => {
       if (guarded && attempts === 0 && context.path.endsWith(`${alpha.id}.toon`)) {
-        attempts++; await target.client.update(beta.id, { body: 'Native beta C' });
+        attempts++;
+        await peer(target.workspace, beta.id, 'independent-native-writer', 'dependency-retry', 'exact', { body: 'Native beta C' }).done;
       }
     } });
     return importDir(input, { ...target.options, client, from: 'agents-md', onStep: async step => {
@@ -249,7 +252,7 @@ test('SDK no-op read-back rechecks dependency revisions after a host retry dispa
       const request = (await readImportPlan(target.workspace)).mutations.find(row => row.id === alpha.id)!;
       const fields = { ...request.options };
       for (const key of ['memoryChangedAt', 'memoryVerdict', 'memoryVerifiedAt', 'memoryReason', 'unset']) delete fields[key];
-      await target.client.run('update', { id: alpha.id, options: fields });
+      await peer(target.workspace, alpha.id, 'independent-native-writer', 'dependency-retry', 'exact', fields).done;
     } });
   });
   assert.equal(attempts, 1); assert.equal(result.updated, 0);
