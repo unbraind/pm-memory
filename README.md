@@ -202,6 +202,44 @@ task recall took 182, saving 433 (70%). These estimates use the pm SDK's
 outside those totals. The same unseeded tracker took 692 TOON tokens for
 `pm context --for orient` and 552 with `--token-budget 700`.
 
+#### Check freshness and settle a conflict
+
+Use `pm memory recall-task <task-id> --for resume-evidence` to include stale
+guidance and see the freshness of each returned row. The default `resume`
+projection retains its original shape and ranking. Both intents use a 450-token
+ceiling and keep the same consent, archive and validity-window filters.
+
+Each evidence row has a `freshness` verdict and a `source_id` and `field`
+for a projected `pm get` read. A recorded supersession marks the older row
+`superseded` and points to the item holding the edge. An explicit stale
+verification yields `stale`. A verified timestamp covering the current content
+revision yields `fresh`. Missing or older verification yields `unverified`.
+For legacy rows without a content revision timestamp, recall checks the native
+`updated_at` field. Freshness describes the available verification evidence,
+whose scope is the claims that `pm memory verify` can check.
+
+A conflict lists the two slugs and one native `item_id` and `field`. Read that
+pair with `pm get <item-id> --fields <field>`. A recorded supersession points
+to `dependencies`. For explicit opposing guidance where one claim has been
+refuted, the pointer leads to its persisted `memory_reason`. Opposing guidance
+without one authoritative pointer produces a `conflict_sources` omission
+receipt. If a competing row and its conflict cannot fit, the packet reports
+`matching_memories` and a larger `--token-budget` can restore them.
+
+The measured example used a scratch copy of the public pm-memory tracker and
+two synthetic facts linked to `pm-memory-higm`: “Always run the release smoke
+tests” and “Never run the release smoke tests.” The newer item recorded a
+`supersedes` edge to the older one. Using the SDK's UTF-8 byte estimate:
+
+| Path | TOON tokens |
+| --- | ---: |
+| `--for resume` plus `pm get <id> --fields status,updated_at,dependencies` for both candidates | 100 + 69 + 93 = 262 |
+| `--for resume-evidence` plus `pm get <item-id> --fields dependencies` for the named source | 155 + 78 = 233 |
+
+The evidence path saved **29 tokens (11%)** and one source read. With both
+candidate IDs already known and the baseline reads narrowed to `dependencies`,
+the baseline also cost 233 tokens.
+
 Import supports `--from claude-code|agents-md|cursor`, directories or individual regular UTF-8 files. Claude Code frontmatter recognizes `name`, `description`, `metadata.type` and legacy top-level `type`; optional `**Why:**` and `**How to apply:**` lines become fields. Unknown memory kinds and malformed YAML refuse. Plain unquoted `name`/`description` values containing a colon are accepted without altering their original bytes. A valid frontmatter `name` is the canonical kebab-case key. The original file stem remains a link alias; canonical names take precedence, and ambiguous aliases stay unresolved. Frontmatter descriptions populate the native description field and participate in ranking and compact recall. Claude Code MEMORY.md indexes are retained as export artifacts and excluded from retrieval. Import deliberately retains source duplicates for review instead of discarding source files. Re-importing unchanged bytes and links performs no durable writes. Source revisions preserve native lifecycle, utility and other native-only metadata, including archived status. Content changes clear prior verification evidence and reset the verdict to `unknown` in the same native mutation. Independently revised items refuse source replacement.
 
 Export supports `--to claude-code|agents-md`. Unchanged imported facts of the same harness whose wiki references still resolve retain byte-identical content, frontmatter, BOM, line endings, ordering and final newline. Recall and verification metadata do not invalidate that preservation. If an index, body or wiki reference would need regeneration, export uses the policy format and raw SDK bodies instead. This prevents generated projections from becoming native edits on re-import. A complete current legacy index and all unchanged files retain their original bytes. Omitted references are reported without granting deletion authority. Destination symlinks, user-owned ancestor symlinks, unsafe relative names and conflicting destination files refuse; POSIX root-owned system links are allowed in ancestors; identical existing files are accepted. Use a dedicated empty output directory. Export plans before creating directories, writes to a sibling temporary directory, then publishes with one rename. Failed staging is removed. The destination must be absent, empty or already contain identical output. Export creates missing destination parents after preflight.

@@ -4,7 +4,7 @@ import { register } from './src/commands.ts';
 export { remember, recall, index, get } from './src/memory.ts';
 /** Recall actionable knowledge for an existing work item through the resume projection. */
 export { contextIntents, recallTask } from './src/task-recall.ts';
-export type { TaskRecallOptions, TaskRecallPacket, TaskRecallRow } from './src/task-recall.ts';
+export type { TaskRecallConflict, TaskRecallOptions, TaskRecallPacket, TaskRecallRow } from './src/task-recall.ts';
 /** Import and export portable harness files through native Knowledge items. */
 export { importDir, exportDir } from './src/transfer.ts';
 /** Check concrete memory claims against local and optional network evidence. */

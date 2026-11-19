@@ -33,7 +33,7 @@ function commandRefusal(error: unknown): MemoryError {
   if (sdkSecretRefusal(error)) return new MemoryError('privacy', 'Credential-shaped memory refused', 'Remove credentials and reference a secret manager instead');
   if (error instanceof MemoryError) return error;
   if (error instanceof OutputEnvelopeFitError) return new MemoryError('budget', 'Task recall could not fit a verified packet', 'Use a budget that can hold the receipt, or inspect a known slug with pm memory get', { cause: error });
-  if (isPmCliExpectedError(error) && error.code === 'unknown_context_intent') return new MemoryError('intent', 'Unknown task recall intent', 'Use --for resume', { cause: error });
+  if (isPmCliExpectedError(error) && error.code === 'unknown_context_intent') return new MemoryError('intent', 'Unknown task recall intent', 'Use --for resume or --for resume-evidence', { cause: error });
   return new MemoryError('sdk', 'Memory operation could not complete', 'Check source permissions, tracker integrity and pm health before retrying', { cause: error });
 }
 /** Dispatch native command operands to the documented in-process API. */
@@ -67,7 +67,7 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
 }
 /** Native flag descriptions include concrete examples in every option's help entry. */
 const OPTIONS: Record<string, string> = {
-  for: 'Apply the resume projection (example: --for resume)',
+  for: 'Apply resume or resume-evidence (example: --for resume-evidence)',
   'token-budget': 'Bound the whole task recall packet (example: --token-budget 450)',
   purpose: 'Explicit recall purpose identifier (example: --purpose release-review)',
   fields: 'Comma-separated authorized content fields (example: --fields title,body)',
