@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026.11.14 - 2026-11-14
+## 2026.11.14 - 2026-11-18
 
 ### Added
 
@@ -15,12 +15,20 @@
 
 - Apply Fleet CI v2 and bound release-gate test lifecycles ([pm-memory-higm](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/tasks/pm-memory-higm.toon))
 
+### Closed
+
+- Closed: Release gate intermittently fails while removing a CLI fixture lock directory ([pm-memory-github-f33c4a70a040-75](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-github-f33c4a70a040-75.toon))
+
 ## 2026.11.13 - 2026-11-13
 
 ### Fixed
 
 - Make portable preparation contention tests independent of writer wait timing ([pm-memory-preparation-boundary-barriers](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-preparation-boundary-barriers.toon))
 - Refuse quoted JSON and YAML credential keys before persistence ([pm-memory-quoted-credential-keys](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-quoted-credential-keys.toon))
+
+### Closed
+
+- Closed: Quoted JSON credential keys bypass the secret guard and survive export ([pm-memory-github-f33c4a70a040-52](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-github-f33c4a70a040-52.toon))
 
 ## 2026.11.7 - 2026-11-07
 
