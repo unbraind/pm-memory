@@ -2,6 +2,9 @@ import { defineExtension } from '@unbrained/pm-cli/sdk/authoring';
 import { register } from './src/commands.ts';
 /** Create or revise durable memory and retrieve bounded context packets. */
 export { remember, recall, index, get } from './src/memory.ts';
+/** Recall actionable knowledge for an existing work item through the resume projection. */
+export { contextIntents, recallTask } from './src/task-recall.ts';
+export type { TaskRecallOptions, TaskRecallPacket, TaskRecallRow } from './src/task-recall.ts';
 /** Import and export portable harness files through native Knowledge items. */
 export { importDir, exportDir } from './src/transfer.ts';
 /** Check concrete memory claims against local and optional network evidence. */

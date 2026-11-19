@@ -1,0 +1,13 @@
+id: pm-memory-recall-freshness
+title: Report stale or contradictory knowledge in task recall
+description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
+type: Feature
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-19T06:08:31.207Z"
+updated_at: "2026-11-19T06:08:31.207Z"
+author: codex-sol
+acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
+parent: pm-memory-0kwy
+body: ""
