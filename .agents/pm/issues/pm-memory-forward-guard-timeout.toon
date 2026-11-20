@@ -6,10 +6,27 @@ status: open
 priority: 2
 tags: []
 created_at: "2026-11-20T02:35:37.535Z"
-updated_at: "2026-11-20T02:36:57.754Z"
+updated_at: "2026-11-20T20:31:30.039Z"
 author: codex-sol
-files[1]{path,scope}:
+comments[6]{created_at,author,text}:
+  "2026-11-20T17:56:08.067Z",codex-sol,"Round FD carries the original follow-up and its history onto a main-based branch. Rounds DU, EI and EW saw the SDK create guard time out under suite load. A V8-instrumented two-file baseline spent 1.56 to 2.12 seconds inside the five-second guard. The cloned context entered the callback within 9 ms of the timer marker. Observed Git subprocesses ran outside that deadline. Two full TOON passes before saving publication dominated the hook. Prepare the independent birth before dispatch and compare canonical documents in the guard, with the unchanged publication hash, durable intent and deadline. The boundary fixture uses file stat for the length assertion and explicitly observes the real guard in both harnesses."
+  "2026-11-20T18:08:05.432Z",codex-sol,"The focused portable suites passed 50 tests with zero failures, cancellations or skips. On the final source, the changed-native-type birth refusal and host ABA controls both passed. Typecheck, lint, duplication and docstring passed. The full coverage gate and final-source 20-run V8 and CPU-sibling proof are in progress."
+  "2026-11-20T18:24:39.476Z",codex-sol,"Final-source stability proof passed 20 consecutive Node 24.19.0 invocations with --test-concurrency=4 and V8 coverage. Each invocation ran the 1 MiB framing test beside a CPU-burning test file that signaled readiness and stayed active through the boundary test process exit. All 40 test results passed with zero failures, cancellations or skips. Whole-invocation durations ranged from 46.23 to 128.09 seconds. Both real harnesses crossed the forward guard exactly once in each run and retained the byte-limit and refusal assertions."
+  "2026-11-20T18:38:37.282Z",codex-sol,"Full-depth npm run coverage reached the default 1800000 ms test-file watchdog in test/import-state.test.ts. The run had already failed, so it was stopped and restarted as PM_TEST_DEPTH=quick npm run coverage. Quick depth retains the identical complete source inventory and 100% thresholds for statements, branches, functions and lines."
+  "2026-11-20T19:06:37.306Z",codex-sol,The standard quick CI depth passed the boundary and import-state cases but reached the 600000 ms watchdog in test/portable-forward.test.ts on the shared host. PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage uses the documented slow-host control for test watchdogs. The SDK mutation hook deadline stays five seconds. The existing file-lifecycle tracking item is pm-memory-higm.
+  "2026-11-20T20:31:28.535Z",codex-sol,"The scaled quick coverage gate passed 926 tests with zero failures, cancellations or skips. The gate reported all 41 required source files and 100% statements, branches, functions and lines. The exact command was PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage. The 1 MiB case also passed within each earlier coverage attempt before its unrelated file-watchdog failure."
+files[3]{path,scope}:
+  src/portable-preview.ts,project
+  src/portable-write.ts,project
   test/policy-size-boundary.test.ts,project
-tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[6]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test test/policy-size-boundary.test.ts,project,codex-sol,"2026-11-20T02:36:57.392Z",local_mutation,feat/recall-freshness
+  node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/policy-size-boundary.test.ts test/portable-admission.test.ts test/portable-recovery-controls.test.ts test/portable-publication.test.ts test/portable-host.test.ts,project,codex-sol,"2026-11-20T17:56:29.550Z",local_mutation,fix/forward-guard-test-timeout
+  npm run coverage,project,codex-sol,"2026-11-20T17:56:29.550Z",local_mutation,fix/forward-guard-test-timeout
+  "node --import ./test/support/file-deadline.ts --test --test-concurrency=2 --test-name-pattern=\"changed native type default|portable host guard\" test/portable-recovery-controls.test.ts test/portable-host.test.ts",project,codex-sol,"2026-11-20T18:08:02.748Z",local_mutation,fix/forward-guard-test-timeout
+  PM_TEST_DEPTH=quick npm run coverage,project,codex-sol,"2026-11-20T18:38:38.311Z",local_mutation,fix/forward-guard-test-timeout
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-20T19:06:39.087Z",local_mutation,fix/forward-guard-test-timeout
+docs[2]{path,scope}:
+  docs/native-revision-validation.md,project
+  docs/sdk-adoption.md,project
 body: ""
