@@ -9,6 +9,7 @@ import { grantConsent, recallTask, remember, renew, type TaskRecallPacket } from
 import { installExtension, tracker } from './helpers.ts';
 import { hostPublication } from './native-host-helpers.ts';
 import { commitNativeFields, nativeState } from '../src/native-revision.ts';
+import { nativeContentRevision } from '../src/content.ts';
 
 function pm(root: string, workspace: string, args: string[], input?: string) {
   return spawnSync(process.execPath, [join(import.meta.dirname, '../node_modules/.bin/pm'), ...args], {
@@ -297,6 +298,43 @@ test('native operational edits and identical guidance retain current verificatio
 });
 
 
+test('native tag replacement preserves verification for equivalent tags', async t => {
+  const { client, options, root, store, workspace } = await tracker(t);
+  const memory = await remember('Use the approved packaging guidance.', { ...options, kind: 'reference', tags: ['approved', 'packaging'] });
+  const old = '2020-01-01T00:00:00.000Z';
+  await store.fields(memory.id, { changed_at: old, verdict: 'verified', verified_at: old, reason: 'Approved packaging guidance' });
+  await installExtension(workspace);
+  const path = getHistoryPath(workspace, memory.id);
+  const before = await readHistoryEntries(path, memory.id);
+  const stored = (await client.get(memory.id, { full: true })).item;
+  const replacement = { tags: ['packaging', 'approved'] };
+  nativeContentRevision(replacement, stored);
+  assert.deepEqual(replacement, { tags: ['packaging', 'approved'] });
+
+  for (const tags of ['["approved","packaging"]', ' Packaging,approved,APPROVED ']) {
+    update(root, workspace, memory.id, ['--tags', tags]);
+    const { item } = await client.get(memory.id, { full: true });
+    assert.deepEqual(item.tags, ['approved', 'packaging']);
+    assert.deepEqual([item.memory_changed_at, item.memory_verdict, item.memory_verified_at, item.memory_reason],
+      [old, 'verified', old, 'Approved packaging guidance']);
+    assert.deepEqual(await readHistoryEntries(path, memory.id), before);
+  }
+
+  update(root, workspace, memory.id, ['--tags', 'approved,shipping']);
+  const { item } = await client.get(memory.id, { full: true });
+  assert.deepEqual(item.tags, ['approved', 'shipping']);
+  assert.ok(Date.parse(String(item.memory_changed_at)) > Date.parse(old));
+  assert.equal(item.memory_verdict, 'unknown');
+  assert.equal(item.memory_verified_at, undefined);
+  assert.equal(item.memory_reason, undefined);
+  const after = await readHistoryEntries(path, memory.id);
+  assert.equal(after.length, before.length + 1);
+  const changed = after.at(-1)!.patch.map(patch => patch.path);
+  for (const field of ['tags', 'memory_changed_at', 'memory_verdict', 'memory_verified_at', 'memory_reason']) {
+    assert.ok(changed.includes(`/metadata/${field}`));
+  }
+});
+
 test('task recall requires history evidence for guidance changed outside extension hooks', async t => {
   const { client, options, store, workspace } = await tracker(t);
   const task = (await client.create({ title: 'Review historical packaging', type: 'Task' })).item.id;
@@ -326,4 +364,11 @@ test('task recall requires history evidence for guidance changed outside extensi
   await store.link(initial.id, task);
   const packet = await recallTask(task, { ...options, intent: 'resume-evidence', tokenBudget: 1800 });
   assert.equal(packet.memories.find(row => row.slug === 'imported')?.freshness, 'fresh');
+
+  await client.update(initial.id, { title: 'Revised imported guidance' });
+  const imported = (await client.get(initial.id, { full: true })).item;
+  assert.equal(imported.title, 'Revised imported guidance');
+  assert.deepEqual([imported.memory_changed_at, imported.memory_verified_at, imported.memory_verdict], [old, old, 'verified']);
+  const revised = await recallTask(task, { ...options, intent: 'resume-evidence', tokenBudget: 1800 });
+  assert.equal(revised.memories.find(row => row.slug === 'imported')?.freshness, 'unverified');
 });

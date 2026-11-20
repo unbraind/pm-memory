@@ -112,7 +112,7 @@ async function verificationCoversGuidance(workspace: string, { body, ...metadata
     const [, scope, key] = patch.path.split('/');
     return isGuidanceField(scope === 'metadata' ? key : scope);
   }));
-  return checked > edited || checked === 0 && entries[0].op === 'create';
+  return checked > edited || checked === 0 && edited === 0 && entries[0].op === 'create';
 }
 
 /** Judge freshness against the content clock and the native verification history. */

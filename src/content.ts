@@ -1,3 +1,6 @@
+import { isDeepStrictEqual } from 'node:util';
+import { parseTags } from '@unbrained/pm-cli/sdk';
+
 /** Guidance options and their persisted native field names. */
 const guidance = {
   title: 'title', description: 'description', body: 'body', tags: 'tags',
@@ -31,13 +34,21 @@ function invalidateVerification(options: Record<string, unknown>, at: string): v
   options.unset = [...new Set([...(options.unset as string[] | undefined ?? []), 'memory_verified_at', 'memory_reason'])];
 }
 
+/** Compare replacement tags after applying the native tag parser. */
+function sameTags(value: unknown, stored: unknown): boolean {
+  const raw = typeof value === 'string' ? value : JSON.stringify(value);
+  return isDeepStrictEqual(parseTags(raw), stored);
+}
+
 /** Detect explicitly supplied guidance, including native field and transport aliases. */
 function changesGuidance(options: Record<string, unknown>, before: Record<string, unknown>): boolean {
   const unset = options.unset as string[] | undefined ?? [];
   const fields = options.field as string[] | undefined ?? [];
   return Object.entries(guidance).some(([option, field]) => {
     const value = options[option];
-    return (value !== undefined && value !== before[field]) || (unset.includes(field) && before[field] !== undefined);
+    const stored = before[field];
+    return (value !== undefined && (field === 'tags' ? !sameTags(value, stored) : value !== stored))
+      || (unset.includes(field) && stored !== undefined);
   }) || options.bodyFile !== undefined || options.stdinJson === true
     || options.addTags !== undefined || options.removeTags !== undefined
     || fields.some(value => isGuidanceField(value.split('=')[0]));

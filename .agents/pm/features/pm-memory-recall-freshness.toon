@@ -2,15 +2,17 @@ id: pm-memory-recall-freshness
 title: Report stale or contradictory knowledge in task recall
 description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
 type: Feature
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-19T21:47:00.862Z"
+updated_at: "2026-11-20T01:03:21.027Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[14]{created_at,author,text}:
+comments[16]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -25,6 +27,8 @@ comments[14]{created_at,author,text}:
   "2026-11-19T20:47:25.906Z",codex-sol,The full suite exposed a recovery test whose in-process peer shared the newly active admission guard. The fixture now uses the existing independent SDK writer process for both peer writes and retains the post-no-op dependency assertions. The focused recovery case passed.
   "2026-11-19T21:19:40.464Z",codex-sol,The first full quick run completed with 922 of 923 tests passing and 99.97% branch coverage. Its only test failure and uncovered branch were the portable recovery no-op case corrected in d85c6ba3549449fabc47d2802a59f58768d4e9f3. The corrected case passed with V8 instrumentation and reached the formerly uncovered branch. The full quick command is running on the corrected commit.
   "2026-11-19T21:46:59.406Z",codex-sol,"Full quick coverage passed on d85c6ba3549449fabc47d2802a59f58768d4e9f3 with 923 passing tests, zero failures or skips, and 100% statements, branches, functions and lines across 40 source files. The linked recall, content and host command passed all 28 tests. The shipped-file check, typecheck, lint, duplication, docstrings, identity and changelog checks passed. CodeRabbit thread PRRT_kwDOVPw2oc65mhxy maps to implementation commit 3ec0e45a45ac5a8a2c087226060872fd056b6728."
+  "2026-11-20T00:59:25.455Z",codex-sol,"Round EI verified both CodeRabbit threads are open on 6158dac. Reproduce each through a real tracker, compare tags using native update semantics, and ensure later guidance edits take precedence over create-entry verification."
+  "2026-11-20T01:01:37.767Z",codex-sol,"Both real-tracker regressions failed on the review head. Equivalent replacement tags cleared the verification fields, and an extension-free title edit left imported guidance fresh. Native tag replacement canonicalizes values by trimming, lowercasing, deduplicating, and sorting before persistence."
 files[13]{path,scope}:
   index.ts,project
   manifest.json,project
@@ -39,7 +43,7 @@ files[13]{path,scope}:
   test/native-host.test.ts,project
   test/portable-recovery-controls.test.ts,project
   test/task-recall.test.ts,project
-tests[8]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[11]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   npm run typecheck && npm run lint,project,codex-sol,"2026-11-19T14:10:36.014Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-reporter=tap test/task-recall.test.ts,project,codex-sol,"2026-11-19T14:10:49.744Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-19T14:11:04.446Z",local_mutation,feat/recall-freshness
@@ -48,6 +52,9 @@ tests[8]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "PM_TEST_TIME_SCALE=3 npm run test:install",project,codex-sol,"2026-11-19T14:36:30.057Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/task-recall.test.ts test/content-age.test.ts test/native-host.test.ts,project,codex-sol,"2026-11-19T19:36:34.414Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-name-pattern='SDK no-op read-back rechecks' test/portable-recovery-controls.test.ts,project,codex-sol,"2026-11-19T20:47:31.314Z",local_mutation,feat/recall-freshness
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/content-age.test.ts test/review-r13.test.ts test/task-recall.test.ts,project,codex-sol,"2026-11-20T01:03:05.502Z",local_mutation,feat/recall-freshness
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test test/native-host.test.ts,project,codex-sol,"2026-11-20T01:03:13.064Z",local_mutation,feat/recall-freshness
+  "npm run changelog:check",project,codex-sol,"2026-11-20T01:03:20.417Z",local_mutation,feat/recall-freshness
 docs[2]{path,scope}:
   ARCHITECTURE.md,project
   README.md,project
