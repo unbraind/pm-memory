@@ -3,16 +3,16 @@ import { randomUUID } from 'node:crypto';
 import {
   createCheckpointId, createStdinTokenResolver, derivePmBulkMutationEffect, EXIT_CODE,
   itemDocumentToMutationOptions, loadMutationCheckpoint, PmCliError, PmClient,
-  preserveMutationStdinTokenLiterals, printError, readSettings, refreshSearchArtifactsForMutation,
+  preserveMutationStdinTokenFields, preserveMutationStdinTokenLiterals, printError, readSettings, refreshSearchArtifactsForMutation,
   resolveBodyFileContent, resolveRuntimeFieldRegistry, runUpdate, runUpdateMany,
-  suppressHostOutput, transferMutationStdinTokenPolicy, withCliMutationInput, writeMutationCheckpoint,
+  suppressHostOutput, toErrorMessage, transferMutationStdinTokenPolicy, withCliMutationInput, writeMutationCheckpoint,
 } from '@unbrained/pm-cli/sdk';
 import { declineServiceOverride, handleServiceOverride } from '@unbrained/pm-cli/sdk/authoring';
 import type { ServiceOverrideContext } from '@unbrained/pm-cli/sdk/authoring';
 import { isGuidanceField, nativeContentRevision } from './content.ts';
 
-/** CLI parser marker for a native no-op followed by document decoding. */
-export const DOCUMENT_INPUT = `pmMemoryDocumentInput:${randomUUID()}`;
+/** CLI parser marker for an update whose document or body file requires decoding. */
+const DEFERRED_UPDATE = `pmMemoryDeferredUpdate:${randomUUID()}`;
 /** CLI parser marker for applying a validated native bulk preview. */
 export const APPLY_BULK = `pmMemoryApplyBulk:${randomUUID()}`;
 const CHECKPOINT_DIRECTORY = 'update-many';
@@ -20,8 +20,10 @@ const COMBINED_CHECKPOINT = 'update-many-memory';
 type BulkOptions = Parameters<typeof runUpdateMany>[0];
 type BulkResult = Awaited<ReturnType<typeof runUpdateMany>>;
 type BulkRow = NonNullable<BulkResult['rows']>[number];
+type BulkPart = Pick<BulkResult, 'rows' | 'ids' | 'checkpoint'>;
 type BulkCheckpoint = NonNullable<BulkResult['checkpoint']>;
 type Global = Parameters<typeof runUpdateMany>[1];
+type DeferredUpdate = { raw: Record<string, unknown>; fileBody?: string };
 type NativeResult = {
   command: string; args: string[]; pm_root: string; options: Record<string, unknown>; global: Global; result: BulkResult;
 };
@@ -55,32 +57,51 @@ function prepareVerificationFields(options: Record<string, unknown>, item: Recor
   delete options.memoryVerdict;
 }
 
-/** Feed the native full-document decoder before comparing or clearing verification evidence. */
-async function applyDocument(context: NativeResult, raw: Record<string, unknown>): Promise<unknown> {
-  const { pm_root, global, args: [id] } = context;
+/** Carry stdin inputs or a literal dash past the CLI's no-op update without consuming them twice. */
+export function deferUpdate(raw: Record<string, unknown>, fileBody?: string): Record<string, unknown> {
+  const inactive = Object.fromEntries(Object.keys(raw).map(key => [key, undefined]));
+  return { ...inactive, [DEFERRED_UPDATE]: { raw, fileBody } satisfies DeferredUpdate };
+}
+
+/** Decode native inputs before comparing guidance, retaining literal dash values from files. */
+async function decodeUpdate(root: string, { raw, fileBody }: DeferredUpdate): Promise<Record<string, unknown>> {
   const stdinFlags = ['body', 'bodyFile', 'description', 'dep', 'depRemove', 'comment', 'note', 'learning', 'file', 'test', 'doc', 'reminder', 'event', 'typeOption', 'field'];
-  if (stdinFlags.some(key => [raw[key]].flat().some(value => typeof value === 'string' && value.trim() === '-'))) {
+  const stdinConsumers = stdinFlags.flatMap(key => [raw[key]].flat()).filter(value => typeof value === 'string' && value.trim() === '-');
+  const document = raw.stdinJson === true;
+  if (stdinConsumers.length + Number(document) > 1) {
     throw new PmCliError('Only one option may consume stdin per command invocation.', EXIT_CODE.USAGE);
   }
-  const input = await createStdinTokenResolver().resolveValue('-', '--stdin-json');
-  const settings = await readSettings(pm_root);
-  const decoded = itemDocumentToMutationOptions(input!, 'update', raw, resolveRuntimeFieldRegistry(settings.schema).definitions);
+  let decoded = raw;
+  if (document) {
+    const input = await createStdinTokenResolver().resolveValue('-', '--stdin-json');
+    const settings = await readSettings(root);
+    decoded = itemDocumentToMutationOptions(input!, 'update', raw, resolveRuntimeFieldRegistry(settings.schema).definitions);
+  }
   const { bodyFile, ...fields } = decoded;
   const options = typeof bodyFile === 'string'
-    ? transferMutationStdinTokenPolicy(decoded, { ...fields, body: await resolveBodyFileContent(bodyFile, fields.body as string | undefined) })
+    ? preserveMutationStdinTokenFields(transferMutationStdinTokenPolicy(decoded, {
+      ...fields, body: fileBody ?? await resolveBodyFileContent(bodyFile, fields.body as string | undefined),
+    }), ['body'])
     : decoded;
+  return document ? preserveMutationStdinTokenLiterals(options) : options;
+}
+
+/** Apply decoded guidance and its verification change under the same native revision guard. */
+async function applyDocument(context: NativeResult, input: DeferredUpdate): Promise<unknown> {
+  const { pm_root, global, args: [id] } = context;
+  const options = await decodeUpdate(pm_root, input);
   const client = PmClient.forActiveExtensionHost({ pmRoot: pm_root });
   const { item_hash } = await client.readItemRevision(id);
   const { item } = await client.get(id, { full: true });
-  prepareVerificationFields(options, item);
+  if (isMemory(item)) prepareVerificationFields(options, item);
   const { result } = await client.withExpectedItemRevisions([{ id, itemHash: item_hash }], () =>
-    runUpdate(id, preserveMutationStdinTokenLiterals(withCliMutationInput(options)), { ...global, path: pm_root }));
+    runUpdate(id, withCliMutationInput(options), { ...global, path: pm_root }));
   await refreshSearchArtifactsForMutation(pm_root, result.changed_fields.length ? [id] : [], { background: true });
   return result;
 }
 
 /** Collect native row receipts in selection order. */
-function combineBulk(plan: BulkResult, parts: BulkResult[], mode: 'apply' | 'rollback'): BulkResult {
+function combineBulk(plan: BulkResult, parts: BulkPart[], mode: 'apply' | 'rollback'): BulkResult {
   const rows = parts.flatMap<BulkRow>(part => part.rows!);
   const ids = parts.flatMap(part => part.ids);
   const failed = rows.filter(row => row.status === 'failed').length;
@@ -123,20 +144,24 @@ async function applyBulk(context: NativeResult, plan: BulkResult): Promise<BulkR
   const planned_update_options = { ...plan.planned_update_options };
   delete planned_update_options[APPLY_BULK];
   const input = bulkUpdate(options, planned_update_options);
-  const parts: BulkResult[] = [];
+  const parts: BulkPart[] = [];
   for (const row of plan.item_plans!) {
     const apply = (update: BulkOptions['update']) =>
       runUpdateMany({ list: { ids: row.id }, update, checkpoint: options.checkpoint as boolean | undefined }, scope);
-    if (!row.changes.some(change => isGuidanceField(change.field))) {
-      parts.push(await apply(input));
-      continue;
+    try {
+      if (!row.changes.some(change => isGuidanceField(change.field))) {
+        parts.push(await apply(input));
+        continue;
+      }
+      const { item_hash } = await client.readItemRevision(row.id);
+      const { item } = await client.get(row.id, { full: true });
+      const update = withCliMutationInput(input);
+      if (isMemory(item)) prepareVerificationFields(update, item);
+      const { result } = await client.withExpectedItemRevisions([{ id: row.id, itemHash: item_hash }], () => apply(update));
+      parts.push(result);
+    } catch (error) {
+      parts.push({ ids: [], rows: [{ id: row.id, status: 'failed', error: toErrorMessage(error) }] });
     }
-    const { item_hash } = await client.readItemRevision(row.id);
-    const { item } = await client.get(row.id, { full: true });
-    const update = withCliMutationInput(input);
-    if (isMemory(item)) prepareVerificationFields(update, item);
-    const { result } = await client.withExpectedItemRevisions([{ id: row.id, itemHash: item_hash }], () => apply(update));
-    parts.push(result);
   }
   const result = combineBulk({ ...plan, planned_update_options }, parts, 'apply');
   const checkpoints = parts.flatMap(part => part.checkpoint ?? []);
@@ -165,8 +190,8 @@ export async function finishNativeInput({ payload }: ServiceOverrideContext) {
   const context = payload as NativeResult;
   const { command, options, global, result } = context;
   try {
-    if (command === 'update' && options[DOCUMENT_INPUT] !== undefined) {
-      return handleServiceOverride(await applyDocument(context, options[DOCUMENT_INPUT] as Record<string, unknown>));
+    if (command === 'update' && options[DEFERRED_UPDATE] !== undefined) {
+      return handleServiceOverride(await applyDocument(context, options[DEFERRED_UPDATE] as DeferredUpdate));
     }
     if (command === 'update-many' && options[APPLY_BULK] === true) return handleServiceOverride(await applyBulk(context, result));
     if (command === 'update-many' && result.rollback_checkpoint_id?.startsWith(`${COMBINED_CHECKPOINT}-`)) {

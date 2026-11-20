@@ -71,7 +71,7 @@ function changesGuidance(options: Record<string, unknown>, before: Record<string
     const value = assignments.get(field) ?? options[option];
     if (field === 'title' && typeof value === 'string') return value.trim() !== stored;
     return value !== undefined && value !== stored;
-  }) || options.bodyFile !== undefined;
+  });
 }
 
 /** Preserve the content timestamp of a prepared receipt and ignore identical native guidance. */

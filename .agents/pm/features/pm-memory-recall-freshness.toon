@@ -2,15 +2,17 @@ id: pm-memory-recall-freshness
 title: Report stale or contradictory knowledge in task recall
 description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
 type: Feature
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-20T08:27:08.420Z"
+updated_at: "2026-11-20T09:38:34.723Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[26]{created_at,author,text}:
+comments[29]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -37,6 +39,9 @@ comments[26]{created_at,author,text}:
   "2026-11-20T07:09:20.597Z",codex-sol,"Round ES maps PRRT_kwDOVPw2oc652ONn to b355136 for equivalent field comparison, PRRT_kwDOVPw2oc652ONs to b355136 for per-memory bulk preparation, PRRT_kwDOVPw2oc652ON3 to b355136 for persisted full-document normalization, and PRRT_kwDOVPw2oc652ON7 to b355136 for pure prefix projection. The real-tracker tests are in test/task-recall.test.ts."
   "2026-11-20T07:21:22.507Z",codex-sol,"Round ES typecheck and lint passed. The focused recall, content, native host, and reference command passed 246 cases with zero failures, cancellations, or skips. The final mixed-batch regression passed again after removing the unused fallback for absent SDK row receipts. Changelog regeneration and check passed with both items open. The full coverage command is running on b355136 source."
   "2026-11-20T08:27:04.743Z",codex-sol,"Round ES full quick coverage passed on b355136 source with PM_TEST_FILE_TIMEOUT_MS=3600000, PM_TEST_DEPTH=quick, and PM_TEST_TIME_SCALE=3. The gate reported 925 passes, zero failures, cancellations, or skips, and 100 percent statements, branches, functions, and lines across 41 source files. The focused reference suite passed 246 tests. Changelog check, typecheck, and lint passed."
+  "2026-11-20T09:29:10.750Z",codex-sol,"Round EW on d2f3e42: verify document updates on Tasks, identical and changed body files on verified memories, and receipts and rollback after a real later-row failure."
+  "2026-11-20T09:37:10.412Z",codex-sol,"Round EW follows native bulk semantics: record a thrown row as failed, continue the remaining rows, and retain native checkpoints for guarded rollback. Resolve regular body files once in the parser and defer stdin and literal dash handling through the native result service. Recheck memory identity on the current item before preparing verification fields."
+  "2026-11-20T09:38:34.721Z",codex-sol,"The three real-tracker regressions failed on d2f3e42 and pass with this change. They cover unchanged regular and stdin body files, literal content, an ordinary Task and a peer retype after parser selection, and a peer deletion after the first bulk row commits. The partial receipt includes both committed rows and its checkpoint restores their original body and verification. Typecheck and lint pass. The focused and full coverage suites are running."
 files[14]{path,scope}:
   index.ts,project
   manifest.json,project
@@ -52,7 +57,7 @@ files[14]{path,scope}:
   test/native-host.test.ts,project
   test/portable-recovery-controls.test.ts,project
   test/task-recall.test.ts,project
-tests[13]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[14]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   npm run typecheck && npm run lint,project,codex-sol,"2026-11-19T14:10:36.014Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-reporter=tap test/task-recall.test.ts,project,codex-sol,"2026-11-19T14:10:49.744Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-19T14:11:04.446Z",local_mutation,feat/recall-freshness
@@ -66,6 +71,7 @@ tests[13]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   "npm run changelog:check",project,codex-sol,"2026-11-20T01:03:20.417Z",local_mutation,feat/recall-freshness
   PM_TEST_FILE_TIMEOUT_MS=3600000 PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-20T02:36:01.235Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/commands.test.ts test/content-age.test.ts test/merge-history.test.ts test/merge-receipt.test.ts test/native-host.test.ts test/native-revision.test.ts test/portable-host.test.ts test/portable-locality.test.ts test/portable-publication.test.ts test/portable-recovery-controls.test.ts test/publication-intent.test.ts test/review-r1.test.ts test/review-r13.test.ts test/review-round4.test.ts test/sdk-adoption.test.ts test/sdk-secret-refusal.test.ts test/semantic.test.ts test/task-recall.test.ts test/utility.test.ts,project,codex-sol,"2026-11-20T07:01:02.172Z",local_mutation,feat/recall-freshness
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-name-pattern='native body files|native JSON document|native bulk receipts' test/task-recall.test.ts,project,codex-sol,"2026-11-20T09:37:13.319Z",local_mutation,feat/recall-freshness
 docs[3]{path,scope}:
   ARCHITECTURE.md,project
   docs/native-revision-validation.md,project

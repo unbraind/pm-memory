@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { estimatePmOutputTokens, getHistoryPath, parseMutationReceipt, readHistoryEntries } from '@unbrained/pm-cli/sdk';
+import { estimatePmOutputTokens, EXIT_CODE, getHistoryPath, loadMutationCheckpoint, parseMutationReceipt, readHistoryEntries } from '@unbrained/pm-cli/sdk';
 import { decodeToon } from '@unbrained/pm-cli/sdk/testing';
 import { grantConsent, recallTask, remember, renew, type TaskRecallPacket } from '../index.ts';
 import { installExtension, tracker } from './helpers.ts';
@@ -21,6 +21,18 @@ function pm(root: string, workspace: string, args: string[], input?: string) {
 function update(root: string, workspace: string, id: string, flags: readonly string[], input?: string): void {
   const result = pm(root, workspace, ['update', id, ...flags, '--json'], input);
   assert.equal(result.status, 0, result.stderr + result.stdout);
+}
+
+/** Install a tracker-local hook that runs a real mutation through an independent SDK client. */
+async function installPeerHook(workspace: string, capabilities: string[], registration: string): Promise<void> {
+  const dir = join(workspace, 'extensions', 'native-peer');
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'manifest.json'), JSON.stringify({ name: 'native-peer', version: '1.0.0', entry: 'entry.js', capabilities }));
+  await writeFile(join(dir, 'entry.js'), `
+    import { PmClient } from ${JSON.stringify(import.meta.resolve('@unbrained/pm-cli/sdk'))};
+    const peer = new PmClient({ pmRoot: ${JSON.stringify(workspace)}, author: 'native-peer', noExtensions: true });
+    export default { activate(api) { ${registration} } };
+  `);
 }
 
 test('native task resume ranks eligible relationships and leaves work and memory history intact', async t => {
@@ -330,6 +342,70 @@ test('native operational edits and identical guidance retain current verificatio
   }
 });
 
+test('native body files preserve unchanged guidance and treat file data as literal', async t => {
+  const { client, options, root, store, workspace } = await tracker(t);
+  const memory = await remember('Read the instructions.', { ...options, kind: 'reference', slug: 'body-file' });
+  const old = '2020-01-01T00:00:00.000Z';
+  await store.fields(memory.id, { changed_at: old, verdict: 'verified', verified_at: old, reason: 'Approved guidance' });
+  await installExtension(workspace);
+  const history = () => readHistoryEntries(getHistoryPath(workspace, memory.id), memory.id);
+  const before = await history();
+  const stored = (await client.get(memory.id, { full: true })).item;
+  const path = join(root, 'body.md');
+  await writeFile(path, stored.body!);
+  update(root, workspace, memory.id, ['--body-file', path]);
+  update(root, workspace, memory.id, ['--body-file', '-'], stored.body);
+  assert.deepEqual((await client.get(memory.id, { full: true })).item, stored);
+  assert.deepEqual(await history(), before);
+
+  const conflict = pm(root, workspace, ['update', memory.id, '--body-file', '-', '--description', '-', '--json'], 'Conflicting stdin');
+  assert.equal(conflict.status, EXIT_CODE.USAGE, conflict.stdout + conflict.stderr);
+  assert.match(conflict.stderr, /Only one option may consume stdin/u);
+  const twoBodies = pm(root, workspace, ['update', memory.id, '--body-file', path, '--body', 'Inline', '--json']);
+  assert.equal(twoBodies.status, EXIT_CODE.USAGE, twoBodies.stdout + twoBodies.stderr);
+  assert.match(twoBodies.stderr, /mutually exclusive/u);
+  assert.deepEqual(await history(), before);
+
+  await writeFile(path, '-');
+  update(root, workspace, memory.id, ['--body-file', path, '--description', '-'], 'Read this description from stdin');
+  const { item } = await client.get(memory.id, { full: true });
+  assert.equal(item.body, '-');
+  assert.equal(item.description, 'Read this description from stdin');
+  assert.ok(Date.parse(String(item.memory_changed_at)) > Date.parse(old));
+  assert.deepEqual([item.memory_verdict, item.memory_verified_at, item.memory_reason], ['unknown', undefined, undefined]);
+  const after = await history();
+  assert.equal(after.length, before.length + 1);
+  const changes = after.at(-1)!.patch.map(patch => patch.path);
+  for (const field of ['/body', '/metadata/memory_changed_at', '/metadata/memory_verdict', '/metadata/memory_verified_at', '/metadata/memory_reason']) assert.ok(changes.includes(field), field);
+});
+
+test('native JSON document updates leave Tasks free of memory verification fields', async t => {
+  const { client, options, root, workspace } = await tracker(t);
+  const task = (await client.create({ title: 'Ordinary document item', type: 'Task' })).item.id;
+  const memory = await remember('Previous project guidance', { ...options, kind: 'reference', slug: 'converted-task' });
+  await installExtension(workspace);
+  await installPeerHook(workspace, ['preflight'], `
+    api.registerPreflight({ commands: ['update'], async run({ args }) {
+      if (args[0] === ${JSON.stringify(memory.id)}) {
+        await peer.update(args[0], { type: 'Task', unset: ['memory_slug', 'memory_changed_at', 'memory_verdict'] });
+      }
+      return {};
+    } });
+  `);
+
+  for (const id of [task, memory.id]) {
+    update(root, workspace, id, ['--stdin-json'], JSON.stringify({ body: 'New Task instructions.' }));
+    const { item } = await client.get(id, { full: true });
+    assert.equal(item.type, 'Task');
+    assert.equal(item.body, 'New Task instructions.');
+    assert.equal(item.memory_changed_at, undefined);
+    assert.equal(item.memory_verdict, undefined);
+    const history = await readHistoryEntries(getHistoryPath(workspace, id), id);
+    assert.ok(history.at(-1)!.patch.some(patch => patch.path === '/body'));
+    assert.ok(history.at(-1)!.patch.every(patch => !patch.path.startsWith('/metadata/memory_')));
+  }
+});
+
 test('native bulk updates revise each changed memory and retain ordinary batch rows', async t => {
   const { client, options, root, store, workspace } = await tracker(t);
   const task = (await client.create({ title: 'Ordinary batch item', type: 'Task', body: 'Old task guidance' })).item.id;
@@ -388,6 +464,63 @@ test('native bulk updates revise each changed memory and retain ordinary batch r
   const withoutCheckpoint = bulk('--ids', first.id, '--body', next, '--no-checkpoint');
   assert.equal(withoutCheckpoint.updated_count, 1);
   assert.equal(withoutCheckpoint.checkpoint, undefined);
+});
+
+test('native bulk receipts preserve committed rows and rollback after a later row throws', async t => {
+  const { client, options, root, store, workspace } = await tracker(t);
+  const original = 'Previous guidance.';
+  const old = '2020-01-01T00:00:00.000Z';
+  const ids: string[] = [];
+  for (const slug of ['first', 'later', 'last']) {
+    const { id } = await remember(original, { ...options, kind: 'reference', slug, forceNew: true });
+    ids.push(id);
+    await store.fields(id, { changed_at: old, verdict: 'verified', verified_at: old, reason: 'Prior review' });
+  }
+  await installExtension(workspace);
+  const revised = 'Updated guidance.';
+  const flags = ['update-many', '--ids', ids.join(','), '--body', revised, '--json'];
+  const preview = pm(root, workspace, [...flags, '--dry-run']);
+  assert.equal(preview.status, EXIT_CODE.SUCCESS, preview.stdout + preview.stderr);
+  const [first, later, last] = JSON.parse(preview.stdout).item_plans.map((row: { id: string }) => row.id);
+  await installPeerHook(workspace, ['hooks'], `
+    api.hooks.onWrite(async ({ item_id, op }) => {
+      if (item_id === ${JSON.stringify(first)} && op === 'update') {
+        await peer.delete(${JSON.stringify(later)}, { force: true });
+      }
+    });
+  `);
+
+  const failed = pm(root, workspace, flags);
+  await assert.rejects(client.get(later, { full: true }), /was deleted/u);
+  assert.equal((await client.get(first, { full: true })).item.body, revised);
+  assert.equal(failed.status, EXIT_CODE.PARTIAL_EFFECT, failed.stdout + failed.stderr);
+  const receipt = JSON.parse(failed.stdout);
+  assert.equal(receipt.outcome, 'partial_effect');
+  assert.equal(receipt.exit_code, EXIT_CODE.PARTIAL_EFFECT);
+  assert.deepEqual([receipt.matched_count, receipt.updated_count, receipt.failed_count, receipt.skipped_count], [3, 2, 1, 0]);
+  assert.deepEqual(receipt.ids, [first, last]);
+  assert.deepEqual(receipt.rows.map(({ id, status }: { id: string; status: string }) => [id, status]),
+    [[first, 'updated'], [later, 'failed'], [last, 'updated']]);
+  assert.match(receipt.rows[1].error, /was deleted/u);
+  assert.equal((await client.get(last, { full: true })).item.body, revised);
+
+  assert.equal(receipt.checkpoint.rollback_command, `pm update-many --rollback ${receipt.checkpoint.id}`);
+  const { record } = await loadMutationCheckpoint(workspace, 'update-many', receipt.checkpoint.id, 2);
+  const checkpoints = record.memory_checkpoints as string[];
+  assert.equal(checkpoints.length, 2);
+  const children = await Promise.all(checkpoints.map(id => loadMutationCheckpoint(workspace, 'update-many', id, 2)));
+  assert.deepEqual(children.map(child => child.items.map(item => item.id)), [[first], [last]]);
+  const rollback = pm(root, workspace, ['update-many', '--rollback', receipt.checkpoint.id, '--json']);
+  assert.equal(rollback.status, EXIT_CODE.SUCCESS, rollback.stdout + rollback.stderr);
+  const restored = JSON.parse(rollback.stdout);
+  assert.equal(restored.restored_count, 2);
+  assert.deepEqual(restored.ids, [first, last]);
+  for (const id of restored.ids) {
+    const { item } = await client.get(id, { full: true });
+    assert.deepEqual([item.body, item.memory_changed_at, item.memory_verdict, item.memory_verified_at, item.memory_reason],
+      [original, old, 'verified', old, 'Prior review']);
+  }
+  await assert.rejects(client.get(later, { full: true }), /was deleted/u);
 });
 
 

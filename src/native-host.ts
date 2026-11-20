@@ -1,12 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { createMutationGuardSdk, readSettings, PmClient, resolveItemTypeRegistry, runActiveBeforeMutationHooks } from '@unbrained/pm-cli/sdk';
+import { createMutationGuardSdk, readSettings, PmClient, resolveBodyFileContent, resolveItemTypeRegistry, runActiveBeforeMutationHooks } from '@unbrained/pm-cli/sdk';
 import type { CreateResult, UpdateResult } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook, ExtensionApi } from '@unbrained/pm-cli/sdk/authoring';
 import type { Store } from './store.ts';
 import { MemoryError } from './core.ts';
 import { isGuidanceField, nativeContentRevision } from './content.ts';
-import { APPLY_BULK, DOCUMENT_INPUT, finishNativeInput, isCheckpointRestore, isMemory, needsBulkPreparation } from './native-input.ts';
+import { APPLY_BULK, deferUpdate, finishNativeInput, isCheckpointRestore, isMemory, needsBulkPreparation } from './native-input.ts';
 
 /** Private discovery operation denies before persistence and never represents an item transition. */
 const PROBE = 'pm-memory-verification-guard-probe';
@@ -37,12 +37,18 @@ export function registerNativeHost(api: ExtensionApi): void {
     const client = PmClient.forActiveExtensionHost({ pmRoot: pm_root });
     const { item } = await client.get(args[0], { full: true });
     if (!isMemory(item)) return {};
-    if (options.stdinJson === true) {
-      const inactive = Object.fromEntries(Object.keys(options).map(key => [key, undefined]));
-      return { options: { ...inactive, [DOCUMENT_INPUT]: options } };
+    const { bodyFile } = options;
+    if (options.stdinJson === true || (typeof bodyFile === 'string' && bodyFile.trim() === '-')) {
+      return { options: deferUpdate(options) };
     }
-    nativeContentRevision(options, item);
-    return { options };
+    let update = options;
+    if (typeof bodyFile === 'string') {
+      const body = await resolveBodyFileContent(bodyFile, options.body as string | undefined);
+      if (body.trim() === '-') return { options: deferUpdate(options, body) };
+      update = { ...options, body, bodyFile: undefined };
+    }
+    nativeContentRevision(update, item);
+    return { options: update };
   });
   api.registerParser('update-many', ({ options }) =>
     needsBulkPreparation(options) ? { options: { ...options, dryRun: true, [APPLY_BULK]: true } } : {});
