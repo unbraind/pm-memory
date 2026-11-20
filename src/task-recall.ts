@@ -5,7 +5,7 @@ import { budget, MemoryError, text, words } from './core.ts';
 import { eligibleGuidance } from './guidance.ts';
 import { active, scored } from './memory.ts';
 import { Store } from './store.ts';
-import type { MemoryOptions } from './types.ts';
+import type { Memory, MemoryOptions } from './types.ts';
 
 /** The SDK catalogs this intent by the registered extension action. */
 export const contextIntents = [{
@@ -52,19 +52,36 @@ export type TaskRecallPacket = FittedOutputEnvelope<TaskRecallProjection>;
 /** Common connective words alone are insufficient evidence of relevance. */
 const CONNECTIVES = new Set(['a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'in', 'is', 'it', 'of', 'on', 'or', 'the', 'to', 'was', 'were', 'with']);
 
-/** Rank a certified same-tracker snapshot without recording recall exposures or calling embeddings. */
-export async function recallTask(taskId: string, options: TaskRecallOptions): Promise<TaskRecallPacket> {
-  const id = text(taskId).trim();
+/** Resolve the native resume contract before opening a tracker. */
+export function taskRecallIntent(id: string, requested?: string): PmContextIntentContract {
   const declaration = contextIntents[0];
-  const intent = resolveContextIntentContract(declaration.command, options.intent ?? declaration.intent, contextIntents, [id])!;
-  const limit = budget(options.tokenBudget ?? intent.token_budget);
-  const store = new Store(options);
-  const { items } = certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true }));
+  return resolveContextIntentContract(declaration.command, requested ?? declaration.intent, contextIntents, [id])!;
+}
+
+/** The local projection, before packet-specific provenance and budget are applied. */
+type RankedTask = { id: string; basis: 'linked' | 'lexical'; rows: TaskRecallRow[]; ineligible: number };
+
+/** Read every native item and body through the SDK's complete-list contract. */
+export async function readTaskRecallCorpus(store: Store) {
+  return certifyCompleteListResult(await store.client.listAllComplete({ includeBody: true })).items;
+}
+
+/** Rank one certified snapshot, filtering protected memories before relevance scoring. */
+export async function rankTask(
+  id: string, store: Store, items: Awaited<ReturnType<typeof readTaskRecallCorpus>>,
+  canShare?: (row: TaskRecallRow) => boolean,
+): Promise<RankedTask> {
   const task = items.find(item => item.id === id && item.type !== 'Knowledge');
   if (task === undefined) throw new MemoryError('missing', 'Work item does not exist', 'Use the full ID of a non-Knowledge item in this tracker');
 
-  const eligible = eligibleGuidance(active(await store.read(items)), 'exclude', Date.now())
-    .filter(item => item.consent === undefined && item.verdict !== 'stale');
+  const current = eligibleGuidance(active(await store.read(items)), 'exclude', Date.now())
+    .filter(item => item.verdict !== 'stale');
+  let ineligible = 0;
+  const eligible = current.filter(item => {
+    if (item.consent === undefined && (canShare === undefined || canShare(taskRow(item)))) return true;
+    ineligible++;
+    return false;
+  });
   const targets = new Set(task.dependencies?.map(edge => edge.id));
   const linked = eligible.filter(item => item.links.includes(task.id) || targets.has(item.id));
   const hasLinks = linked.length > 0;
@@ -72,17 +89,31 @@ export async function recallTask(taskId: string, options: TaskRecallOptions): Pr
   const query = [...words([task.title, task.description].join('\n'))].filter(word => !CONNECTIVES.has(word)).join(' ');
   const rows = scored(hasLinks ? linked : eligible, query)
     .filter(entry => hasLinks || entry.lexical > 0)
-    .map(({ item }): TaskRecallRow => ({
-      slug: item.slug,
-      body: item.body,
-      ...(item.why ? { why: item.why } : {}),
-      ...(item.how ? { how: item.how } : {}),
-    }));
+    .map(({ item }) => taskRow(item));
+  return { id: task.id, basis, rows, ineligible };
+}
 
+/** Project the complete actionable fields used by both resume forms. */
+function taskRow(item: Memory): TaskRecallRow {
+  return {
+    slug: item.slug,
+    body: item.body,
+    ...(item.why ? { why: item.why } : {}),
+    ...(item.how ? { how: item.how } : {}),
+  };
+}
+
+/** Rank a certified same-tracker snapshot without recording recall exposures or calling embeddings. */
+export async function recallTask(taskId: string, options: TaskRecallOptions): Promise<TaskRecallPacket> {
+  const id = text(taskId).trim();
+  const intent = taskRecallIntent(id, options.intent);
+  const limit = budget(options.tokenBudget ?? intent.token_budget);
+  const store = new Store(options);
+  const { id: nativeId, basis, rows } = await rankTask(id, store, await readTaskRecallCorpus(store));
   return fitOutputEnvelope(rows, {
     tokenBudget: limit,
     buildEnvelope: (memories, receipt): TaskRecallProjection => ({
-      task_id: task.id,
+      task_id: nativeId,
       intent: intent.intent,
       basis,
       memories,

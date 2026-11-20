@@ -202,6 +202,77 @@ task recall took 182, saving 433 (70%). These estimates use the pm SDK's
 outside those totals. The same unseeded tracker took 692 TOON tokens for
 `pm context --for orient` and 552 with `--token-budget 700`.
 
+#### Federated task recall
+
+Repeat `--tracker` with the directories that contain each tracker's
+`settings.json`. A bare path uses the positional task ID. Use
+`TASK_ID=PATH` to resolve a different native task in a particular tracker.
+Paths are relative to the working directory. Prefix a relative path
+containing an equals sign with `./` to pass it as a bare path.
+
+Use `--share-tracker` with the same tracker directory and optional task ID to
+approve that source for the invocation. Paths match by their resolved directory,
+so selecting the same directory through multiple paths is rejected. With any
+selectors present, only those trackers participate.
+Select the current tracker explicitly when its memories are needed. The
+command opens only approved sources, uses certified SDK reads with extensions
+disabled, and leaves native items and history intact. Consent-managed memories
+remain available through the purpose-limited `memory view` workflow. Federation
+withholds them and rows that fail the memory privacy check before ranking.
+
+Each memory row carries its `tracker` path. Every selected tracker has a
+receipt in `sources`, in the order requested.
+
+| Status | Meaning |
+| --- | --- |
+| `included` | Read succeeded. The receipt counts included and omitted rows and any active, current memories withheld by policy. A task with no matching memories can have zero counts. |
+| `omitted` | Read succeeded and the shared budget withheld all matching rows from this tracker. |
+| `unavailable` | The tracker could not be read or had an unsupported version, or the selected native task was missing. The receipt gives a machine-readable reason. |
+| `ineligible` | Sharing was unapproved, or policy withheld memories and there were no eligible matches in that tracker. |
+
+The default 450-token budget covers every source receipt, complete rows and
+SDK accounting in both supported formats. The fitter considers sources in
+selection order and uses the local rank within each source. A row that cannot
+fit can be skipped so a smaller row can fit. Check each source's `omitted`
+count and the packet's `output_fit.omitted_count` before increasing the
+budget. If the receipts alone exceed the ceiling, the command returns a budget
+error. The SDK equivalent is `recallTaskFederated(id, { sources, tokenBudget })`
+with `{ tracker, taskId?, allowSharing? }` entries.
+
+##### Two-tracker measurement
+
+Using pm core 2026.11.14, copy the public trackers at the linked commits into
+sibling directories called `memory` and `context`. Point `PM_PATH` at each
+copy to activate pm-memory and seed the linked CI guidance. Run the example
+from their parent directory. [pm-memory at 1423ca6](https://github.com/unbraind/pm-memory/blob/1423ca6647906ed0bc8a3737d31a5656bba576a2/.agents/pm/tasks/pm-memory-higm.toon) · [pm-context at 41f3acc](https://github.com/unbraind/pm-context/blob/41f3acce5fbec0bd1c34f9922cd46b2a5c56051b/.agents/pm/tasks/pm-context-ci-v2.toon)
+
+```sh
+PM_PATH=memory pm memory remember 'Keep the required Node 22 and Node 26 test jobs alongside CodeQL.' --kind project --slug required-ci-jobs --link pm-memory-higm
+PM_PATH=context pm memory remember 'Keep exhaustive npm and Bun validation on main and in the nightly deep gate.' --kind project --slug deep-consumer-gates --link pm-context-ci-v2
+
+PM_PATH=memory pm memory recall-task pm-memory-higm --for resume
+PM_PATH=context pm context --for orient --token-budget 700
+PM_PATH=context pm memory recall-task pm-context-ci-v2 --for resume
+
+PM_PATH=memory pm memory recall-task pm-memory-higm --for resume \
+  --tracker memory --share-tracker memory \
+  --tracker pm-context-ci-v2=context --share-tracker pm-context-ci-v2=context
+```
+
+Both paths returned the same two complete actionable rows. The baseline
+includes the two recalls and one additional orientation after switching from
+the first tracker to the second. Counts use the SDK estimator
+`ceil(UTF-8 stdout bytes / 4)` per command, with a 700-token orientation
+ceiling in TOON and 1200 in JSON.
+
+| Format | First recall | Second recall | Second orientation | Baseline | Federated | Saved |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| TOON | 93 | 97 | 552 | 742 | 161 | **581 (78.3%)** |
+| JSON | 147 | 151 | 951 | 1249 | 294 | **955 (76.5%)** |
+
+The single-tracker TOON and JSON outputs both matched the pre-federation
+implementation byte for byte on these two tasks.
+
 Import supports `--from claude-code|agents-md|cursor`, directories or individual regular UTF-8 files. Claude Code frontmatter recognizes `name`, `description`, `metadata.type` and legacy top-level `type`; optional `**Why:**` and `**How to apply:**` lines become fields. Unknown memory kinds and malformed YAML refuse. Plain unquoted `name`/`description` values containing a colon are accepted without altering their original bytes. A valid frontmatter `name` is the canonical kebab-case key. The original file stem remains a link alias; canonical names take precedence, and ambiguous aliases stay unresolved. Frontmatter descriptions populate the native description field and participate in ranking and compact recall. Claude Code MEMORY.md indexes are retained as export artifacts and excluded from retrieval. Import deliberately retains source duplicates for review instead of discarding source files. Re-importing unchanged bytes and links performs no durable writes. Source revisions preserve native lifecycle, utility and other native-only metadata, including archived status. Content changes clear prior verification evidence and reset the verdict to `unknown` in the same native mutation. Independently revised items refuse source replacement.
 
 Export supports `--to claude-code|agents-md`. Unchanged imported facts of the same harness whose wiki references still resolve retain byte-identical content, frontmatter, BOM, line endings, ordering and final newline. Recall and verification metadata do not invalidate that preservation. If an index, body or wiki reference would need regeneration, export uses the policy format and raw SDK bodies instead. This prevents generated projections from becoming native edits on re-import. A complete current legacy index and all unchanged files retain their original bytes. Omitted references are reported without granting deletion authority. Destination symlinks, user-owned ancestor symlinks, unsafe relative names and conflicting destination files refuse; POSIX root-owned system links are allowed in ancestors; identical existing files are accepted. Use a dedicated empty output directory. Export plans before creating directories, writes to a sibling temporary directory, then publishes with one rename. Failed staging is removed. The destination must be absent, empty or already contain identical output. Export creates missing destination parents after preflight.
@@ -242,7 +313,7 @@ const evidence = await utility('build', options);
 
 ## Harness usage
 
-Claude Code can import and export its memory directory. Codex and pi can import AGENTS.md sections as files and consume recall/index directly. Cursor can import its rules directory. Commands always use the selected tracker, so shared visibility follows the host's tracker access and extension configuration.
+Claude Code can import and export its memory directory. Codex and pi can import AGENTS.md sections as files and consume recall/index directly. Cursor can import its rules directory. Shared visibility follows the host's tracker access and extension configuration. Federated task recall uses the trackers explicitly selected for the invocation.
 
 Add this guidance to AGENTS.md (or the harness's equivalent instructions):
 

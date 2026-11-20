@@ -4,6 +4,7 @@ import type { CommandHandlerContext, ExtensionApi, FlagDefinition } from '@unbra
 import { kind, MemoryError, text } from './core.ts';
 import { remember, recall, index, get } from './memory.ts';
 import { recallTask } from './task-recall.ts';
+import { recallTaskFromSelectors } from './task-federation.ts';
 import { exportDir, harness, importDir } from './transfer.ts';
 import { verify } from './verify.ts';
 import { consolidate } from './consolidate.ts';
@@ -48,7 +49,15 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     if (command === 'view') return await createView(text(ctx.args[0]), { ...base, purpose: text(options.purpose), fields: viewFields(text(options.fields).split(',')), budget: options.budget === undefined ? undefined : Number(options.budget) });
     if (command === 'renew') return await renew(text(ctx.args[0]), { ...base, from: text(options.validFrom), until: text(options.validUntil), evidence: text(options.evidence) });
     if (command === 'recall') return await recall(text(ctx.args[0]), { ...base, validity: guidancePolicy(options.validity), budget: options.budget === undefined ? undefined : Number(options.budget), semantic: semanticMode(options.semantic), kind: options.kind === undefined ? undefined : kind(options.kind) });
-    if (command === 'recall-task') return await recallTask(text(ctx.args[0]), { ...base, intent: options.for === undefined ? undefined : text(options.for), tokenBudget: options.tokenBudget === undefined ? undefined : Number(options.tokenBudget) });
+    if (command === 'recall-task') {
+      const id = text(ctx.args[0]);
+      const intent = options.for === undefined ? undefined : text(options.for);
+      const tokenBudget = options.tokenBudget === undefined ? undefined : Number(options.tokenBudget);
+      const selectors = repeatedText(options.tracker);
+      const approvals = repeatedText(options.shareTracker);
+      if (selectors.length === 0 && approvals.length === 0) return await recallTask(id, { ...base, intent, tokenBudget });
+      return await recallTaskFromSelectors(id, selectors, approvals, { intent, tokenBudget });
+    }
     if (command === 'observe') return await observe(text(ctx.args[0]), { ...base, recall: text(options.recall), task: text(options.task), feedback: text(options.feedback) as ObserveOptions['feedback'], outcome: text(options.outcome) as ObserveOptions['outcome'], attribution: text(options.attribution) as ObserveOptions['attribution'], evidence: text(options.evidence) });
     if (command === 'utility') return await utility(text(ctx.args[0]), base);
     if (command === 'get') return await get(text(ctx.args[0]), base);
@@ -65,9 +74,15 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
     throw createPmCliExpectedError(`memory ${refusal.code}: ${refusal.message}. Remedy: ${refusal.remedy}`, { ...(refusal.code === 'privacy' ? {} : { cause: error }), exitCode: refusal.code === 'privacy' ? 4 : refusal.code === 'duplicate' || refusal.code === 'conflict' ? 3 : 2, context: { code: refusal.code, required: refusal.remedy, ...(refusal.code === 'privacy' ? { recovery: { attempted_command: `pm memory ${command} [redacted]`, normalized_args: ['memory', command], provided_fields: [] } } : {}) } });
   }
 }
+/** Normalize repeated native selector operands. */
+function repeatedText(value: unknown): string[] {
+  return value === undefined ? [] : (Array.isArray(value) ? value : [value]).map(text);
+}
 /** Native flag descriptions include concrete examples in every option's help entry. */
 const OPTIONS: Record<string, string> = {
   for: 'Apply the resume projection (example: --for resume)',
+  tracker: 'Select an exact tracker directory, optionally prefixed with TASK_ID= (example: --tracker ../shared/.agents/pm)',
+  'share-tracker': 'Approve sharing for the same tracker directory and optional task ID (example: --share-tracker ../shared/.agents/pm)',
   'token-budget': 'Bound the whole task recall packet (example: --token-budget 450)',
   purpose: 'Explicit recall purpose identifier (example: --purpose release-review)',
   fields: 'Comma-separated authorized content fields (example: --fields title,body)',
@@ -101,7 +116,7 @@ const OPTIONS: Record<string, string> = {
 };
 /** Build uniform typed flags with native repeatable link and root handling. */
 function flags(strings: string[], booleans: string[]): FlagDefinition[] {
-  return [...strings.map(name => ({ long: `--${name}`, description: OPTIONS[name], value_name: name === 'from' || name === 'to' ? 'format' : name, value_type: 'string' as const, repeatable: name === 'link' || name === 'root' })), ...booleans.map(name => ({ long: `--${name}`, description: OPTIONS[name], value_type: 'boolean' as const }))];
+  return [...strings.map(name => ({ long: `--${name}`, description: OPTIONS[name], value_name: name === 'from' || name === 'to' ? 'format' : name, value_type: 'string' as const, repeatable: ['link', 'root', 'tracker', 'share-tracker'].includes(name) })), ...booleans.map(name => ({ long: `--${name}`, description: OPTIONS[name], value_type: 'boolean' as const }))];
 }
 /** Descriptive commands and realistic invocations are carried through the native host help. */
 const HELP: Record<string, [string, string, string]> = {
@@ -135,7 +150,7 @@ export function register(api: ExtensionApi): void {
     ['remember', ['kind', 'slug', 'update', 'why', 'how', 'link'], ['pin', 'force-new', 'allow-email'], 'fact'],
     ['renew', ['valid-from', 'valid-until', 'evidence'], [], 'slug'],
     ['recall', ['budget', 'kind', 'semantic', 'validity'], [], 'query'],
-    ['recall-task', ['for', 'token-budget'], [], 'id'],
+    ['recall-task', ['for', 'token-budget', 'tracker', 'share-tracker'], [], 'id'],
     ['observe', ['recall', 'task', 'feedback', 'outcome', 'attribution', 'evidence'], [], 'slug'],
     ['utility', [], [], 'slug'],
     ['get', [], [], 'slug'],
