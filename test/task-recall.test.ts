@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { estimatePmOutputTokens, EXIT_CODE, getHistoryPath, loadMutationCheckpoint, parseMutationReceipt, readHistoryEntries } from '@unbrained/pm-cli/sdk';
@@ -525,6 +525,57 @@ test('native bulk receipts preserve committed rows and rollback after a later ro
       [original, old, 'verified', old, 'Prior review']);
   }
   await assert.rejects(client.get(later, { full: true }), /was deleted/u);
+});
+
+test('native bulk receipts survive combined checkpoint publication failure', async t => {
+  const { client, options, root, workspace } = await tracker(t);
+  const original = 'Previous guidance.';
+  const revised = 'Updated guidance.';
+  const ids = [];
+  for (const slug of ['first', 'second']) {
+    const { id } = await remember(original, { ...options, kind: 'reference', slug, forceNew: true });
+    ids.push(id);
+  }
+  await installExtension(workspace);
+  const flags = ['update-many', '--ids', ids.join(','), '--body', revised, '--json'];
+  const preview = pm(root, workspace, [...flags, '--dry-run']);
+  assert.equal(preview.status, EXIT_CODE.SUCCESS, preview.stderr);
+  const orderedIds = JSON.parse(preview.stdout).item_plans.map((row: { id: string }) => row.id);
+  const checkpointDir = join(workspace, 'checkpoints', 'update-many');
+  const savedDir = join(workspace, 'checkpoints', 'saved-children');
+  await installPeerHook(workspace, ['hooks'], `
+    api.hooks.onWrite(async ({ item_id, op }) => {
+      if (item_id === ${JSON.stringify(orderedIds.at(-1))} && op === 'update') {
+        const { rename, writeFile } = await import('node:fs/promises');
+        await rename(${JSON.stringify(checkpointDir)}, ${JSON.stringify(savedDir)});
+        await writeFile(${JSON.stringify(checkpointDir)}, 'Block combined checkpoint publication', { flag: 'wx' });
+      }
+    });
+  `);
+
+  const failed = pm(root, workspace, flags);
+  for (const id of ids) assert.equal((await client.get(id, { full: true })).item.body, revised);
+  assert.equal(failed.status, EXIT_CODE.DEPENDENCY_FAILED, failed.stdout + failed.stderr);
+  const receipt = JSON.parse(failed.stdout);
+  assert.equal(receipt.outcome, 'dependency_failed');
+  assert.equal(receipt.exit_code, EXIT_CODE.DEPENDENCY_FAILED);
+  assert.deepEqual([receipt.matched_count, receipt.updated_count, receipt.failed_count, receipt.skipped_count], [2, 2, 0, 0]);
+  assert.deepEqual(receipt.ids, orderedIds);
+  assert.deepEqual(receipt.rows.map(({ id, status }: { id: string; status: string }) => [id, status]),
+    orderedIds.map((id: string) => [id, 'updated']));
+  assert.equal(receipt.checkpoint, undefined);
+  assert.equal(receipt.checkpoint_error.code, 'combined_checkpoint_write_failed');
+  assert.match(receipt.checkpoint_error.detail, /EEXIST|ENOTDIR/u);
+  await unlink(checkpointDir);
+  await rename(savedDir, checkpointDir);
+  const children = await Promise.all((receipt.child_checkpoint_ids as string[]).map(id =>
+    loadMutationCheckpoint(workspace, 'update-many', id, 2)));
+  assert.deepEqual(children.map(child => child.items.map(item => item.id)), orderedIds.map((id: string) => [id]));
+  for (const child of children) {
+    const id = child.items[0].id;
+    const history = await readHistoryEntries(getHistoryPath(workspace, id), id);
+    assert.equal(history.at(-1)?.context?.bulk_checkpoint, child.id);
+  }
 });
 
 

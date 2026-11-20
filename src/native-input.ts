@@ -22,6 +22,10 @@ type BulkResult = Awaited<ReturnType<typeof runUpdateMany>>;
 type BulkRow = NonNullable<BulkResult['rows']>[number];
 type BulkPart = Pick<BulkResult, 'rows' | 'ids' | 'checkpoint'>;
 type BulkCheckpoint = NonNullable<BulkResult['checkpoint']>;
+type BulkApplyResult = BulkResult & {
+  checkpoint_error?: { code: 'combined_checkpoint_write_failed'; detail: string };
+  child_checkpoint_ids?: string[];
+};
 type Global = Parameters<typeof runUpdateMany>[1];
 type DeferredUpdate = { raw: Record<string, unknown>; fileBody?: string };
 type NativeResult = {
@@ -145,7 +149,7 @@ function bulkUpdate(options: Record<string, unknown>, normalized: Record<string,
 }
 
 /** Apply the SDK's validated native preview with a fresh, guarded preparation for each memory. */
-async function applyBulk(context: NativeResult, plan: BulkResult): Promise<BulkResult> {
+async function applyBulk(context: NativeResult, plan: BulkResult): Promise<BulkApplyResult> {
   const { pm_root, options, global } = context;
   const scope = { ...global, path: pm_root };
   const client = PmClient.forActiveExtensionHost({ pmRoot: pm_root });
@@ -171,9 +175,21 @@ async function applyBulk(context: NativeResult, plan: BulkResult): Promise<BulkR
       parts.push({ ids: [], rows: [{ id: row.id, status: 'failed', error: toErrorMessage(error) }] });
     }
   }
-  const result = combineBulk({ ...plan, planned_update_options }, parts, 'apply');
+  const result: BulkApplyResult = combineBulk({ ...plan, planned_update_options }, parts, 'apply');
   const checkpoints = parts.flatMap(part => part.checkpoint ?? []);
-  if (checkpoints.length > 0) result.checkpoint = await combineCheckpoints(pm_root, checkpoints);
+  if (checkpoints.length > 0) {
+    try {
+      result.checkpoint = await combineCheckpoints(pm_root, checkpoints);
+    } catch (error) {
+      result.outcome = 'dependency_failed';
+      result.exit_code = EXIT_CODE.DEPENDENCY_FAILED;
+      result.checkpoint_error = {
+        code: 'combined_checkpoint_write_failed',
+        detail: `Could not publish the combined update-many checkpoint: ${toErrorMessage(error)}`,
+      };
+      result.child_checkpoint_ids = checkpoints.map(checkpoint => checkpoint.id);
+    }
+  }
   await refreshSearchArtifactsForMutation(pm_root, result.ids, { background: true });
   return result;
 }
