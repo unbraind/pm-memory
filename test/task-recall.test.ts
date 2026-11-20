@@ -23,6 +23,15 @@ function update(root: string, workspace: string, id: string, flags: readonly str
   assert.equal(result.status, 0, result.stderr + result.stdout);
 }
 
+/** Keep the CLI's selection order when arranging faults between native bulk rows. */
+function previewBulkBodyUpdate(root: string, workspace: string, ids: string[], body: string) {
+  const flags = ['update-many', '--ids', ids.join(','), '--body', body, '--json'];
+  const preview = pm(root, workspace, [...flags, '--dry-run']);
+  assert.equal(preview.status, EXIT_CODE.SUCCESS, preview.stdout + preview.stderr);
+  const { item_plans } = JSON.parse(preview.stdout) as { item_plans: { id: string }[] };
+  return { flags, orderedIds: item_plans.map(row => row.id) };
+}
+
 /** Install a tracker-local hook that runs a real mutation through an independent SDK client. */
 async function installPeerHook(workspace: string, capabilities: string[], registration: string): Promise<void> {
   const dir = join(workspace, 'extensions', 'native-peer');
@@ -482,10 +491,7 @@ test('native bulk receipts preserve committed rows and rollback after a later ro
   }
   await installExtension(workspace);
   const revised = 'Updated guidance.';
-  const flags = ['update-many', '--ids', ids.join(','), '--body', revised, '--json'];
-  const preview = pm(root, workspace, [...flags, '--dry-run']);
-  assert.equal(preview.status, EXIT_CODE.SUCCESS, preview.stdout + preview.stderr);
-  const [first, later, last] = JSON.parse(preview.stdout).item_plans.map((row: { id: string }) => row.id);
+  const { flags, orderedIds: [first, later, last] } = previewBulkBodyUpdate(root, workspace, ids, revised);
   await installPeerHook(workspace, ['hooks'], `
     api.hooks.onWrite(async ({ item_id, op }) => {
       if (item_id === ${JSON.stringify(first)} && op === 'update') {
@@ -527,7 +533,7 @@ test('native bulk receipts preserve committed rows and rollback after a later ro
   await assert.rejects(client.get(later, { full: true }), /was deleted/u);
 });
 
-test('native bulk receipts survive combined checkpoint publication failure', async t => {
+test('native bulk receipts keep committed rows when combined checkpoint publication fails', async t => {
   const { client, options, root, workspace } = await tracker(t);
   const original = 'Previous guidance.';
   const revised = 'Updated guidance.';
@@ -537,10 +543,7 @@ test('native bulk receipts survive combined checkpoint publication failure', asy
     ids.push(id);
   }
   await installExtension(workspace);
-  const flags = ['update-many', '--ids', ids.join(','), '--body', revised, '--json'];
-  const preview = pm(root, workspace, [...flags, '--dry-run']);
-  assert.equal(preview.status, EXIT_CODE.SUCCESS, preview.stderr);
-  const orderedIds = JSON.parse(preview.stdout).item_plans.map((row: { id: string }) => row.id);
+  const { flags, orderedIds } = previewBulkBodyUpdate(root, workspace, ids, revised);
   const checkpointDir = join(workspace, 'checkpoints', 'update-many');
   const savedDir = join(workspace, 'checkpoints', 'saved-children');
   await installPeerHook(workspace, ['hooks'], `
@@ -562,7 +565,7 @@ test('native bulk receipts survive combined checkpoint publication failure', asy
   assert.deepEqual([receipt.matched_count, receipt.updated_count, receipt.failed_count, receipt.skipped_count], [2, 2, 0, 0]);
   assert.deepEqual(receipt.ids, orderedIds);
   assert.deepEqual(receipt.rows.map(({ id, status }: { id: string; status: string }) => [id, status]),
-    orderedIds.map((id: string) => [id, 'updated']));
+    orderedIds.map(id => [id, 'updated']));
   assert.equal(receipt.checkpoint, undefined);
   assert.equal(receipt.checkpoint_error.code, 'combined_checkpoint_write_failed');
   assert.match(receipt.checkpoint_error.detail, /EEXIST|ENOTDIR/u);
@@ -570,7 +573,7 @@ test('native bulk receipts survive combined checkpoint publication failure', asy
   await rename(savedDir, checkpointDir);
   const children = await Promise.all((receipt.child_checkpoint_ids as string[]).map(id =>
     loadMutationCheckpoint(workspace, 'update-many', id, 2)));
-  assert.deepEqual(children.map(child => child.items.map(item => item.id)), orderedIds.map((id: string) => [id]));
+  assert.deepEqual(children.map(child => child.items.map(item => item.id)), orderedIds.map(id => [id]));
   for (const child of children) {
     const id = child.items[0].id;
     const history = await readHistoryEntries(getHistoryPath(workspace, id), id);
