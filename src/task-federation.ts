@@ -156,8 +156,18 @@ async function inspectTracker(workspace: string): Promise<void> {
 }
 
 /** Keep credential-bearing legacy rows and unapproved personal data inside their tracker. */
-function canShareRow(row: TaskRecallRow): boolean {
-  try { privacy(JSON.stringify(row)); return true; }
+export function canShareRow(row: object): boolean {
+  try {
+    const pending: unknown[] = [row];
+    while (pending.length > 0) {
+      const value = pending.pop();
+      if (typeof value === 'string') privacy(value);
+      else if (value !== null && typeof value === 'object') {
+        for (const child of Object.values(value)) pending.push(child);
+      }
+    }
+    return true;
+  }
   catch (error) { privacyRefusal(error); return false; }
 }
 

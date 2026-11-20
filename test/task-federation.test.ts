@@ -3,9 +3,10 @@ import { mkdir, readFile, rmdir, symlink, unlink, writeFile } from 'node:fs/prom
 import { join, relative } from 'node:path';
 import { test } from 'node:test';
 import { estimatePmOutputTokens, getHistoryPath, getItemPath, getSettingsPath } from '@unbrained/pm-cli/sdk';
-import { decodeToon } from '@unbrained/pm-cli/sdk/testing';
+import { decodeToon, encodeToon } from '@unbrained/pm-cli/sdk/testing';
 import { grantConsent, recallTaskFederated, remember, type FederatedTaskRecallPacket } from '../index.ts';
 import { runCommand } from '../src/commands.ts';
+import { canShareRow } from '../src/task-federation.ts';
 import { gitlessCli, installExtension, tracker } from './helpers.ts';
 
 test('federated CLI uses exact selections, returns source-tagged rows, and leaves native history intact', async t => {
@@ -159,6 +160,39 @@ test('federation accounts for unapproved, unavailable, policy-withheld, and empt
   assert.deepEqual(empty.sources[0], { tracker: bare.workspace, task_id: emptyId, basis: 'lexical', included: 0, omitted: 0, ineligible: 0, status: 'included' });
   await assert.rejects(recallTaskFederated(taskId, { sources: [] }), { code: 'invalid' });
   await assert.rejects(recallTaskFederated(taskId, { sources: [read(noTask), read(noTask + '/.')] }), { code: 'invalid' });
+});
+
+test('federation withholds whole legacy rows after scanning raw fields', async t => {
+  const source = await tracker(t);
+  const taskId = (await source.client.create({ title: 'Review the optical bench setup', type: 'Task' })).item.id;
+  const marker = 'synthetic071test';
+  const safeBody = 'Check the setup at bench\\fixtures.\nAlign the outer marks.';
+  const fixtures = [
+    { slug: 'quoted', field: 'body', value: `Use password="${marker}" for the setup.` },
+    { slug: 'multiline', field: 'memory_why', value: `Read bench\\fixtures.\npassword="${marker}\\bench"` },
+    { slug: 'nested', field: 'memory_how', value: JSON.stringify({ setup: [{ password: marker }] }) },
+  ];
+  await remember(safeBody, { ...source.options, kind: 'project', slug: 'safe-setup', links: [taskId] });
+  for (const { slug, field, value } of fixtures) {
+    const legacy = await remember(`Legacy setup instruction ${slug}.`, { ...source.options, kind: 'project', slug, links: [taskId], forceNew: true });
+    const path = getItemPath(source.workspace, 'Knowledge', legacy.id, 'toon', { Knowledge: 'knowledge' });
+    const document = decodeToon(await readFile(path, 'utf8')) as Record<string, unknown>;
+    await writeFile(path, encodeToon({ ...document, [field]: value }) + '\n');
+  }
+
+  const packet = await recallTaskFederated(taskId, { sources: [{ tracker: source.workspace, allowSharing: true }] });
+  assert.equal(JSON.stringify(packet).includes(marker), false, 'Synthetic credential material must stay inside the tracker');
+  assert.deepEqual(packet.memories, [{ tracker: source.workspace, slug: 'safe-setup', body: safeBody }]);
+  assert.deepEqual(packet.sources, [
+    { tracker: source.workspace, task_id: taskId, basis: 'linked', status: 'included', included: 1, omitted: 0, ineligible: fixtures.length },
+  ]);
+  assert.equal(packet.output_fit.total_candidates, 1);
+  assert.equal(packet.omission_receipt.has_omissions, false);
+});
+
+test('row privacy checks descend through nested objects and arrays', () => {
+  assert.equal(canShareRow({ body: 'Safe text', details: [null, { note: 'Safe nested text', count: 1 }] }), true);
+  assert.equal(canShareRow({ body: 'Safe text', details: [{ notes: ['password="synthetic071test"'] }] }), false);
 });
 
 test('source validation refuses unsupported native revisions and unsafe tracker files', async t => {
