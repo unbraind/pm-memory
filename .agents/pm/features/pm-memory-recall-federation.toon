@@ -2,17 +2,15 @@ id: pm-memory-recall-federation
 title: Federate recall across explicitly selected trackers
 description: "Explore bounded recall across explicitly named trackers, with per-source completeness and consent enforced."
 type: Feature
-status: in_progress
+status: open
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:33.597Z"
-updated_at: "2026-11-20T04:31:15.402Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-20T06:03:54.847Z"
 author: codex-sol
 acceptance_criteria: "An agent can distinguish omitted, unavailable and ineligible sources without silently crossing tracker boundaries."
 parent: pm-memory-0kwy
-comments[8]{created_at,author,text}:
+comments[11]{created_at,author,text}:
   "2026-11-20T00:53:14.062Z",codex-sol,"Design: explicit tracker selectors form the entire federated read set. Each selector can name its own native task ID and must be individually opted in. Standalone certified SDK reads feed a shared whole-row budget and source receipts. Existing consent-managed records remain under the purpose-limited view workflow. The no-selector resume path retains its existing output."
   "2026-11-20T01:02:49.565Z",codex-sol,"Measured public scratch copies at pm-memory 1423ca6 and pm-context 41f3acc with pm core 2026.11.14. TOON baseline 93 + 97 + 552 orientation = 742 tokens, federation 161, saving 581 (78.3%). JSON baseline 147 + 151 + 951 orientation = 1249, federation 294, saving 955 (76.5%). Both paths supplied the same two full actionable rows. The single-tracker CLI output matched the original bytes in both formats on both tasks."
   "2026-11-20T01:07:53.704Z",codex-sol,"SDK source preflight validates native settings, schema and item format versions. The real tracker fixtures cover opt-in, scoped and legacy privacy withholding, absent and unreadable sources, incompatible formats, source-attributed rows, whole and partial budget omissions, and unchanged history. Typecheck, lint, docstring and duplication gates passed."
@@ -21,6 +19,9 @@ comments[8]{created_at,author,text}:
   "2026-11-20T02:37:02.047Z",codex-sol,"Changelog verification passed after fetching tags and regenerating with the feature returned to open. The tracker diff contains the linked files, README example and direct test commands."
   "2026-11-20T04:28:21.293Z",codex-sol,"CodeRabbit thread PRRT_kwDOVPw2oc650k-8 on PR #89: validate canonical tracker identities before reading any corpus and preserve source receipts. Add an actual symlink alias regression through the CLI and SDK."
   "2026-11-20T04:31:15.393Z",codex-sol,"Canonical directory identity now drives duplicate rejection and CLI approvals. The task qualifier must match on both flags. Receipts retain the selected path, and only approved roots reach settings and corpus reads."
+  "2026-11-20T04:31:57.954Z",codex-sol,"CodeRabbit thread PRRT_kwDOVPw2oc650k-8 on PR #89 is addressed by dc5e79c48ffd40fa13def0b532351ae3a3ab44fc. The test uses a real directory symlink and exercises duplicate refusal through both CLI and SDK, canonical approval matching, and the unavailable-source receipt."
+  "2026-11-20T04:53:23.710Z",codex-sol,"Typecheck, lint and the documentation gate passed. The focused quick run passed 174/174 tests with zero skips, covering task recall, content age, the symlink regression, tests referencing the touched files, and packed README verification. Package-wide coverage is still running."
+  "2026-11-20T06:03:53.643Z",codex-sol,"Package-wide quick coverage passed 924/924 tests with zero skips. All 41 source files met 100% statements, branches, functions and lines. Changelog regeneration and npm run changelog:check passed with the item open. The regenerated changelog matches the committed file."
 files[5]{path,scope}:
   index.ts,project
   src/commands.ts,project
