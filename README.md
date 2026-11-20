@@ -210,8 +210,10 @@ Repeat `--tracker` with the directories that contain each tracker's
 Paths are relative to the working directory. Prefix a relative path
 containing an equals sign with `./` to pass it as a bare path.
 
-Repeat the exact selector with `--share-tracker` to approve that source for
-the invocation. With any selectors present, only those trackers participate.
+Use `--share-tracker` with the same tracker directory and optional task ID to
+approve that source for the invocation. Paths match by their resolved directory,
+so selecting the same directory through multiple paths is rejected. With any
+selectors present, only those trackers participate.
 Select the current tracker explicitly when its memories are needed. The
 command opens only approved sources, uses certified SDK reads with extensions
 disabled, and leaves native items and history intact. Consent-managed memories

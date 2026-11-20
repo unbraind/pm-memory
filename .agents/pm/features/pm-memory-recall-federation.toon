@@ -2,33 +2,39 @@ id: pm-memory-recall-federation
 title: Federate recall across explicitly selected trackers
 description: "Explore bounded recall across explicitly named trackers, with per-source completeness and consent enforced."
 type: Feature
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:33.597Z"
-updated_at: "2026-11-20T02:37:03.525Z"
+updated_at: "2026-11-20T04:31:15.402Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: "An agent can distinguish omitted, unavailable and ineligible sources without silently crossing tracker boundaries."
 parent: pm-memory-0kwy
-comments[6]{created_at,author,text}:
+comments[8]{created_at,author,text}:
   "2026-11-20T00:53:14.062Z",codex-sol,"Design: explicit tracker selectors form the entire federated read set. Each selector can name its own native task ID and must be individually opted in. Standalone certified SDK reads feed a shared whole-row budget and source receipts. Existing consent-managed records remain under the purpose-limited view workflow. The no-selector resume path retains its existing output."
   "2026-11-20T01:02:49.565Z",codex-sol,"Measured public scratch copies at pm-memory 1423ca6 and pm-context 41f3acc with pm core 2026.11.14. TOON baseline 93 + 97 + 552 orientation = 742 tokens, federation 161, saving 581 (78.3%). JSON baseline 147 + 151 + 951 orientation = 1249, federation 294, saving 955 (76.5%). Both paths supplied the same two full actionable rows. The single-tracker CLI output matched the original bytes in both formats on both tasks."
   "2026-11-20T01:07:53.704Z",codex-sol,"SDK source preflight validates native settings, schema and item format versions. The real tracker fixtures cover opt-in, scoped and legacy privacy withholding, absent and unreadable sources, incompatible formats, source-attributed rows, whole and partial budget omissions, and unchanged history. Typecheck, lint, docstring and duplication gates passed."
   "2026-11-20T01:28:36.035Z",codex-sol,"Implementation commit ee786fb. The focused native CLI and SDK suite passed 12/12, and packed npm and Bun acceptance passed 4/4. Strict tracker health passed with a clean global extension directory. The pre-existing local pm-github host skew is tracked by pm-memory-ci-health-skew. Tracker privacy and commit identity scans passed. Package-wide coverage is running."
   "2026-11-20T02:36:51.006Z",codex-sol,"Package-wide quick gate passed 923/923 with zero skips. All 41 source files met 100% statements, branches, functions and lines. This includes every test file referencing the touched entry point, source modules or README. Production dependency audit found zero vulnerabilities."
   "2026-11-20T02:37:02.047Z",codex-sol,"Changelog verification passed after fetching tags and regenerating with the feature returned to open. The tracker diff contains the linked files, README example and direct test commands."
+  "2026-11-20T04:28:21.293Z",codex-sol,"CodeRabbit thread PRRT_kwDOVPw2oc650k-8 on PR #89: validate canonical tracker identities before reading any corpus and preserve source receipts. Add an actual symlink alias regression through the CLI and SDK."
+  "2026-11-20T04:31:15.393Z",codex-sol,"Canonical directory identity now drives duplicate rejection and CLI approvals. The task qualifier must match on both flags. Receipts retain the selected path, and only approved roots reach settings and corpus reads."
 files[5]{path,scope}:
   index.ts,project
   src/commands.ts,project
   src/task-federation.ts,project
   src/task-recall.ts,project
   test/task-federation.test.ts,project
-tests[5]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[7]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-20T00:58:08.410Z",local_mutation,feat/recall-federation
   "npm run test:install",project,codex-sol,"2026-11-20T00:58:10.960Z",local_mutation,feat/recall-federation
   npm run typecheck && npm run lint,project,codex-sol,"2026-11-20T00:58:13.912Z",local_mutation,feat/recall-federation
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/task-federation.test.ts test/task-recall.test.ts test/commands.test.ts,project,codex-sol,"2026-11-20T01:04:09.743Z",local_mutation,feat/recall-federation
   "git fetch --tags origin && npm run changelog:full && npm run changelog:check",project,codex-sol,"2026-11-20T01:04:14.253Z",local_mutation,feat/recall-federation
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/task-recall.test.ts test/content-age.test.ts test/task-federation.test.ts test/commands.test.ts test/consent.test.ts test/guidance.test.ts test/reference-suffix.test.ts test/sdk-review-r8.test.ts test/sdk-secret-refusal.test.ts test/ci-routing.test.ts test/portable-collision.test.ts test/release-approval.test.ts test/release-ci.test.ts test/review-followup.test.ts test/review-r10.test.ts test/review-r5.test.ts test/semantic.test.ts test/shipped-files.acceptance.ts,project,codex-sol,"2026-11-20T04:31:00.104Z",local_mutation,feat/recall-federation
+  "npm run changelog:check",project,codex-sol,"2026-11-20T04:31:09.417Z",local_mutation,feat/recall-federation
 docs[1]{path,scope}:
   README.md,project
 body: ""

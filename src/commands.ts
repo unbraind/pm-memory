@@ -4,7 +4,7 @@ import type { CommandHandlerContext, ExtensionApi, FlagDefinition } from '@unbra
 import { kind, MemoryError, text } from './core.ts';
 import { remember, recall, index, get } from './memory.ts';
 import { recallTask } from './task-recall.ts';
-import { recallTaskFederated, taskRecallSources } from './task-federation.ts';
+import { recallTaskFromSelectors } from './task-federation.ts';
 import { exportDir, harness, importDir } from './transfer.ts';
 import { verify } from './verify.ts';
 import { consolidate } from './consolidate.ts';
@@ -56,7 +56,7 @@ export async function runCommand(command: string, ctx: CommandHandlerContext): P
       const selectors = repeatedText(options.tracker);
       const approvals = repeatedText(options.shareTracker);
       if (selectors.length === 0 && approvals.length === 0) return await recallTask(id, { ...base, intent, tokenBudget });
-      return await recallTaskFederated(id, { sources: taskRecallSources(selectors, approvals), intent, tokenBudget });
+      return await recallTaskFromSelectors(id, selectors, approvals, { intent, tokenBudget });
     }
     if (command === 'observe') return await observe(text(ctx.args[0]), { ...base, recall: text(options.recall), task: text(options.task), feedback: text(options.feedback) as ObserveOptions['feedback'], outcome: text(options.outcome) as ObserveOptions['outcome'], attribution: text(options.attribution) as ObserveOptions['attribution'], evidence: text(options.evidence) });
     if (command === 'utility') return await utility(text(ctx.args[0]), base);
@@ -82,7 +82,7 @@ function repeatedText(value: unknown): string[] {
 const OPTIONS: Record<string, string> = {
   for: 'Apply the resume projection (example: --for resume)',
   tracker: 'Select an exact tracker directory, optionally prefixed with TASK_ID= (example: --tracker ../shared/.agents/pm)',
-  'share-tracker': 'Approve sharing for an exact tracker selector (example: --share-tracker ../shared/.agents/pm)',
+  'share-tracker': 'Approve sharing for the same tracker directory and optional task ID (example: --share-tracker ../shared/.agents/pm)',
   'token-budget': 'Bound the whole task recall packet (example: --token-budget 450)',
   purpose: 'Explicit recall purpose identifier (example: --purpose release-review)',
   fields: 'Comma-separated authorized content fields (example: --fields title,body)',

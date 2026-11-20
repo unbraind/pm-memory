@@ -69,38 +69,55 @@ type Projection = {
 /** Verified, provenance-bearing resume packet and its SDK budget receipt. */
 export type FederatedTaskRecallPacket = FittedOutputEnvelope<Projection>;
 
-type Selection = SourceIdentity & { workspace: string; allowSharing: boolean };
+type Selection = TaskRecallSource & { root: string | undefined };
 type SourceResult = Unavailable | NotShared | (SourceIdentity & {
   rank: Awaited<ReturnType<typeof rankTask>>;
 });
 
-/** Validate lexical selection before opening any tracker and refuse duplicate directories. */
-function selectSources(id: string, sources: readonly TaskRecallSource[]): Selection[] {
-  if (sources.length === 0) throw new MemoryError('invalid', 'Empty recall federation', 'Select at least one tracker');
-  const seen = new Set<string>();
-  return sources.map(source => {
-    const tracker = text(source.tracker);
-    const workspace = resolve(tracker);
-    if (seen.has(workspace)) throw new MemoryError('invalid', 'Duplicate tracker selection', 'Select each tracker directory once');
-    seen.add(workspace);
-    return { tracker, workspace, task_id: text(source.taskId ?? id).trim(), allowSharing: source.allowSharing === true };
-  });
+/** Resolve directory identity without reading settings or items. */
+async function canonicalSource(source: TaskRecallSource): Promise<Selection> {
+  const tracker = text(source.tracker);
+  const taskId = source.taskId === undefined ? undefined : text(source.taskId).trim();
+  const root = await realpath(tracker).catch(() => undefined);
+  return { tracker, taskId, root, allowSharing: source.allowSharing };
 }
 
-/** Permit argv paths only when their exact selector also has an explicit sharing flag. */
-export function taskRecallSources(selectors: readonly string[], approvals: readonly string[]): TaskRecallSource[] {
-  const selected = new Set(selectors);
-  if (approvals.some(approval => !selected.has(approval))) {
-    throw new MemoryError('invalid', 'Sharing approval has no matching tracker selector', 'Repeat the exact --tracker value with --share-tracker');
+/** Parse a directory selector with an optional native task ID. */
+function parseSelector(selector: string): TaskRecallSource {
+  const separator = selector.indexOf('=');
+  // Prefix a literal path containing an equals sign with ./ or use an absolute path.
+  const taskId = separator >= 0 && /^[\w-]+$/.test(selector.slice(0, separator)) ? selector.slice(0, separator) : undefined;
+  const tracker = taskId === undefined ? selector : selector.slice(separator + 1);
+  return { tracker, taskId };
+}
+
+/** Match approvals on canonical directories and the same optional task qualifier. */
+function approvalKey({ root, tracker, taskId }: Selection): string {
+  return JSON.stringify([taskId, root, root === undefined ? tracker : undefined]);
+}
+
+/** Refuse duplicate tracker directories before opening any corpus. */
+async function selectSources(sources: readonly TaskRecallSource[], approvals: readonly string[]): Promise<Selection[]> {
+  const selected: Selection[] = [];
+  const seen = new Set<string>();
+  for (const source of sources) {
+    const selection = await canonicalSource(source);
+    const directory = selection.root ?? resolve(selection.tracker);
+    if (seen.has(directory)) throw new MemoryError('invalid', 'Duplicate tracker selection', 'Select each tracker directory once');
+    seen.add(directory);
+    selected.push(selection);
   }
-  const approved = new Set(approvals);
-  return selectors.map(selector => {
-    const separator = selector.indexOf('=');
-    // Prefix a literal path containing an equals sign with ./ or use an absolute path.
-    const taskId = separator >= 0 && /^[\w-]+$/.test(selector.slice(0, separator)) ? selector.slice(0, separator) : undefined;
-    const tracker = taskId === undefined ? selector : selector.slice(separator + 1);
-    return { tracker, taskId, allowSharing: approved.has(selector) };
-  });
+
+  const byApproval = new Map(selected.map(source => [approvalKey(source), source]));
+  for (const approval of approvals) {
+    const source = byApproval.get(approvalKey(await canonicalSource(parseSelector(approval))));
+    if (!source) {
+      throw new MemoryError('invalid', 'Sharing approval has no matching tracker selector', 'Use the same tracker directory and task qualifier with --share-tracker');
+    }
+    source.allowSharing = true;
+  }
+  if (selected.length === 0) throw new MemoryError('invalid', 'Empty recall federation', 'Select at least one tracker');
+  return selected;
 }
 
 /** Refuse unexpected path indirection in the SDK's immediate item or cache directories. */
@@ -154,11 +171,11 @@ function unavailableReason(error: unknown): UnavailableReason {
 }
 
 /** Disable extension loading and host hooks at the independent SDK read boundary. */
-async function readSource({ tracker, workspace, task_id, allowSharing }: Selection): Promise<SourceResult> {
-  const identity = { tracker, task_id };
-  if (!allowSharing) return { ...identity, status: 'ineligible', reason: 'sharing_not_allowed' };
+async function readSource(id: string, { tracker, taskId, root, allowSharing }: Selection): Promise<SourceResult> {
+  const identity = { tracker, task_id: taskId ?? id };
+  if (allowSharing !== true) return { ...identity, status: 'ineligible', reason: 'sharing_not_allowed' };
+  if (root === undefined) return { ...identity, status: 'unavailable', reason: 'tracker_read_failed' };
   try {
-    const root = await realpath(workspace);
     await runWithConfigurationOnlySettings(root, () => inspectTracker(root));
     if (resolvePmRoot(process.cwd(), root) !== root) {
       throw new MemoryError('schema', 'Tracker path does not resolve exactly in pm', 'Select a tracker with an unambiguous directory path');
@@ -169,7 +186,7 @@ async function readSource({ tracker, workspace, task_id, allowSharing }: Selecti
       if (items.some(item => effectiveItemFormatVersion(item) > CURRENT_ITEM_FORMAT_VERSION)) {
         throw new MemoryError('version', 'Incompatible native item format version', 'Use a compatible pm host');
       }
-      return rankTask(task_id, store, items, canShareRow);
+      return rankTask(identity.task_id, store, items, canShareRow);
     });
     return { ...identity, rank };
   } catch (error) {
@@ -189,12 +206,31 @@ function sourceReceipt(source: SourceResult, included: number): TaskRecallSource
 }
 
 /** Recall selected native tasks with one complete, SDK-fitted packet. */
-export async function recallTaskFederated(taskId: string, options: FederatedTaskRecallOptions): Promise<FederatedTaskRecallPacket> {
+export function recallTaskFederated(taskId: string, options: FederatedTaskRecallOptions): Promise<FederatedTaskRecallPacket> {
+  return recallSelected(taskId, options, []);
+}
+
+/** Resolve CLI selectors and approvals through the same preflight as SDK calls. */
+export function recallTaskFromSelectors(
+  taskId: string,
+  selectors: readonly string[],
+  approvals: readonly string[],
+  options: Omit<FederatedTaskRecallOptions, 'sources'>,
+): Promise<FederatedTaskRecallPacket> {
+  return recallSelected(taskId, { ...options, sources: selectors.map(parseSelector) }, approvals);
+}
+
+/** Rank approved sources and fit their rows and receipts into one packet. */
+async function recallSelected(
+  taskId: string,
+  options: FederatedTaskRecallOptions,
+  approvals: readonly string[],
+): Promise<FederatedTaskRecallPacket> {
   const id = text(taskId).trim();
   const intent = taskRecallIntent(id, options.intent);
   const tokenBudget = budget(options.tokenBudget ?? intent.token_budget);
   const sources: SourceResult[] = [];
-  for (const source of selectSources(id, options.sources)) sources.push(await readSource(source));
+  for (const source of await selectSources(options.sources, approvals)) sources.push(await readSource(id, source));
 
   const candidates = sources.flatMap(source => 'rank' in source
     ? source.rank.rows.map(row => ({ tracker: source.tracker, ...row }))

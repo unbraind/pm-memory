@@ -68,6 +68,44 @@ test('federated CLI uses exact selections, returns source-tagged rows, and leave
   assert.deepEqual(await Promise.all(snapshots.map(file => readFile(file))), before);
 });
 
+test('federation refuses duplicate symlink aliases and matches approvals by canonical directory', async t => {
+  const source = await tracker(t);
+  const id = (await source.client.create({ title: 'Measure the optical plate', type: 'Task' })).item.id;
+  await remember('Align the plate before measuring.', { ...source.options, kind: 'project', slug: 'plate', links: [id] });
+  const alias = join(source.root, 'tracker-alias');
+  await symlink(source.workspace, alias, 'dir');
+  await assert.rejects(recallTaskFederated(id, {
+    sources: [source.workspace, alias].map(tracker => ({ tracker, allowSharing: true })),
+  }), { code: 'invalid', message: 'Duplicate tracker selection' });
+
+  await installExtension(source.workspace);
+  const cli = gitlessCli(source.root, source.workspace);
+  const direct = relative(source.root, source.workspace);
+  const duplicate = cli(['recall-task', id, '--tracker', direct, '--tracker', 'tracker-alias',
+    '--share-tracker', direct, '--share-tracker', 'tracker-alias', '--json']);
+  assert.equal(duplicate.status, 2);
+  assert.match(duplicate.stderr, /Duplicate tracker selection/);
+
+  const result = cli(['recall-task', id, '--tracker', id + '=tracker-alias', '--share-tracker', id + '=' + direct, '--json']);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const packet = JSON.parse(result.stdout) as FederatedTaskRecallPacket;
+  assert.deepEqual(packet.sources, [
+    { tracker: 'tracker-alias', task_id: id, basis: 'linked', status: 'included', included: 1, omitted: 0, ineligible: 0 },
+  ]);
+  assert.deepEqual(packet.memories, [{ tracker: 'tracker-alias', slug: 'plate', body: 'Align the plate before measuring.' }]);
+  assert.equal(packet.output_fit.total_candidates, 1);
+
+  const mismatchedTask = cli(['recall-task', id, '--tracker', id + '=tracker-alias', '--share-tracker', direct, '--json']);
+  assert.equal(mismatchedTask.status, 2);
+  assert.match(mismatchedTask.stderr, /Sharing approval has no matching tracker selector/);
+
+  const unavailable = cli(['recall-task', id, '--tracker', 'absent', '--share-tracker', 'absent', '--json']);
+  assert.equal(unavailable.status, 0, unavailable.stdout + unavailable.stderr);
+  assert.deepEqual(JSON.parse(unavailable.stdout).sources, [
+    { tracker: 'absent', task_id: id, status: 'unavailable', reason: 'tracker_read_failed' },
+  ]);
+});
+
 test('federation accounts for unapproved, unavailable, policy-withheld, and empty sources', async t => {
   const current = await tracker(t);
   const outdated = await tracker(t);
