@@ -24,7 +24,9 @@ type BulkPart = Pick<BulkResult, 'rows' | 'ids' | 'checkpoint'>;
 type BulkCheckpoint = NonNullable<BulkResult['checkpoint']>;
 type BulkApplyResult = BulkResult & {
   checkpoint_error?: { code: 'combined_checkpoint_write_failed'; detail: string };
-  child_checkpoint_ids?: string[];
+};
+type BulkRollbackResult = BulkResult & {
+  checkpoint_errors?: { checkpoint_id: string; error: string }[];
 };
 type Global = Parameters<typeof runUpdateMany>[1];
 type DeferredUpdate = { raw: Record<string, unknown>; fileBody?: string };
@@ -82,12 +84,16 @@ async function decodeUpdate(root: string, { raw, fileBody }: DeferredUpdate): Pr
     decoded = itemDocumentToMutationOptions(input!, 'update', raw, resolveRuntimeFieldRegistry(settings.schema).definitions);
   } else {
     // The ordinary CLI action joins repeatable criteria and normalizes boolean flags before calling the SDK.
-    const { acceptanceCriteria, regression } = raw;
+    const { acceptanceCriteria, description, regression } = raw;
     decoded = {
       ...raw,
       acceptanceCriteria: Array.isArray(acceptanceCriteria) ? acceptanceCriteria.join('; ') : acceptanceCriteria,
       regression: regression === true ? 'true' : regression,
     };
+    if (typeof description === 'string' && description.trim() === '-') {
+      decoded.description = await createStdinTokenResolver().resolveValue(description, '--description');
+      preserveMutationStdinTokenFields(decoded, ['description']);
+    }
   }
   const { bodyFile, ...fields } = decoded;
   const options = typeof bodyFile === 'string'
@@ -113,10 +119,10 @@ async function applyDocument(context: NativeResult, input: DeferredUpdate): Prom
 }
 
 /** Collect native row receipts in selection order. */
-function combineBulk(plan: BulkResult, parts: BulkPart[], mode: 'apply' | 'rollback'): BulkResult {
+function combineBulk(plan: BulkResult, parts: BulkPart[], mode: 'apply' | 'rollback', failedCheckpoints = 0): BulkResult {
   const rows = parts.flatMap<BulkRow>(part => part.rows!);
   const ids = parts.flatMap(part => part.ids);
-  const failed = rows.filter(row => row.status === 'failed').length;
+  const failed = failedCheckpoints + rows.filter(row => row.status === 'failed').length;
   const skipped = rows.filter(row => row.status === 'skipped').length;
   const base = { ...plan };
   delete base.item_plans;
@@ -185,9 +191,8 @@ async function applyBulk(context: NativeResult, plan: BulkResult): Promise<BulkA
       result.exit_code = EXIT_CODE.DEPENDENCY_FAILED;
       result.checkpoint_error = {
         code: 'combined_checkpoint_write_failed',
-        detail: `Could not publish the combined update-many checkpoint: ${toErrorMessage(error)}`,
+        detail: `Could not publish the combined update-many checkpoint: ${toErrorMessage(error)}. Memory rollback requires the combined checkpoint.`,
       };
-      result.child_checkpoint_ids = checkpoints.map(checkpoint => checkpoint.id);
     }
   }
   await refreshSearchArtifactsForMutation(pm_root, result.ids, { background: true });
@@ -195,16 +200,23 @@ async function applyBulk(context: NativeResult, plan: BulkResult): Promise<BulkA
 }
 
 /** Apply only the native guarded inverses named by a package bulk checkpoint. */
-async function rollbackBulk(context: NativeResult, plan: BulkResult): Promise<BulkResult> {
+async function rollbackBulk(context: NativeResult, plan: BulkResult): Promise<BulkRollbackResult> {
   const { pm_root, options, global } = context;
   const { record } = await loadMutationCheckpoint(pm_root, CHECKPOINT_DIRECTORY, plan.rollback_checkpoint_id!, 2);
   const update = bulkUpdate(options, {});
   const parts: BulkResult[] = [];
+  const checkpointErrors: NonNullable<BulkRollbackResult['checkpoint_errors']> = [];
   for (const rollback of record.memory_checkpoints as string[]) {
-    parts.push(await checkpointRestore.run(pm_root, () =>
-      runUpdateMany({ list: {}, update, rollback }, { ...global, path: pm_root })));
+    try {
+      parts.push(await checkpointRestore.run(pm_root, () =>
+        runUpdateMany({ list: {}, update, rollback }, { ...global, path: pm_root })));
+    } catch (error) {
+      checkpointErrors.push({ checkpoint_id: rollback, error: toErrorMessage(error) });
+    }
   }
-  const result = combineBulk({ ...plan, matched_count: parts.reduce((count, part) => count + part.matched_count, 0) }, parts, 'rollback');
+  const matched_count = parts.reduce((count, part) => count + part.matched_count, checkpointErrors.length);
+  const result: BulkRollbackResult = combineBulk({ ...plan, matched_count }, parts, 'rollback', checkpointErrors.length);
+  if (checkpointErrors.length > 0) result.checkpoint_errors = checkpointErrors;
   await refreshSearchArtifactsForMutation(pm_root, result.ids, { background: true });
   return result;
 }

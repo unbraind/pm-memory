@@ -221,8 +221,9 @@ whose scope is the claims that `pm memory verify` can check.
 A conflict lists the two slugs and one native `item_id` and `field`. Read that
 pair with `pm get <item-id> --fields <field>`. A recorded supersession points
 to `dependencies`. For explicit opposing guidance where one claim has been
-refuted, the pointer leads to its persisted `memory_reason`. Opposing guidance
-without one authoritative pointer produces a `conflict_sources` omission
+refuted, the pointer leads to its persisted `memory_reason` when native history
+binds that reason to the current guidance. Opposing guidance without one
+authoritative pointer produces a `conflict_sources` omission
 receipt. If a competing row and its conflict cannot fit, the packet reports
 `matching_memories` and a larger `--token-budget` can restore them.
 

@@ -2,15 +2,17 @@ id: pm-memory-recall-freshness
 title: Report stale or contradictory knowledge in task recall
 description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
 type: Feature
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-20T17:25:32.700Z"
+updated_at: "2026-11-20T19:04:12.106Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[43]{created_at,author,text}:
+comments[45]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -54,7 +56,9 @@ comments[43]{created_at,author,text}:
   "2026-11-20T15:44:36.061Z",codex-sol,"Typecheck, lint, build, and the focused recall, federation and content run passed with 30 tests. A separate real tracker probe confirmed that direct CLI rollback of a memory child is refused by the verification guard while the existing combined rollback succeeds. Track standalone child recovery in pm-memory-child-checkpoint-rollback."
   "2026-11-20T16:18:54.498Z",codex-sol,The local duplication gate flagged repeated preview setup shared by the two native bulk receipt regressions. Both cases now share one typed CLI preview helper. Package source and assertions about committed rows and checkpoint ownership are unchanged.
   "2026-11-20T17:25:30.135Z",codex-sol,"Round FA verification on the final package source passed. Typecheck, lint, duplication with zero clone pairs, build, 30 focused recall, federation and content tests, and both bulk receipt tests passed. PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage on Node 26.13.0 passed 937 tests with zero failures, cancellations, or skips and 100 percent statements, branches, functions, and lines across 42 source files. The full run executed the combined-checkpoint publication failure regression after the shared preview helper was extracted. Changelog regeneration and changelog:check passed with this item open."
-files[16]:
+  "2026-11-20T18:54:08.625Z",codex-sol,"Round FF: add regression fixtures and valid inverses for stdin guidance, combined checkpoint rollback receipts, legacy merge replay, and stale conflict evidence. Keep combined checkpoints as the supported recovery reference."
+  "2026-11-20T19:01:57.882Z",codex-sol,"Round FF reproduced the reported failures on the review head with real tracker fixtures. The candidate preserves exact standalone receipt timestamps, checks the proposed target digest under the revision guard, requires current native history for stale reasons, and preserves rollback accounting with a checkpoint error for each failed child. Standalone child rollback remains tracked by pm-memory-child-checkpoint-rollback."
+files[17]:
   - path: index.ts
     scope: project
   - path: manifest.json
@@ -80,6 +84,9 @@ files[16]:
     scope: project
   - path: test/content-age.test.ts
     scope: project
+  - path: test/merge-receipt.test.ts
+    scope: project
+    note: Round FF exercises legacy replay and proposal refusal through native history
   - path: test/native-host.test.ts
     scope: project
   - path: test/portable-recovery-controls.test.ts
@@ -89,7 +96,7 @@ files[16]:
   - path: test/task-recall.test.ts
     scope: project
     note: Round FA forces combined checkpoint publication to fail on a real tracker
-tests[17]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[18]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   npm run typecheck && npm run lint,project,codex-sol,"2026-11-19T14:10:36.014Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-reporter=tap test/task-recall.test.ts,project,codex-sol,"2026-11-19T14:10:49.744Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-19T14:11:04.446Z",local_mutation,feat/recall-freshness
@@ -107,6 +114,7 @@ tests[17]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/commands.test.ts test/content-age.test.ts test/merge-history.test.ts test/merge-receipt.test.ts test/native-host.test.ts test/native-revision.test.ts test/portable-host.test.ts test/portable-locality.test.ts test/portable-publication.test.ts test/portable-recovery-controls.test.ts test/publication-intent.test.ts test/review-r1.test.ts test/review-r13.test.ts test/review-round4.test.ts test/sdk-adoption.test.ts test/sdk-secret-refusal.test.ts test/semantic.test.ts test/task-federation.test.ts test/task-recall.test.ts test/utility.test.ts,project,codex-sol,"2026-11-20T10:50:10.697Z",local_mutation,feat/recall-freshness
   npm run build && PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/content-age.test.ts test/task-federation.test.ts test/task-recall.test.ts,project,codex-sol,"2026-11-20T15:42:05.741Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-name-pattern='native bulk receipts' test/task-recall.test.ts,project,codex-sol,"2026-11-20T16:18:48.185Z",local_mutation,feat/recall-freshness
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/commands.test.ts test/content-age.test.ts test/merge-history.test.ts test/merge-receipt.test.ts test/merge-revision-blocker.test.ts test/native-host.test.ts test/native-revision-capture.test.ts test/native-revision.test.ts test/portable-collision.test.ts test/portable-document-aba.test.ts test/portable-host.test.ts test/portable-locality.test.ts test/portable-publication.test.ts test/portable-recovery-controls.test.ts test/publication-intent.test.ts test/review-boundaries.test.ts test/review-r1.test.ts test/review-r13.test.ts test/review-round4.test.ts test/sdk-adoption.test.ts test/sdk-secret-refusal.test.ts test/semantic.test.ts test/task-federation.test.ts test/task-recall.test.ts test/utility.test.ts test/verification-collision.test.ts,project,codex-sol,"2026-11-20T19:04:11.801Z",local_mutation,feat/recall-freshness
 docs[3]{path,scope}:
   ARCHITECTURE.md,project
   docs/native-revision-validation.md,project

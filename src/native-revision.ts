@@ -27,8 +27,9 @@ export function installStandaloneGuard(run: BeforeMutationHook, name: string): v
 }
 /** Publish native evidence only for the exact saved SDK revision, including the SDK no-op path.
  * Additional certified items are rechecked against their saved immutable history inside the same admission hook,
- * so a receipt step that writes one item cannot certify a stale position of any other item it names. */
-export async function commitNativeFields(store: Store, id: string, expected: NativeProof, options: Record<string, unknown>, message = 'Verify unchanged native memory snapshot', certify?: ReadonlyMap<string, NativeProof>): Promise<boolean> {
+ * so a receipt step that writes one item cannot certify a stale position of any other item it names.
+ * A prepared receipt checks the SDK proposal and uses its exact fields on the standalone path. */
+export async function commitNativeFields(store: Store, id: string, expected: NativeProof, options: Record<string, unknown>, message = 'Verify unchanged native memory snapshot', certify?: ReadonlyMap<string, NativeProof>, matchesPrepared?: (proposal: ItemDocument) => Promise<boolean>): Promise<boolean> {
   /** Preserve the host scope for injected clients; isolate only the default SDK path. */
   const publish = async () => {
     let moved = false;
@@ -40,18 +41,22 @@ export async function commitNativeFields(store: Store, id: string, expected: Nat
     const guard: BeforeMutationHook = async context => {
       const { proof } = await nativeState(store, id);
       const candidates = [proof, { ...proof, hash: documentHash(context.before, await trackerSchema(store.workspace)) }];
-      if (!candidates.every(candidate => sameNativeProof(candidate, expected)) || !await certified()) { moved = true; throw new MemoryError('conflict', 'Native verification revision changed', 'Retry verification against the current native item; existing fields were retained'); }
+      if (!candidates.every(candidate => sameNativeProof(candidate, expected)) || !await certified()
+        || await matchesPrepared?.(context.after!) === false) {
+        moved = true;
+        throw new MemoryError('conflict', 'Native verification revision changed', 'Retry verification against the current native item; existing fields were retained');
+      }
     };
     if (store.hostClient === undefined) installStandaloneGuard(guard, 'pm-memory-verification-revision');
     const base = await nativeState(store, id);
     if (!sameNativeProof(base.proof, expected) || !await certified()) return false;
     try {
       const fields = { author: store.invocationAuthor, ...options, message };
-      if (store.hostClient === undefined) {
+      if (store.hostClient === undefined && matchesPrepared === undefined) {
         nativeContentRevision(fields, { ...base.document?.metadata, body: base.document?.body });
       }
       const result = store.hostClient !== undefined ? await guardedHostUpdate(store, store.hostClient, id, guard, fields) : await update(id, fields, { pmRoot: store.workspace });
-      return result.changed_fields.length > 0 || await matches() && await certified();
+      return result.changed_fields.length > 0 || matchesPrepared === undefined && await matches() && await certified();
     } catch (error) { if (moved) return false; throw error; }
   };
   return store.hostClient !== undefined ? publish() : store.fence(() => runWithActiveExtensions({ path: store.workspace, noExtensions: true }, publish));

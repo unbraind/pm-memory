@@ -35,13 +35,13 @@ async function readPair(target: Awaited<ReturnType<typeof tracker>>, pair: { sou
   return Promise.all([pair.source.id, pair.destination.id].map(async id => (await target.client.get(id, { full: true })).item));
 }
 /** Persist synthetic recovery input through genuine SDK history, never by editing an audit stream. */
-async function pending(t: Parameters<typeof tracker>[0], base: Awaited<ReturnType<typeof interrupted>>, change: (receipt: Record<string, unknown>) => void, mode = '') {
+async function pending(t: Parameters<typeof tracker>[0], base: Awaited<ReturnType<typeof interrupted>>, change: (receipt: Record<string, unknown>, target: Awaited<ReturnType<typeof clonedTracker>>) => void | Promise<Record<string, unknown>>, mode = '') {
   const target = await clonedTracker(t, base);
   const source = base.source; const destination = base.destination;
   const receipt = JSON.parse(String((await target.client.get(source.id, { full: true })).item.memory_merge)) as Record<string, unknown>;
   await target.client.run('update', { id: source.id, options: { memoryMerge: '' } });
   Object.assign(receipt, { id: randomUUID(), source_before: (await nativeState(target.store, source.id)).proof, target_before: (await nativeState(target.store, destination.id)).proof });
-  change(receipt);
+  Object.assign(receipt, await change(receipt, target));
   await target.client.run('update', { id: source.id, options: { memoryMerge: JSON.stringify(receipt), ...(mode === 'intent-content' ? { title: 'Intervening intent content' } : {}), message: `Memory merge ${receipt.id} intent` } });
   if (mode.startsWith('cancel')) await target.client.run('update', { id: source.id, options: { status: 'canceled', closeReason: 'Synthetic cancellation', ...(mode === 'cancel-content' ? { body: 'Intervening cancel content' } : {}), message: `Memory merge ${receipt.id} cancel` } });
   if (mode.startsWith('publish')) await target.client.run('update', { id: destination.id, options: { body: receipt.body, memoryEdited: true, memoryChangedAt: receipt.changed_at, memoryVerdict: 'unknown', unset: ['memory_verified_at', 'memory_reason'], ...(mode === 'publish-content' ? { title: 'Intervening publication content' } : {}), message: mode === 'publish-message' ? 'Native peer publication' : `Memory merge ${receipt.id} publish` } });
@@ -210,6 +210,48 @@ test('earlier version-2 prepared receipts without author metadata still resume t
   assert.equal(source.memory_merge, ''); assert.equal(source.status, 'canceled');
   assert.match(String(destination.body), /Unique retained rationale/);
   assert.equal(destination.dependencies!.filter(edge => edge.id === source.id && edge.kind === 'related').length, 1);
+});
+
+test('standalone merge replay publishes the exact version-2 payload across clock skew', async t => {
+  const base = mergeBases.get('publish')!;
+  for (const clock of ['behind', 'equal', 'ahead'] as const) {
+    let expected = '';
+    const target = await pending(t, base, async (receipt, clone) => {
+      expected = String(receipt.changed_at);
+      const prior = clock === 'equal' ? expected : clock === 'ahead' ? '2090-01-01T00:00:00.000Z' : '2020-01-01T00:00:00.000Z';
+      await clone.store.fields(base.destination.id, {
+        changed_at: prior, verdict: 'verified', verified_at: prior, reason: 'Previous verification',
+      });
+      const { proof } = await nativeState(clone.store, base.destination.id);
+      return { target_before: proof };
+    });
+    await consolidate({ ...target.options, apply: true });
+    const [source, destination] = await readPair(target, base);
+    assert.equal(source.memory_merge, '');
+    assert.equal(source.status, 'canceled');
+    assert.match(String(destination.body), /Unique retained rationale/u);
+    assert.deepEqual([destination.memory_changed_at, destination.memory_verdict, destination.memory_verified_at, destination.memory_reason],
+      [expected, 'unknown', undefined, undefined], clock);
+    const edge = destination.dependencies!.find(edge => edge.id === source.id && edge.kind === 'related');
+    assert.equal(edge?.created_at, expected);
+  }
+});
+
+for (const noOp of [false, true]) test(`merge replay refuses a ${noOp ? 'no-op' : 'mismatched'} publication before either endpoint changes`, async t => {
+  const base = mergeBases.get('publish')!;
+  const target = noOp ? await pending(t, base, async (receipt, clone) => {
+    await clone.store.link(base.destination.id, base.source.id);
+    await clone.client.run('update', { id: base.destination.id, options: {
+      memoryChangedAt: receipt.changed_at, memoryEdited: true, memoryVerdict: 'unknown',
+      unset: ['memory_verified_at', 'memory_reason'],
+    } });
+    const state = await nativeState(clone.store, base.destination.id);
+    return { body: state.document!.body, target_before: state.proof };
+  }) : await pending(t, base, receipt => { receipt.target_after = '0'.repeat(64); });
+  const endpointStates = () => Promise.all([base.source.id, base.destination.id].map(id => nativeState(target.store, id)));
+  const before = await endpointStates();
+  await assert.rejects(consolidate({ ...target.options, apply: true }), conflict);
+  assert.deepEqual(await endpointStates(), before);
 });
 
 for (const host of [false, true]) test(`merge provenance retains native environment attribution without an explicit author: ${host ? 'host' : 'default'}`, async t => {

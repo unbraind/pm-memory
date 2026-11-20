@@ -66,9 +66,18 @@ One stale claim makes the memory stale. Verified requires at least one claim and
 
 Guidance edits advance `memory_changed_at`, reset the verdict to unknown, and remove the previous verification timestamp and reason in the same native mutation. With the extension active, `pm update` prepares those fields and the mutation guard validates the proposed revision under the item lock. The task recall evidence projection also checks native history for a verification entry that covers the current guidance. This preserves verification across operational updates and detects guidance edits made with extensions disabled.
 
+Bulk memory recovery requires the combined `update-many` checkpoint. If
+publishing it fails, the apply receipt still reports the committed rows and the
+checkpoint error. A combined rollback retains the independent row receipts and
+reports any unreadable child checkpoints in `checkpoint_errors`.
+
 ## Consolidation
 
 A certified snapshot produces deterministic proposals. Near duplicates use the same threshold as remember. A newer memory with at least 0.5 heading or slug-token overlap and explicit opposite guidance produces a supersedes proposal. Enable/disable negations are normalized first. Each side must have an exclusive opposite toggle or requirement signal with the same remaining subject at the duplicate threshold; ambiguous mixtures are refused. Always/never requires matching remaining guidance at the duplicate threshold. This remains a conservative lexical proposal rather than general semantic inference. An unused stale memory can be archived only when unpinned, its recall count is zero, it retains a confident stale reason and its memory_changed_at age meets minAgeDays (default 30). Verify and recall do not alter content age. Each memory occupies at most one action role per plan, including both endpoints of merge and supersession actions and archive sources. Selection reserves endpoints for link-only supersessions first, then eligible merges, then remaining archives, preserving deterministic snapshot order in the returned plan. Memories participating in proposed or existing supersession relationships cannot be merged away. Supersession sources and merge targets cannot also be archived in the same plan. A deterministic randomized invariant exercises all action classes and checks every endpoint. Supersession proposals to archive-bound targets are omitted, and an existing native supersedes edge suppresses a repeated proposal while leaving both memories active. A receipt records the target and exact resulting body before publication. Retries resume it even if similarity changed, set the same body and semantic metadata, cancel the source, then clear the receipt. Pending receipts reserve their endpoints before fresh proposals are selected; overlapping or self-referential pending receipts refuse before writes and require audited reconciliation.
+
+Standalone replay preserves the content timestamp recorded in a version-2
+receipt, including receipts written before timestamps advanced monotonically.
+The SDK proposal must match the saved target digest before publication.
 
 Without apply, no schema, comments, metadata or history changes occur. With apply, duplicate merges copy older context into the surviving body, add native links/comments and cancel the older item with a reason. Supersession adds a newer-to-older native supersedes link and a comment. Archives cancel the item with a reason. All originals and verified native history remain readable. Review dry-run proposals before authorizing application.
 

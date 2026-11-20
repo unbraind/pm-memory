@@ -104,15 +104,19 @@ function supersessions(memories: readonly Memory[]): Supersessions {
 }
 
 /** Check history order when a legacy or extension-free edit may have bypassed native invalidation. */
-async function verificationCoversGuidance(workspace: string, { body, ...metadata }: NativeItem): Promise<boolean> {
-  const entries = await readHistoryEntries(getHistoryPath(workspace, metadata.id), metadata.id);
-  if (!verifyHistoryEntries(entries, { metadata, body: String(body) }).ok) return false;
-  const checked = entries.findLastIndex(entry => entry.patch.some(patch => patch.path === '/metadata/memory_verified_at'));
-  const edited = entries.findLastIndex(entry => entry.patch.some(patch => {
-    const [, scope, key] = patch.path.split('/');
-    return isGuidanceField(scope === 'metadata' ? key : scope);
-  }));
-  return checked > edited || checked === 0 && edited === 0 && entries[0].op === 'create';
+async function evidenceCoversGuidance(workspace: string, { body, ...metadata }: NativeItem, field: 'memory_verified_at' | 'memory_reason'): Promise<boolean> {
+  try {
+    const entries = await readHistoryEntries(getHistoryPath(workspace, metadata.id), metadata.id);
+    if (!verifyHistoryEntries(entries, { metadata, body: String(body) }).ok) return false;
+    const edited = entries.findLastIndex(entry => entry.patch.some(patch => {
+      const [, scope, key] = patch.path.split('/');
+      return isGuidanceField(scope === 'metadata' ? key : scope);
+    }));
+    return entries.some((entry, index) => entry.patch.some(patch => patch.path === `/metadata/${field}`) &&
+      (index > edited || index === edited && (field === 'memory_reason' || index === 0 && entry.op === 'create')));
+  } catch {
+    return false;
+  }
 }
 
 /** Judge freshness against the content clock and the native verification history. */
@@ -126,12 +130,12 @@ async function freshness(item: Memory, native: NativeItem, replaced: Supersessio
   if (!Number.isFinite(verified)) return { freshness: 'unverified', source_id, field: 'memory_verified_at' };
   const field = native.memory_changed_at === undefined ? 'updated_at' : 'memory_changed_at';
   if (!(Date.parse(String(native[field])) <= verified)) return { freshness: 'unverified', source_id, field };
-  const covered = await verificationCoversGuidance(workspace, native).catch(() => false);
+  const covered = await evidenceCoversGuidance(workspace, native, 'memory_verified_at');
   return { freshness: covered ? 'fresh' : 'unverified', source_id, field: 'memory_verified_at' };
 }
 
 /** An explicit edge takes precedence over a lexical match and stale verification. */
-function conflictSource(left: Memory, right: Memory, replaced: Supersessions): Pick<TaskRecallConflict, 'item_id' | 'field'> | 'unresolved' | undefined {
+function conflictSource(left: Memory, right: Memory, replaced: Supersessions, coveredReasons: ReadonlySet<string>): Pick<TaskRecallConflict, 'item_id' | 'field'> | 'unresolved' | undefined {
   const replacesLeft = replaced.get(left.id)?.has(right.id) === true;
   const replacesRight = replaced.get(right.id)?.has(left.id) === true;
   if (replacesLeft && replacesRight) return 'unresolved';
@@ -139,12 +143,12 @@ function conflictSource(left: Memory, right: Memory, replaced: Supersessions): P
   if (replacesRight) return { item_id: left.id, field: 'dependencies' };
   if (!contradicts(left, right)) return undefined;
   const [suspect, other] = left.verdict === 'stale' ? [left, right] : [right, left];
-  if (suspect.verdict === 'stale' && other.verdict !== 'stale' && suspect.reason?.trim()) return { item_id: suspect.id, field: 'memory_reason' };
+  if (suspect.verdict === 'stale' && other.verdict !== 'stale' && coveredReasons.has(suspect.id)) return { item_id: suspect.id, field: 'memory_reason' };
   return 'unresolved';
 }
 
 /** Compute conflict evidence for exactly the prefix requested by the fitter. */
-export function conflictProjection(ranked: readonly Memory[], replaced: Supersessions): (count: number) => {
+export function conflictProjection(ranked: readonly Memory[], replaced: Supersessions, coveredReasons: ReadonlySet<string>): (count: number) => {
   conflicts: readonly TaskRecallConflict[];
   unresolved: boolean;
 } {
@@ -155,7 +159,7 @@ export function conflictProjection(ranked: readonly Memory[], replaced: Superses
       const right = ranked[rightIndex];
       for (let index = 0; index < rightIndex; index++) {
         const left = ranked[index];
-        const source = conflictSource(left, right, replaced);
+        const source = conflictSource(left, right, replaced, coveredReasons);
         if (source === 'unresolved') unresolved = true;
         else if (source !== undefined) conflicts.push({ left: left.slug, right: right.slug, ...source });
       }
@@ -212,12 +216,19 @@ export async function rankTask(
     .map(entry => entry.item);
   const sources = new Map(withEvidence ? items.map(item => [item.id, item]) : []);
   const replaced = withEvidence ? supersessions(eligible) : new Map();
-  const projectConflicts = withEvidence ? conflictProjection(ranked, replaced) : undefined;
+  const coveredReasons = new Set<string>();
   const rows: TaskRecallRow[] = [];
-  for (const item of ranked) rows.push({
-    ...taskRow(item),
-    ...(withEvidence ? await freshness(item, sources.get(item.id)!, replaced, store.workspace) : {}),
-  });
+  for (const item of ranked) {
+    if (withEvidence && item.verdict === 'stale' && item.reason?.trim() &&
+      await evidenceCoversGuidance(store.workspace, sources.get(item.id)!, 'memory_reason')) {
+      coveredReasons.add(item.id);
+    }
+    rows.push({
+      ...taskRow(item),
+      ...(withEvidence ? await freshness(item, sources.get(item.id)!, replaced, store.workspace) : {}),
+    });
+  }
+  const projectConflicts = withEvidence ? conflictProjection(ranked, replaced, coveredReasons) : undefined;
   return { id: task.id, basis, rows, ineligible, projectConflicts };
 }
 

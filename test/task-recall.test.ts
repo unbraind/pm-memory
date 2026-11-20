@@ -154,7 +154,7 @@ test('supersession identifies a single native relationship projection and omits 
   const ranked = [current, previous].map(memory => stored.find(row => row.id === memory.id)!);
   const replacements = new Map([[previous.id, new Set(ranked.filter(row =>
     row.relationships.some(edge => edge.id === previous.id && edge.kind === 'supersedes')).map(row => row.id))]]);
-  const project = conflictProjection(ranked, replacements);
+  const project = conflictProjection(ranked, replacements, new Set());
   assert.deepEqual(project(2), { conflicts: [reference], unresolved: false });
   assert.deepEqual(project(1), { conflicts: [], unresolved: false });
   assert.deepEqual(project(2), { conflicts: [reference], unresolved: false });
@@ -246,6 +246,37 @@ test('native verification classifies each row and names a persisted reason for o
   ]);
 });
 
+
+test('stale conflict reasons must cover the current guidance', async t => {
+  const { client, options, store } = await tracker(t);
+  const { item: { id: task } } = await client.create({ type: 'Task', title: 'Review release smoke tests' });
+  const instruction = 'run the release smoke tests before signing and packaging the final artifacts';
+  const linked = { ...options, kind: 'project' as const, links: [task], forceNew: true };
+  await remember(`Always ${instruction}.`, { ...linked, slug: 'current' });
+  const stale = await remember(`Never ${instruction}.`, { ...linked, slug: 'stale' });
+  const recall = () => recallTask(task, { ...options, intent: 'resume-evidence', tokenBudget: 1800 });
+  await store.fields(stale.id, { verdict: 'stale', reason: 'The trial exemption has expired.' });
+  await client.update(stale.id, { priority: '1' });
+  assert.equal((await recall()).conflicts?.[0]?.item_id, stale.id);
+
+  const body = `Never ${instruction} locally.`;
+  await client.update(stale.id, { body });
+  const { item } = await client.get(stale.id, { full: true });
+  assert.equal(item.memory_verdict, 'stale');
+  assert.equal(item.memory_reason, 'The trial exemption has expired.');
+  const edited = await recall();
+  assert.deepEqual(edited.conflicts, []);
+  assert.ok(edited.omission_receipt.omitted_field_groups.some(group => group.name === 'conflict_sources'));
+  assert.equal(edited.memories.find(row => row.slug === stale.slug)!.body, body);
+
+  await store.fields(stale.id, { reason: 'The operator-only exemption has expired.' });
+  assert.equal((await recall()).conflicts?.[0]?.field, 'memory_reason');
+
+  await client.run('update', { id: stale.id, options: {
+    body: `Never ${instruction} remotely.`, memoryReason: 'The remote exemption has expired.',
+  } });
+  assert.equal((await recall()).conflicts?.[0]?.item_id, stale.id);
+});
 
 test('guidance edits invalidate native verification in the same history entry', async t => {
   const { client, options, root, store, workspace } = await tracker(t);
@@ -351,6 +382,12 @@ test('native operational edits and identical guidance retain current verificatio
   }
 });
 
+/** Assert that a committed guidance change advanced the clock and removed its prior evidence. */
+function assertInvalidatedVerification(item: Record<string, unknown>, previous: string): void {
+  assert.ok(Date.parse(String(item.memory_changed_at)) > Date.parse(previous));
+  assert.deepEqual([item.memory_verdict, item.memory_verified_at, item.memory_reason], ['unknown', undefined, undefined]);
+}
+
 test('native body files preserve unchanged guidance and treat file data as literal', async t => {
   const { client, options, root, store, workspace } = await tracker(t);
   const memory = await remember('Read the instructions.', { ...options, kind: 'reference', slug: 'body-file' });
@@ -384,12 +421,37 @@ test('native body files preserve unchanged guidance and treat file data as liter
   assert.equal(item.description, 'Read this description from stdin');
   assert.equal(item.acceptance_criteria, 'Check examples; Check output');
   assert.equal(item.regression, true);
-  assert.ok(Date.parse(String(item.memory_changed_at)) > Date.parse(old));
-  assert.deepEqual([item.memory_verdict, item.memory_verified_at, item.memory_reason], ['unknown', undefined, undefined]);
+  assertInvalidatedVerification(item, old);
   const after = await history();
   assert.equal(after.length, before.length + 1);
   const changes = after.at(-1)!.patch.map(patch => patch.path);
   for (const field of ['/body', '/metadata/memory_changed_at', '/metadata/memory_verdict', '/metadata/memory_verified_at', '/metadata/memory_reason']) assert.ok(changes.includes(field), field);
+});
+
+test('deferred stdin descriptions preserve verification only when the resolved text matches', async t => {
+  const { client, options, root, store, workspace } = await tracker(t);
+  const memory = await remember('-', { ...options, kind: 'reference', slug: 'stdin-description' });
+  const old = '2020-01-01T00:00:00.000Z';
+  await client.update(memory.id, { description: 'The publication checklist.' });
+  await store.fields(memory.id, { changed_at: old, verdict: 'verified', verified_at: old, reason: 'Approved checklist' });
+  await installExtension(workspace);
+  const bodyFile = join(root, 'literal-body.md');
+  await writeFile(bodyFile, '-');
+  const flags = ['--body-file', bodyFile, '--description', '-'];
+  const history = () => readHistoryEntries(getHistoryPath(workspace, memory.id), memory.id);
+  const stored = (await client.get(memory.id, { full: true })).item;
+  const before = await history();
+  update(root, workspace, memory.id, flags, stored.description);
+  assert.deepEqual((await client.get(memory.id, { full: true })).item, stored);
+  assert.deepEqual(await history(), before);
+
+  update(root, workspace, memory.id, flags, '-');
+  const { item } = await client.get(memory.id, { full: true });
+  assert.equal(item.body, '-');
+  assert.equal(item.description, '-');
+  assertInvalidatedVerification(item, old);
+  const entries = (await history()).slice(before.length);
+  assert.deepEqual(entries.map(entry => entry.patch.some(patch => patch.path === '/metadata/description')), [true]);
 });
 
 test('native JSON document updates leave Tasks free of memory verification fields', async t => {
@@ -479,17 +541,33 @@ test('native bulk updates revise each changed memory and retain ordinary batch r
   assert.equal(withoutCheckpoint.checkpoint, undefined);
 });
 
-test('native bulk receipts preserve committed rows and rollback after a later row throws', async t => {
-  const { client, options, root, store, workspace } = await tracker(t);
+/** Seed a bulk rollback with verified guidance so restored verification is observable. */
+async function seedVerifiedBulk({ options, store, workspace }: Awaited<ReturnType<typeof tracker>>, slugs: string[]) {
   const original = 'Previous guidance.';
   const old = '2020-01-01T00:00:00.000Z';
   const ids: string[] = [];
-  for (const slug of ['first', 'later', 'last']) {
+  for (const slug of slugs) {
     const { id } = await remember(original, { ...options, kind: 'reference', slug, forceNew: true });
     ids.push(id);
     await store.fields(id, { changed_at: old, verdict: 'verified', verified_at: old, reason: 'Prior review' });
   }
   await installExtension(workspace);
+  return { ids, original, old };
+}
+
+/** Check the complete restored guidance and its native verification evidence. */
+async function assertBulkRestored(client: Awaited<ReturnType<typeof tracker>>['client'], ids: string[], original: string, old: string) {
+  for (const id of ids) {
+    const { item } = await client.get(id, { full: true });
+    assert.deepEqual([item.body, item.memory_changed_at, item.memory_verdict, item.memory_verified_at, item.memory_reason],
+      [original, old, 'verified', old, 'Prior review']);
+  }
+}
+
+test('native bulk receipts preserve committed rows and rollback after a later row throws', async t => {
+  const trackerState = await tracker(t);
+  const { client, root, workspace } = trackerState;
+  const { ids, original, old } = await seedVerifiedBulk(trackerState, ['first', 'later', 'last']);
   const revised = 'Updated guidance.';
   const { flags, orderedIds: [first, later, last] } = previewBulkBodyUpdate(root, workspace, ids, revised);
   await installPeerHook(workspace, ['hooks'], `
@@ -525,12 +603,38 @@ test('native bulk receipts preserve committed rows and rollback after a later ro
   const restored = JSON.parse(rollback.stdout);
   assert.equal(restored.restored_count, 2);
   assert.deepEqual(restored.ids, [first, last]);
-  for (const id of restored.ids) {
-    const { item } = await client.get(id, { full: true });
-    assert.deepEqual([item.body, item.memory_changed_at, item.memory_verdict, item.memory_verified_at, item.memory_reason],
-      [original, old, 'verified', old, 'Prior review']);
-  }
+  assert.equal(restored.checkpoint_errors, undefined);
+  await assertBulkRestored(client, restored.ids, original, old);
   await assert.rejects(client.get(later, { full: true }), /was deleted/u);
+});
+
+test('combined rollback keeps restored rows when child checkpoints cannot be loaded', async t => {
+  const trackerState = await tracker(t);
+  const { client, root, workspace } = trackerState;
+  const { ids, original, old } = await seedVerifiedBulk(trackerState, ['first', 'second', 'third', 'last']);
+  const revised = 'Updated guidance.';
+  const { flags, orderedIds: [first, second, third, last] } = previewBulkBodyUpdate(root, workspace, ids, revised);
+  const applied = pm(root, workspace, flags);
+  assert.equal(applied.status, EXIT_CODE.SUCCESS, applied.stdout + applied.stderr);
+  const { checkpoint } = JSON.parse(applied.stdout);
+  const { record } = await loadMutationCheckpoint(workspace, 'update-many', checkpoint.id, 2);
+  const [, missing, invalid] = record.memory_checkpoints as string[];
+  const child = (id: string) => loadMutationCheckpoint(workspace, 'update-many', id, 2);
+  await unlink((await child(missing)).path);
+  await writeFile((await child(invalid)).path, '{');
+
+  const rollback = pm(root, workspace, ['update-many', '--rollback', checkpoint.id, '--json']);
+  assert.equal(rollback.status, EXIT_CODE.PARTIAL_EFFECT, rollback.stdout + rollback.stderr);
+  const result = JSON.parse(rollback.stdout);
+  assert.equal(result.outcome, 'partial_effect');
+  assert.deepEqual([result.matched_count, result.restored_count, result.failed_count, result.skipped_count], [4, 2, 2, 0]);
+  assert.deepEqual(result.ids, [first, last]);
+  assert.deepEqual(result.rows.map(({ id, status }: { id: string; status: string }) => [id, status]),
+    [[first, 'restored'], [last, 'restored']]);
+  assert.deepEqual(result.checkpoint_errors.map(({ checkpoint_id }: { checkpoint_id: string }) => checkpoint_id), [missing, invalid]);
+  assert.ok(result.checkpoint_errors.every(({ error }: { error: string }) => error.length > 0));
+  await assertBulkRestored(client, result.ids, original, old);
+  for (const id of [second, third]) assert.equal((await client.get(id, { full: true })).item.body, revised);
 });
 
 test('native bulk receipts keep committed rows when combined checkpoint publication fails', async t => {
@@ -571,14 +675,24 @@ test('native bulk receipts keep committed rows when combined checkpoint publicat
   assert.match(receipt.checkpoint_error.detail, /EEXIST|ENOTDIR/u);
   await unlink(checkpointDir);
   await rename(savedDir, checkpointDir);
-  const children = await Promise.all((receipt.child_checkpoint_ids as string[]).map(id =>
-    loadMutationCheckpoint(workspace, 'update-many', id, 2)));
-  assert.deepEqual(children.map(child => child.items.map(item => item.id)), orderedIds.map(id => [id]));
-  for (const child of children) {
-    const id = child.items[0].id;
+  for (const id of orderedIds) {
+    const { item } = await client.get(id, { full: true });
     const history = await readHistoryEntries(getHistoryPath(workspace, id), id);
-    assert.equal(history.at(-1)?.context?.bulk_checkpoint, child.id);
+    const childId = history.at(-1)?.context?.bulk_checkpoint;
+    assert.ok(typeof childId === 'string');
+    const child = await loadMutationCheckpoint(workspace, 'update-many', childId, 2);
+    assert.deepEqual(child.items.map(row => row.id), [id]);
+    const rollback = pm(root, workspace, ['update-many', '--rollback', child.id, '--json']);
+    assert.notEqual(rollback.status, EXIT_CODE.SUCCESS, rollback.stdout + rollback.stderr);
+    const refused = JSON.parse(rollback.stdout);
+    assert.equal(refused.restored_count, 0);
+    assert.equal(refused.failed_count, 1);
+    assert.match(refused.rows[0].error, /Memory guidance edits must invalidate verification/u);
+    assert.deepEqual((await client.get(id, { full: true })).item, item);
+    assert.deepEqual(await readHistoryEntries(getHistoryPath(workspace, id), id), history);
   }
+  assert.equal(receipt.child_checkpoint_ids, undefined);
+  assert.match(receipt.checkpoint_error.detail, /Memory rollback requires the combined checkpoint/u);
 });
 
 
