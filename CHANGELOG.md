@@ -4,7 +4,6 @@
 
 ### Added
 
-- Report stale or contradictory knowledge in task recall ([pm-memory-recall-freshness](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-recall-freshness.toon))
 - Recall durable memory by native task ID ([pm-memory-task-recall](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/features/pm-memory-task-recall.toon))
 
 ## 2026.11.14 - 2026-11-18

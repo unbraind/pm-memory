@@ -2,17 +2,15 @@ id: pm-memory-recall-freshness
 title: Report stale or contradictory knowledge in task recall
 description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
 type: Feature
-status: in_progress
+status: open
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-20T22:34:24.405Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-20T23:51:31.976Z"
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[49]{created_at,author,text}:
+comments[54]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -62,6 +60,11 @@ comments[49]{created_at,author,text}:
   "2026-11-20T20:29:55.565Z",codex-sol,"Round FF verified package source at 4c32e6a on Node 26.13.0. Typecheck, lint and duplication passed. The focused 26-file command passed 313 tests with all six new regressions and the earlier recall, content, native input, native revision and federation fixtures. PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage passed 943 tests with zero failures, cancellations or skips and 100 percent statements, branches, functions and lines across 42 source files. Changelog regeneration and changelog:check passed with the item open."
   "2026-11-20T22:31:58.428Z",codex-sol,"Round FH addresses review thread PRRT_kwDOVPw2oc66LMjO. Bind the merge content clock to the observed target generation, exercise stale corpus data against a newer native document, and rerun the earlier recall and recovery fixtures. Integrate the newer main commit first."
   "2026-11-20T22:33:40.236Z",codex-sol,"Integrated main in f445c61. Its portable guard follow-up history included the branch history as a byte-for-byte prefix, so the merge retained the complete upstream item and history. Before the fix, both new clock regressions failed as expected. The durable intent used the older corpus time instead of the certified future content time and carried the corpus future time even when the certified legacy document used its creation time."
+  "2026-11-20T22:34:42.238Z",codex-sol,Round FH maps PRRT_kwDOVPw2oc66LMjO to 0e9394c2b8dbeca5a998780ed64a43c456a0c05d. New intents derive changed_at from the certified target document through memory_changed_at with a created_at fallback. The real-tracker regressions verify the durable target proof and body plus the published content and relationship timestamps with deliberately stale corpus clocks. Existing version-2 receipts keep their recorded timestamp on replay. Typecheck and lint passed.
+  "2026-11-20T22:37:44.068Z",codex-sol,"Strict tracker health passes with pm 2026.11.18, including integrity and history drift. The package-local 2026.11.14 executable reports its existing host-version mismatch with pm-github 2026.11.18. The dependency and extension settings are unchanged since the review head. Existing follow-up: pm-memory-ci-health-skew."
+  "2026-11-20T23:09:17.857Z",codex-sol,"Round FH focused suite passed all 317 tests in 27 files with no failures, cancellations, or skips. It includes the two stale-clock regressions, Round FF legacy replay across clock skew, and the earlier recall, content, native revision, verification, and guarded recovery fixtures. Checking the additional portable references from the main integration and awaiting full coverage."
+  "2026-11-20T23:29:00.893Z",codex-sol,"The four additional focused portable files passed all 25 tests, including the main integration 1 MiB framing case. Changelog regeneration and changelog:check passed with the item open. Full quick coverage remains in progress."
+  "2026-11-20T23:51:31.308Z",codex-sol,"Round FH full verification passed on Node 26.13.0. PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage passed 945 tests with zero failures, cancellations, or skips and 100 percent statements, branches, functions, and lines across 42 source files. The 27-file focused command passed 317 tests and the four portable integration references passed 25. Typecheck, lint, and changelog:check passed. The item remains open for orchestration."
 files[17]:
   - path: index.ts
     scope: project
