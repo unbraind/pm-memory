@@ -20,6 +20,12 @@ legacy unmarked snapshot journal: recovery resumes it after the legacy ownership
 and native-publication checks described below, so its publication intent is
 not lost.
 
+Before dispatching a portable create, the package decodes the independently
+staged birth with the SDK. The final mutation guard compares the full canonical
+document with that birth, normalizing only the two generated timestamps. The
+hook avoids a redundant TOON encode/decode pass within the SDK's five-second
+budget. The birth history seal and publication hash retain their existing format.
+
 ## Credential policy
 
 `scanMutationSecrets` owns shared provider keys, AWS ids, private-key markers,

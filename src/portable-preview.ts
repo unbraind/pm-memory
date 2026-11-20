@@ -75,8 +75,12 @@ async function withProjection<T>(store: Store, plan: ImportPlan, excluded: Reado
 }
 
 /** Full SDK birth document with only SDK-generated wall-clock values made comparable. */
+export function canonicalBirth(document: Parameters<typeof canonicalDocument>[0], schema?: TrackerSchema): ReturnType<typeof canonicalDocument> {
+  return canonicalDocument({ ...document, metadata: { ...document.metadata, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' } }, { schema });
+}
+/** Serialize the canonical birth for the persisted proof and immutable history seal. */
 export function birthDocument(document: Parameters<typeof canonicalDocument>[0], schema?: TrackerSchema): string {
-  return serializeItemDocument(canonicalDocument({ ...document, metadata: { ...document.metadata, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' } }, { schema }), { schema });
+  return serializeItemDocument(canonicalBirth(document, schema), { schema });
 }
 /** Actual edge-free creation requests, shared by preview and publication. */
 export function prepareImportNodes(plan: ImportPlan): BulkItemMutation[] {
