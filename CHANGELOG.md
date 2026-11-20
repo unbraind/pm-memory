@@ -29,8 +29,8 @@
 
 ### Fixed
 
-- Make portable preparation contention tests independent of writer wait timing ([pm-memory-preparation-boundary-barriers](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-preparation-boundary-barriers.toon))
 - Refuse quoted JSON and YAML credential keys before persistence ([pm-memory-quoted-credential-keys](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-quoted-credential-keys.toon))
+- Make portable preparation contention tests independent of writer wait timing ([pm-memory-preparation-boundary-barriers](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-preparation-boundary-barriers.toon))
 
 ### Closed
 
