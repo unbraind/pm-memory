@@ -2,15 +2,17 @@ id: pm-memory-recall-freshness
 title: Report stale or contradictory knowledge in task recall
 description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
 type: Feature
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-20T04:41:55.534Z"
+updated_at: "2026-11-20T07:01:02.487Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[21]{created_at,author,text}:
+comments[23]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -32,7 +34,9 @@ comments[21]{created_at,author,text}:
   "2026-11-20T01:41:45.856Z",codex-sol,"The focused run passed 24 tests, native-host passed 12, and typecheck, lint, and changelog check passed. The first full quick coverage run reported a failure in the existing 1 MiB policy framing test. The isolated direct test passed. Awaiting the full failure details and a coverage-instrumented isolation run before deciding on the retry."
   "2026-11-20T02:35:53.772Z",codex-sol,Stopped the first full quick run after two failures. The 1 MiB framing case reported extension_mutation_guard_timed_out for pm-memory-forward-base before create and passed in isolation with and without V8 instrumentation. Follow-up pm-memory-forward-guard-timeout records that separate failure. The portable-forward file hit its 30-minute watchdog. Retrying the same coverage command with PM_TEST_FILE_TIMEOUT_MS=3600000 and the same assertions and thresholds.
   "2026-11-20T04:41:52.928Z",codex-sol,"Round EI validation passed on the source and test changes through 7ccc351. Typecheck and lint passed. The focused recall, content, and direct-reference command passed 24 tests, and the native-host command passed 12. The coverage retry with PM_TEST_FILE_TIMEOUT_MS=3600000, PM_TEST_DEPTH=quick, and PM_TEST_TIME_SCALE=3 passed 924 tests with zero failures, cancellations, or skips and 100 percent statements, branches, functions, and lines across 40 source files. Changelog regeneration and check passed. The policy guard timeout remains tracked in pm-memory-forward-guard-timeout."
-files[13]{path,scope}:
+  "2026-11-20T06:28:49.948Z",codex-sol,"Round ES addresses all four PR review findings. Preserve verification for equivalent field values, prepare each bulk update and persisted full-document fields in the native mutation, and compute conflict evidence from each requested prefix. Verify with real trackers and the package gates."
+  "2026-11-20T06:56:25.137Z",codex-sol,"The real tracker showed that replacing built-in command handlers emits ownership warnings before even unrelated JSON refusals. The revised integration uses parser and command-result extension services around native no-op and preview paths, and leaves the locked mutation guard active. Focused tests confirm bulk apply and rollback, persisted full-document normalization, no-op field updates, and shrinking recall projections."
+files[14]{path,scope}:
   index.ts,project
   manifest.json,project
   src/commands.ts,project
@@ -40,13 +44,14 @@ files[13]{path,scope}:
   src/memory.ts,project
   src/merge-receipt.ts,project
   src/native-host.ts,project
+  src/native-input.ts,project
   src/native-revision.ts,project
   src/task-recall.ts,project
   test/content-age.test.ts,project
   test/native-host.test.ts,project
   test/portable-recovery-controls.test.ts,project
   test/task-recall.test.ts,project
-tests[12]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+tests[13]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   npm run typecheck && npm run lint,project,codex-sol,"2026-11-19T14:10:36.014Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-reporter=tap test/task-recall.test.ts,project,codex-sol,"2026-11-19T14:10:49.744Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-19T14:11:04.446Z",local_mutation,feat/recall-freshness
@@ -59,7 +64,9 @@ tests[12]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test test/native-host.test.ts,project,codex-sol,"2026-11-20T01:03:13.064Z",local_mutation,feat/recall-freshness
   "npm run changelog:check",project,codex-sol,"2026-11-20T01:03:20.417Z",local_mutation,feat/recall-freshness
   PM_TEST_FILE_TIMEOUT_MS=3600000 PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-20T02:36:01.235Z",local_mutation,feat/recall-freshness
-docs[2]{path,scope}:
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/commands.test.ts test/content-age.test.ts test/merge-history.test.ts test/merge-receipt.test.ts test/native-host.test.ts test/native-revision.test.ts test/portable-host.test.ts test/portable-locality.test.ts test/portable-publication.test.ts test/portable-recovery-controls.test.ts test/publication-intent.test.ts test/review-r1.test.ts test/review-r13.test.ts test/review-round4.test.ts test/sdk-adoption.test.ts test/sdk-secret-refusal.test.ts test/semantic.test.ts test/task-recall.test.ts test/utility.test.ts,project,codex-sol,"2026-11-20T07:01:02.172Z",local_mutation,feat/recall-freshness
+docs[3]{path,scope}:
   ARCHITECTURE.md,project
+  docs/native-revision-validation.md,project
   README.md,project
 body: ""

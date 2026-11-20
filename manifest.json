@@ -10,6 +10,7 @@
     "commands",
     "schema",
     "hooks",
-    "parser"
+    "parser",
+    "services"
   ]
 }

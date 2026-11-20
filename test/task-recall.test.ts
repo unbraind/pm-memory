@@ -10,6 +10,7 @@ import { installExtension, tracker } from './helpers.ts';
 import { hostPublication } from './native-host-helpers.ts';
 import { commitNativeFields, nativeState } from '../src/native-revision.ts';
 import { nativeContentRevision } from '../src/content.ts';
+import { conflictProjection } from '../src/task-recall.ts';
 
 function pm(root: string, workspace: string, args: string[], input?: string) {
   return spawnSync(process.execPath, [join(import.meta.dirname, '../node_modules/.bin/pm'), ...args], {
@@ -128,6 +129,14 @@ test('supersession identifies a single native relationship projection and omits 
     { slug: previous.slug, body: 'Never run release smoke tests.', freshness: 'superseded', source_id: current.id, field: 'dependencies' },
   ];
   const reference = { left: current.slug, right: previous.slug, item_id: current.id, field: 'dependencies' };
+  const stored = await store.read();
+  const ranked = [current, previous].map(memory => stored.find(row => row.id === memory.id)!);
+  const replacements = new Map([[previous.id, new Set(ranked.filter(row =>
+    row.relationships.some(edge => edge.id === previous.id && edge.kind === 'supersedes')).map(row => row.id))]]);
+  const project = conflictProjection(ranked, replacements);
+  assert.deepEqual(project(2), { conflicts: [reference], unresolved: false });
+  assert.deepEqual(project(1), { conflicts: [], unresolved: false });
+  assert.deepEqual(project(2), { conflicts: [reference], unresolved: false });
   for (const format of ['toon', 'json'] as const) {
     const result = pm(root, workspace, ['memory', 'recall-task', taskId, '--for', 'resume-evidence', ...(format === 'json' ? ['--json'] : [])]);
     assert.equal(result.status, 0, result.stderr + result.stdout);
@@ -235,6 +244,16 @@ test('guidance edits invalidate native verification in the same history entry', 
       editNative(['--body-file', file]);
     } },
     { field: 'body', value: 'Process the JSON packaging instructions.', edit: (value: string) => editNative(['--stdin-json'], JSON.stringify({ body: value })) },
+    { field: 'body', value: '-', edit: (value: string) => {
+      const full = pm(root, workspace, ['get', memory.id, '--full', '--json']);
+      assert.equal(full.status, 0, full.stderr + full.stdout);
+      const document = JSON.parse(full.stdout);
+      assert.equal(document.item.memory_verdict, 'verified');
+      assert.equal(document.item.memory_reason, 'Approved packaging guidance');
+      assert.ok(document.item.memory_verified_at);
+      document.item.body = value;
+      editNative(['--stdin-json'], JSON.stringify(document));
+    } },
     { field: 'title', value: 'Standalone packaging guidance', edit: async (value: string) => {
       const { proof } = await nativeState(store, memory.id);
       assert.equal(await commitNativeFields(store, memory.id, proof, { title: value }), true);
@@ -270,24 +289,38 @@ test('guidance edits invalidate native verification in the same history entry', 
 test('native operational edits and identical guidance retain current verification', async t => {
   const { client, options, root, store, workspace } = await tracker(t);
   const task = (await client.create({ title: 'Unrelated work item', type: 'Task' })).item.id;
-  const memory = await remember('Read the instructions.', { ...options, kind: 'reference', slug: 'guidance', why: 'Use the published instructions' });
+  const memory = await remember('Read the instructions.', { ...options, kind: 'reference', slug: 'guidance', why: 'Use the published instructions', how: 'Use the checklist' });
   const old = '2020-01-01T00:00:00.000Z';
-  await store.fields(memory.id, { changed_at: old, verdict: 'verified', verified_at: old });
+  await store.fields(memory.id, { changed_at: old, verdict: 'verified', verified_at: old, reason: 'Approved guidance' });
   await installExtension(workspace);
 
   update(root, workspace, task, ['--body', 'Unrelated work change']);
   update(root, workspace, memory.id, ['--priority', '1', '--body', 'Read the instructions.']);
+  const nativeDocument = pm(root, workspace, ['get', memory.id, '--full', '--json']);
+  assert.equal(nativeDocument.status, 0, nativeDocument.stderr + nativeDocument.stdout);
+  update(root, workspace, memory.id, ['--stdin-json'], nativeDocument.stdout);
+  update(root, workspace, memory.id, ['--stdin-json', '--priority', '2'], nativeDocument.stdout);
+  const sameBody = join(root, 'same.md');
+  await writeFile(sameBody, 'Read the instructions.');
+  update(root, workspace, memory.id, ['--stdin-json', '--body-file', sameBody], '{}');
+  const invalid = pm(root, workspace, ['update', memory.id, '--stdin-json', '--body', '-', '--json'], '{}');
+  assert.equal(invalid.status, 2, invalid.stderr + invalid.stdout);
+  assert.match(JSON.parse(invalid.stderr).detail, /Only one option may consume stdin/);
+  const malformed = pm(root, workspace, ['update', memory.id, '--stdin-json'], '{');
+  assert.equal(malformed.status, 2, malformed.stderr + malformed.stdout);
+  assert.match(malformed.stderr, /JSON/i);
+  update(root, workspace, memory.id, ['--priority', '0', '--field', 'memory_how =Use the checklist ']);
   const { item } = await client.get(memory.id, { full: true });
-  assert.equal(item.priority, 1);
-  assert.equal(item.memory_verified_at, old);
-  assert.equal(item.memory_changed_at, old);
+  assert.equal(item.priority, 0);
+  assert.deepEqual([item.memory_how, item.memory_changed_at, item.memory_verdict, item.memory_verified_at, item.memory_reason],
+    ['Use the checklist', old, 'verified', old, 'Approved guidance']);
 
   await client.update(memory.id, { unset: ['memory_changed_at'] });
   for (const [field, value, flags] of [
     ['tags', ['packaging'], ['--add-tags', 'packaging']],
     ['tags', [], ['--remove-tags', 'packaging']],
     ['memory_why', undefined, ['--unset', 'memory_why']],
-    ['memory_how', 'Use the checklist', ['--field', 'memory_how=Use the checklist']],
+    ['memory_how', 'Use the revised checklist', ['--field', 'memory_how=Use the revised checklist']],
   ] as const) {
     await store.fields(memory.id, { verdict: 'verified', verified_at: old });
     update(root, workspace, memory.id, flags);
@@ -295,6 +328,66 @@ test('native operational edits and identical guidance retain current verificatio
     assert.deepEqual(edited[field], value);
     assert.equal(edited.memory_verified_at, undefined);
   }
+});
+
+test('native bulk updates revise each changed memory and retain ordinary batch rows', async t => {
+  const { client, options, root, store, workspace } = await tracker(t);
+  const task = (await client.create({ title: 'Ordinary batch item', type: 'Task', body: 'Old task guidance' })).item.id;
+  const seed = (body: string, slug: string) => remember(body, { ...options, slug, kind: 'reference', forceNew: true });
+  const next = 'Use the revised instructions.';
+  const first = await seed('Read the original instructions.', 'first');
+  const second = await seed('Read the other instructions.', 'second');
+  const same = await seed(next, 'same');
+  const old = '2020-01-01T00:00:00.000Z';
+  const future = '2090-01-01T00:00:00.000Z';
+  const clocks = new Map([[first.id, old], [second.id, future], [same.id, old]]);
+  for (const [id, at] of clocks) await store.fields(id, { changed_at: at, verdict: 'verified', verified_at: at, reason: 'Prior review' });
+  await installExtension(workspace);
+
+  const bulk = (...flags: string[]) => {
+    const result = pm(root, workspace, ['update-many', ...flags, '--json']);
+    assert.equal(result.status, 0, result.stderr + result.stdout);
+    return JSON.parse(result.stdout);
+  };
+  const ids = [task, first.id, second.id, same.id];
+  const flags = ['--ids', ids.join(','), '--body', next, '--priority', '1', '--message', 'Apply the batch checklist.'];
+  const histories = () => Promise.all(ids.map(id => readHistoryEntries(getHistoryPath(workspace, id), id)));
+  const before = await histories();
+  assert.equal(bulk(...flags, '--dry-run').matched_count, 4);
+  assert.deepEqual(await histories(), before);
+  const applied = bulk(...flags);
+  assert.equal(applied.updated_count, 4);
+  assert.equal(applied.failed_count, 0);
+  for (const [index, history] of (await histories()).entries()) {
+    assert.equal(history.length, before[index].length + 1);
+    assert.equal(history.at(-1)?.message, 'Apply the batch checklist.');
+  }
+  for (const id of ids) {
+    const { item } = await client.get(id, { full: true });
+    assert.equal(item.body, next);
+    assert.equal(item.priority, 1);
+    if (id === task) {
+      assert.equal(item.memory_changed_at, undefined);
+      assert.equal(item.memory_verdict, undefined);
+    } else if (id === same.id) {
+      assert.deepEqual([item.memory_changed_at, item.memory_verdict, item.memory_verified_at, item.memory_reason], [old, 'verified', old, 'Prior review']);
+    } else {
+      assert.ok(Date.parse(String(item.memory_changed_at)) > Date.parse(clocks.get(id)!));
+      assert.deepEqual([item.memory_verdict, item.memory_verified_at, item.memory_reason], ['unknown', undefined, undefined]);
+      const paths = new Set((await readHistoryEntries(getHistoryPath(workspace, id), id)).at(-1)!.patch.map(patch => patch.path));
+      for (const field of ['/body', '/metadata/memory_changed_at', '/metadata/memory_verdict', '/metadata/memory_verified_at', '/metadata/memory_reason']) assert.ok(paths.has(field), field);
+    }
+  }
+  const rollback = bulk('--rollback', applied.checkpoint.id);
+  assert.equal(rollback.restored_count, 4);
+  assert.equal(rollback.failed_count, 0);
+  const restored = (await client.get(second.id, { full: true })).item;
+  assert.equal(restored.body, 'Read the other instructions.');
+  assert.deepEqual([restored.memory_changed_at, restored.memory_verdict, restored.memory_verified_at, restored.memory_reason], [future, 'verified', future, 'Prior review']);
+  assert.equal(bulk('--ids', task, '--priority', '0').updated_count, 1);
+  const withoutCheckpoint = bulk('--ids', first.id, '--body', next, '--no-checkpoint');
+  assert.equal(withoutCheckpoint.updated_count, 1);
+  assert.equal(withoutCheckpoint.checkpoint, undefined);
 });
 
 

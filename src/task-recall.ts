@@ -143,26 +143,24 @@ function conflictSource(left: Memory, right: Memory, replaced: Supersessions): P
   return 'unresolved';
 }
 
-/** Extend conflict evidence once per admitted prefix, including the fitter's final trial row. */
-function conflictProjection(ranked: readonly Memory[], replaced: Supersessions): (count: number) => {
+/** Compute conflict evidence for exactly the prefix requested by the fitter. */
+export function conflictProjection(ranked: readonly Memory[], replaced: Supersessions): (count: number) => {
   conflicts: readonly TaskRecallConflict[];
   unresolved: boolean;
 } {
-  const conflicts: TaskRecallConflict[] = [];
-  let unresolved = false;
-  let examined = 0;
   return count => {
-    for (; examined < count; examined++) {
-      const right = ranked[examined];
-      for (let index = 0; index < examined; index++) {
+    const conflicts: TaskRecallConflict[] = [];
+    let unresolved = false;
+    for (let rightIndex = 1; rightIndex < count; rightIndex++) {
+      const right = ranked[rightIndex];
+      for (let index = 0; index < rightIndex; index++) {
         const left = ranked[index];
         const source = conflictSource(left, right, replaced);
         if (source === 'unresolved') unresolved = true;
         else if (source !== undefined) conflicts.push({ left: left.slug, right: right.slug, ...source });
       }
     }
-    // A rejected trial must not mutate the fitter's previously accepted packet.
-    return { conflicts: [...conflicts], unresolved };
+    return { conflicts, unresolved };
   };
 }
 

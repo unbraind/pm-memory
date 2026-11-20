@@ -6,6 +6,7 @@ import type { BeforeMutationHook, ExtensionApi } from '@unbrained/pm-cli/sdk/aut
 import type { Store } from './store.ts';
 import { MemoryError } from './core.ts';
 import { isGuidanceField, nativeContentRevision } from './content.ts';
+import { APPLY_BULK, DOCUMENT_INPUT, finishNativeInput, isCheckpointRestore, isMemory, needsBulkPreparation } from './native-input.ts';
 
 /** Private discovery operation denies before persistence and never represents an item transition. */
 const PROBE = 'pm-memory-verification-guard-probe';
@@ -22,11 +23,6 @@ function unavailable(): MemoryError { return new MemoryError('host_guard', 'Host
 /** Deny discovery and any unexpected write in a read-only attestation with the same typed refusal. */
 function denyHostWrite(): never { throw unavailable(); }
 
-/** Match the native item identity used by memory reads. */
-function isMemory(item: { type?: string; memory_slug?: unknown }): boolean {
-  return item.type === 'Knowledge' && item.memory_slug !== undefined;
-}
-
 /** Verify the final SDK proposal after input normalization, with the item lock held. */
 function invalidatedVerification(before: Record<string, unknown>, after: Record<string, unknown>): boolean {
   const prior = Date.parse(String(before.memory_changed_at ?? before.created_at));
@@ -41,13 +37,21 @@ export function registerNativeHost(api: ExtensionApi): void {
     const client = PmClient.forActiveExtensionHost({ pmRoot: pm_root });
     const { item } = await client.get(args[0], { full: true });
     if (!isMemory(item)) return {};
+    if (options.stdinJson === true) {
+      const inactive = Object.fromEntries(Object.keys(options).map(key => [key, undefined]));
+      return { options: { ...inactive, [DOCUMENT_INPUT]: options } };
+    }
     nativeContentRevision(options, item);
     return { options };
   });
+  api.registerParser('update-many', ({ options }) =>
+    needsBulkPreparation(options) ? { options: { ...options, dryRun: true, [APPLY_BULK]: true } } : {});
+  api.registerService('command_result', finishNativeInput);
   api.hooks.beforeMutation(async context => {
     const { before, after, changed_fields } = context;
     if (before !== null && after !== null && isMemory(before.metadata) && changed_fields.some(isGuidanceField)
-      && !invalidatedVerification(before.metadata, after.metadata)) {
+      && !invalidatedVerification(before.metadata, after.metadata)
+      && !isCheckpointRestore(context.operation, context.pm_root)) {
       return { allow: false, code: 'memory_revision_required', message: 'Memory guidance edits must invalidate verification', remediation: 'Use pm update or update the content with pm memory remember --update' };
     }
     const task = expectations.getStore();
