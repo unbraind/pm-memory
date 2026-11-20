@@ -329,9 +329,9 @@ test('native tag replacement preserves verification for equivalent tags', async 
   assert.equal(item.memory_reason, undefined);
   const after = await readHistoryEntries(path, memory.id);
   assert.equal(after.length, before.length + 1);
-  const changed = after.at(-1)!.patch.map(patch => patch.path);
+  const changed = after.at(-1)!.patch.map(patch => patch.path.split('/')[2]);
   for (const field of ['tags', 'memory_changed_at', 'memory_verdict', 'memory_verified_at', 'memory_reason']) {
-    assert.ok(changed.includes(`/metadata/${field}`));
+    assert.ok(changed.includes(field), `Missing native history patch for ${field}`);
   }
 });
 

@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-20T01:03:21.027Z"
+updated_at: "2026-11-20T01:09:30.755Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[16]{created_at,author,text}:
+comments[18]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -29,6 +29,8 @@ comments[16]{created_at,author,text}:
   "2026-11-19T21:46:59.406Z",codex-sol,"Full quick coverage passed on d85c6ba3549449fabc47d2802a59f58768d4e9f3 with 923 passing tests, zero failures or skips, and 100% statements, branches, functions and lines across 40 source files. The linked recall, content and host command passed all 28 tests. The shipped-file check, typecheck, lint, duplication, docstrings, identity and changelog checks passed. CodeRabbit thread PRRT_kwDOVPw2oc65mhxy maps to implementation commit 3ec0e45a45ac5a8a2c087226060872fd056b6728."
   "2026-11-20T00:59:25.455Z",codex-sol,"Round EI verified both CodeRabbit threads are open on 6158dac. Reproduce each through a real tracker, compare tags using native update semantics, and ensure later guidance edits take precedence over create-entry verification."
   "2026-11-20T01:01:37.767Z",codex-sol,"Both real-tracker regressions failed on the review head. Equivalent replacement tags cleared the verification fields, and an extension-free title edit left imported guidance fresh. Native tag replacement canonicalizes values by trimming, lowercasing, deduplicating, and sorting before persistence."
+  "2026-11-20T01:04:05.505Z",codex-sol,"Round EI thread mapping. PRRT_kwDOVPw2oc65vv4T maps to e75ced4, which preserves verification for equivalent native tag replacements and clears it in the same history entry when tags change. PRRT_kwDOVPw2oc65vv4Z maps to e75ced4, which keeps unchanged verified imports fresh and rejects create-time verification after a later guidance edit. The regressions use real trackers."
+  "2026-11-20T01:09:30.739Z",codex-sol,"The tag replacement regression confirmed the persisted field values. Its atomicity assertion now accepts the native item-field path for array element patches, while requiring the tags and verification fields in the same history entry."
 files[13]{path,scope}:
   index.ts,project
   manifest.json,project
