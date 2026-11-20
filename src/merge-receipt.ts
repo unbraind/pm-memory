@@ -86,7 +86,8 @@ export async function performMerge(store: Store, source: Memory, memories: reado
     // Persist the complete intent before touching the target. The relationship and body publish together,
     // so a denied intent has no unjournaled target preparation to duplicate on retry.
     const body = `${targetBase.document.body}\n\n### Consolidated context (${source.slug})\n${source.body}\n\n**Why:** ${source.why}\n**How to apply:** ${source.how}`;
-    const changed_at = nextContentTimestamp(new Date().toISOString(), target.updated);
+    const { memory_changed_at, created_at } = targetBase.document.metadata;
+    const changed_at = nextContentTimestamp(new Date().toISOString(), memory_changed_at ?? created_at);
     const author = resolveAuthorIdentity(store.invocationAuthor, (await readSettings(store.workspace)).author_default).author;
     const fields = revisionFields({ body, changed_at, author }, targetBase.document, source.id);
     const after = canonicalDocument({ ...targetBase.document, body, metadata: { ...targetBase.document.metadata, dependencies: mergeGraph(targetBase.document, source.id, { changed_at, author }), memory_edited: fields.memoryEdited, memory_changed_at: fields.memoryChangedAt, memory_verdict: fields.memoryVerdict } }, { schema: await trackerSchema(store.workspace) });

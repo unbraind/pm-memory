@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs, { rm } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
-import { getHistoryPath } from '@unbrained/pm-cli/sdk';
+import { getHistoryPath, getItemAt } from '@unbrained/pm-cli/sdk';
 import { randomUUID } from 'node:crypto';
 import { test, before, after } from 'node:test';
 import { consolidate, remember, MemoryError } from '../index.ts';
@@ -78,6 +78,44 @@ test('merge admission refuses incomplete observations and stale native generatio
   await target.client.update(destination.id, { body: native });
   await assert.rejects(target.store.write(() => performMerge(target.store, original, memories, observed, true, 'target')), error => error instanceof MemoryError && error.code === 'conflict');
   assert.equal((await target.client.get(destination.id, { full: true })).item.body, native);
+});
+
+for (const legacy of [false, true]) test(`new merge receipts use the certified target clock: ${legacy ? 'legacy creation time' : 'content time'}`, async t => {
+  const target = await mergePair(t);
+  const { store, client, workspace, destination } = target;
+  const future = '2090-01-01T00:00:00.000Z';
+  if (legacy) await store.fields(destination.id, { changed_at: future });
+  const memories = await store.read();
+  const source = memories.find(item => item.id === target.source.id)!;
+  const staleTarget = memories.find(item => item.id === destination.id)!;
+  const editedBody = 'Repeated safe guidance with a native edit';
+  await client.run('update', { id: destination.id, options: {
+    body: editedBody, ...(legacy ? { unset: ['memory_changed_at'] } : { memoryChangedAt: future }),
+  } });
+  const observed = await observeTargets(store, (await client.listAllComplete({ includeBody: true })).items);
+  const targetBase = observed.get(destination.id)!;
+  const metadata = targetBase.document!.metadata;
+  const previous = legacy ? metadata.created_at : future;
+  assert.ok(previous);
+  assert.equal(metadata.memory_changed_at, legacy ? undefined : future);
+  assert.notEqual(staleTarget.updated, previous);
+
+  await store.write(() => performMerge(store, source, memories, observed, true, staleTarget.slug));
+
+  const intentRevision = observed.get(source.id)!.proof.length + 1;
+  const { document: intent } = await getItemAt(source.id, String(intentRevision), { pmRoot: workspace });
+  const receipt = JSON.parse(String(intent.metadata.memory_merge)) as { target_before: NativeProof; body: string; changed_at: string };
+  assert.deepEqual(receipt.target_before, targetBase.proof);
+  assert.ok(receipt.body.startsWith(`${editedBody}\n\n`));
+  if (legacy) {
+    assert.ok(receipt.changed_at > previous && receipt.changed_at < future);
+  } else {
+    assert.equal(receipt.changed_at, '2090-01-01T00:00:00.001Z');
+  }
+  const published = (await client.get(destination.id, { full: true })).item;
+  assert.equal(published.body, receipt.body);
+  assert.equal(published.memory_changed_at, receipt.changed_at);
+  assert.equal(published.dependencies!.find(edge => edge.id === source.id && edge.kind === 'related')?.created_at, receipt.changed_at);
 });
 
 test('a refused merge intent retains every target byte and retry publishes one provenance link', async t => {
