@@ -2,18 +2,19 @@ id: pm-memory-native-input-revision
 title: Prepare memory verification resets for bulk and full-document updates
 description: Support native input forms that require per-item guidance revision preparation before the locked SDK update.
 type: Task
-status: in_progress
+status: open
 priority: 2
 tags: []
 created_at: "2026-11-19T19:53:23.139Z"
-updated_at: "2026-11-20T07:01:23.857Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-20T08:27:07.496Z"
 author: codex-sol
 parent: pm-memory-recall-freshness
-comments[2]{created_at,author,text}:
+comments[5]{created_at,author,text}:
   "2026-11-20T06:28:54.469Z",codex-sol,Round ES will exercise both previously refused inputs on real trackers and record the results here.
   "2026-11-20T06:56:28.696Z",codex-sol,The native bulk preview identifies selected rows and preserves normal selection. Each changed memory gets one guarded SDK update with its own revision clock and cleared verification. The stdin adapter normalizes the native get document before applying the managed field changes. Focused real-tracker tests pass.
+  "2026-11-20T07:09:24.034Z",codex-sol,Implementation and real-tracker evidence are in b355136. Mixed bulk apply preserved ordinary and equivalent rows and produced one audited history mutation per edit. Bulk rollback restored the recorded preimages. A full pm get JSON document with a revised body and old verification updated the body and cleared old evidence in one native mutation. Direct SDK dispatch bypasses the CLI parser and continues to require prepared invalidation fields.
+  "2026-11-20T07:21:25.154Z",codex-sol,"The linked real-tracker recall regressions passed, including an unchanged full document, literal dash content, a competing stdin refusal, and a mixed batch with a guarded rollback. The follow-up stays open for orchestrator verification."
+  "2026-11-20T08:27:06.220Z",codex-sol,Full quick coverage passed for b355136 source with all 925 tests and 100 percent coverage in every dimension. Bulk and full-document CLI input regressions are linked. Leave open for orchestrator verification.
 files[4]{path,scope}:
   src/content.ts,project
   src/native-host.ts,project

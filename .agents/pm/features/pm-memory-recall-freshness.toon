@@ -2,17 +2,15 @@ id: pm-memory-recall-freshness
 title: Report stale or contradictory knowledge in task recall
 description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
 type: Feature
-status: in_progress
+status: open
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-20T07:01:02.487Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-20T08:27:08.420Z"
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[23]{created_at,author,text}:
+comments[26]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -36,6 +34,9 @@ comments[23]{created_at,author,text}:
   "2026-11-20T04:41:52.928Z",codex-sol,"Round EI validation passed on the source and test changes through 7ccc351. Typecheck and lint passed. The focused recall, content, and direct-reference command passed 24 tests, and the native-host command passed 12. The coverage retry with PM_TEST_FILE_TIMEOUT_MS=3600000, PM_TEST_DEPTH=quick, and PM_TEST_TIME_SCALE=3 passed 924 tests with zero failures, cancellations, or skips and 100 percent statements, branches, functions, and lines across 40 source files. Changelog regeneration and check passed. The policy guard timeout remains tracked in pm-memory-forward-guard-timeout."
   "2026-11-20T06:28:49.948Z",codex-sol,"Round ES addresses all four PR review findings. Preserve verification for equivalent field values, prepare each bulk update and persisted full-document fields in the native mutation, and compute conflict evidence from each requested prefix. Verify with real trackers and the package gates."
   "2026-11-20T06:56:25.137Z",codex-sol,"The real tracker showed that replacing built-in command handlers emits ownership warnings before even unrelated JSON refusals. The revised integration uses parser and command-result extension services around native no-op and preview paths, and leaves the locked mutation guard active. Focused tests confirm bulk apply and rollback, persisted full-document normalization, no-op field updates, and shrinking recall projections."
+  "2026-11-20T07:09:20.597Z",codex-sol,"Round ES maps PRRT_kwDOVPw2oc652ONn to b355136 for equivalent field comparison, PRRT_kwDOVPw2oc652ONs to b355136 for per-memory bulk preparation, PRRT_kwDOVPw2oc652ON3 to b355136 for persisted full-document normalization, and PRRT_kwDOVPw2oc652ON7 to b355136 for pure prefix projection. The real-tracker tests are in test/task-recall.test.ts."
+  "2026-11-20T07:21:22.507Z",codex-sol,"Round ES typecheck and lint passed. The focused recall, content, native host, and reference command passed 246 cases with zero failures, cancellations, or skips. The final mixed-batch regression passed again after removing the unused fallback for absent SDK row receipts. Changelog regeneration and check passed with both items open. The full coverage command is running on b355136 source."
+  "2026-11-20T08:27:04.743Z",codex-sol,"Round ES full quick coverage passed on b355136 source with PM_TEST_FILE_TIMEOUT_MS=3600000, PM_TEST_DEPTH=quick, and PM_TEST_TIME_SCALE=3. The gate reported 925 passes, zero failures, cancellations, or skips, and 100 percent statements, branches, functions, and lines across 41 source files. The focused reference suite passed 246 tests. Changelog check, typecheck, and lint passed."
 files[14]{path,scope}:
   index.ts,project
   manifest.json,project
