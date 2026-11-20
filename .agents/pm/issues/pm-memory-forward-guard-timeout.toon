@@ -1,0 +1,15 @@
+id: pm-memory-forward-guard-timeout
+title: Investigate portable create guard timeout under coverage load
+description: A quick coverage run for pm-memory-recall-freshness failed test/policy-size-boundary.test.ts at import. The SDK reported extension_mutation_guard_timed_out for pm-memory-forward-base before create. The SDK guard has a five-second deadline. The same real-tracker test passed in isolation with and without V8 coverage. Measure guard costs for a valid 1 MiB policy body under concurrent coverage load and preserve native revision certification. The separate file watchdog expiry is test lifecycle evidence for pm-memory-higm.
+type: Issue
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-20T02:35:37.535Z"
+updated_at: "2026-11-20T02:36:57.754Z"
+author: codex-sol
+files[1]{path,scope}:
+  test/policy-size-boundary.test.ts,project
+tests[1]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test test/policy-size-boundary.test.ts,project,codex-sol,"2026-11-20T02:36:57.392Z",local_mutation,feat/recall-freshness
+body: ""
