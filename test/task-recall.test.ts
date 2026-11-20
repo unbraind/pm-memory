@@ -367,10 +367,14 @@ test('native body files preserve unchanged guidance and treat file data as liter
   assert.deepEqual(await history(), before);
 
   await writeFile(path, '-');
-  update(root, workspace, memory.id, ['--body-file', path, '--description', '-'], 'Read this description from stdin');
+  update(root, workspace, memory.id, [
+    '--body-file', path, '--description', '-', '--acceptance-criteria', 'Check examples', '--acceptance-criteria', 'Check output', '--regression',
+  ], 'Read this description from stdin');
   const { item } = await client.get(memory.id, { full: true });
   assert.equal(item.body, '-');
   assert.equal(item.description, 'Read this description from stdin');
+  assert.equal(item.acceptance_criteria, 'Check examples; Check output');
+  assert.equal(item.regression, true);
   assert.ok(Date.parse(String(item.memory_changed_at)) > Date.parse(old));
   assert.deepEqual([item.memory_verdict, item.memory_verified_at, item.memory_reason], ['unknown', undefined, undefined]);
   const after = await history();

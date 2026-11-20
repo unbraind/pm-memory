@@ -71,11 +71,19 @@ async function decodeUpdate(root: string, { raw, fileBody }: DeferredUpdate): Pr
   if (stdinConsumers.length + Number(document) > 1) {
     throw new PmCliError('Only one option may consume stdin per command invocation.', EXIT_CODE.USAGE);
   }
-  let decoded = raw;
+  let decoded: Record<string, unknown>;
   if (document) {
     const input = await createStdinTokenResolver().resolveValue('-', '--stdin-json');
     const settings = await readSettings(root);
     decoded = itemDocumentToMutationOptions(input!, 'update', raw, resolveRuntimeFieldRegistry(settings.schema).definitions);
+  } else {
+    // The ordinary CLI action joins repeatable criteria and normalizes boolean flags before calling the SDK.
+    const { acceptanceCriteria, regression } = raw;
+    decoded = {
+      ...raw,
+      acceptanceCriteria: Array.isArray(acceptanceCriteria) ? acceptanceCriteria.join('; ') : acceptanceCriteria,
+      regression: regression === true ? 'true' : regression,
+    };
   }
   const { bodyFile, ...fields } = decoded;
   const options = typeof bodyFile === 'string'
