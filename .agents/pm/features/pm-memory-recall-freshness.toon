@@ -2,17 +2,15 @@ id: pm-memory-recall-freshness
 title: Report stale or contradictory knowledge in task recall
 description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
 type: Feature
-status: in_progress
+status: open
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-20T19:04:12.106Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-20T20:29:57.220Z"
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[45]{created_at,author,text}:
+comments[47]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -58,6 +56,8 @@ comments[45]{created_at,author,text}:
   "2026-11-20T17:25:30.135Z",codex-sol,"Round FA verification on the final package source passed. Typecheck, lint, duplication with zero clone pairs, build, 30 focused recall, federation and content tests, and both bulk receipt tests passed. PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage on Node 26.13.0 passed 937 tests with zero failures, cancellations, or skips and 100 percent statements, branches, functions, and lines across 42 source files. The full run executed the combined-checkpoint publication failure regression after the shared preview helper was extracted. Changelog regeneration and changelog:check passed with this item open."
   "2026-11-20T18:54:08.625Z",codex-sol,"Round FF: add regression fixtures and valid inverses for stdin guidance, combined checkpoint rollback receipts, legacy merge replay, and stale conflict evidence. Keep combined checkpoints as the supported recovery reference."
   "2026-11-20T19:01:57.882Z",codex-sol,"Round FF reproduced the reported failures on the review head with real tracker fixtures. The candidate preserves exact standalone receipt timestamps, checks the proposed target digest under the revision guard, requires current native history for stale reasons, and preserves rollback accounting with a checkpoint error for each failed child. Standalone child rollback remains tracked by pm-memory-child-checkpoint-rollback."
+  "2026-11-20T19:05:01.703Z",codex-sol,Round FF thread mapping on pm-memory#87. PRRT_kwDOVPw2oc66G62W maps to 4c32e6a for resolving deferred stdin descriptions before verification comparison. PRRT_kwDOVPw2oc66G62a maps to 4c32e6a for preserving completed restores and reporting failed child checkpoints. PRRT_kwDOVPw2oc66G62f maps to 4c32e6a for preserving legacy version-2 standalone merge timestamps and testing the proposed digest before publication. PRRT_kwDOVPw2oc66G62j maps to 4c32e6a for binding stale conflict reasons to current guidance history. PRRT_kwDOVPw2oc66G62o maps to 4c32e6a for withholding standalone child rollback references and testing their refusal. Supported memory recovery requires the combined checkpoint. Standalone child recovery remains open in pm-memory-child-checkpoint-rollback.
+  "2026-11-20T20:29:55.565Z",codex-sol,"Round FF verified package source at 4c32e6a on Node 26.13.0. Typecheck, lint and duplication passed. The focused 26-file command passed 313 tests with all six new regressions and the earlier recall, content, native input, native revision and federation fixtures. PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage passed 943 tests with zero failures, cancellations or skips and 100 percent statements, branches, functions and lines across 42 source files. Changelog regeneration and changelog:check passed with the item open."
 files[17]:
   - path: index.ts
     scope: project
