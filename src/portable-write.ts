@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { certifyCompleteListResult, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, runWithActiveExtensions, create, update, commitWorkspaceTransaction, itemDocumentToMutationOptions, resolveRuntimeFieldRegistry, readItemRevision, readWorkspaceTransaction, withExpectedItemRevisions, isItemRevisionConflict } from '@unbrained/pm-cli/sdk';
+import { canonicalDocument, parseItemDocument, certifyCompleteListResult, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, runWithActiveExtensions, create, update, commitWorkspaceTransaction, itemDocumentToMutationOptions, resolveRuntimeFieldRegistry, readItemRevision, readWorkspaceTransaction, withExpectedItemRevisions, isItemRevisionConflict } from '@unbrained/pm-cli/sdk';
 import type { ItemDocument, BulkItemMutation, WorkspaceTransactionJsonValue, WorkspaceTransactionCommitResult } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
 import type { ImportPlan } from './portable-plan.ts';
@@ -8,7 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { savePlan, importIdentity, retainForwardWrites, retireOwnedTransaction, portableRecoveryData, assertPortableTransactionOwner } from './portable-plan.ts';
 import type { OwnedTarget } from './portable-ownership.ts';
 import { foreignMemories, type ImportConflict, type PortableImportOptions } from './portable.ts';
-import { birthDocument } from './portable-preview.ts';
+import { birthDocument, canonicalBirth } from './portable-preview.ts';
 import { digest, MemoryError } from './core.ts';
 
 import { guardedHostCreate, guardedHostUpdate } from './native-host.ts';
@@ -131,7 +131,11 @@ async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMu
   await options.onStep?.('revision-bound');
   const publish = async () => {
     const schema = await trackerSchema(store.workspace); let failure: unknown; let preserveRevision = false; let normalized: Record<string, unknown> = {};
-    const suffix = mutation.op === 'create' ? `-nodes ${mutation.id} create memory-birth-v1:${digest(plan.births!.find(row => row.id === mutation.id)!.document)}` : ` forward ${mutation.id}`;
+    const birth = mutation.op === 'create' ? plan.births!.find(row => row.id === mutation.id)!.document : undefined;
+    const suffix = mutation.op === 'create' ? `-nodes ${mutation.id} create memory-birth-v1:${digest(birth!)}` : ` forward ${mutation.id}`;
+    // Prepare the independent SDK birth before dispatch. Comparing canonical
+    // documents in the hook avoids a second full TOON codec round trip.
+    const expectedBirth = birth === undefined ? undefined : canonicalDocument(parseItemDocument(birth, { schema }), { schema });
     const message = `bulk-item-transaction ${identity.transactionId}${suffix}`;
     const guard: BeforeMutationHook = async context => {
       if (context.operation !== mutation.op || resolve(context.pm_root) !== resolve(store.workspace) || context.after!.metadata.id !== mutation.id) return;
@@ -144,12 +148,11 @@ async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMu
           if (peers.some(row => row.id !== mutation.id && row.memory_slug === mutation.options!.memorySlug)) throw new ImportMoved(importConflict(mutation.id, ['memory_slug'], { memory_slug: undefined }, { memory_slug: mutation.options!.memorySlug }));
         }
         const fields = assertBase(mutation.id, base, state.document, context.after);
-        const expected = plan.expected.find(row => row.id === mutation.id)!;
         const entries = await readHistoryEntries(getHistoryPath(store.workspace, mutation.id), mutation.id);
+        const expected = plan.expected.find(row => row.id === mutation.id)!;
         const touched = fields.filter(field => { const path = field === 'body' ? '/body' : `/metadata/${field.replace(/~/g, '~0').replace(/\//g, '~1')}`; return entries.slice(expected.length).some(entry => entry.patch.some(patch => patch.path === path || patch.path.startsWith(`${path}/`))); });
         if (touched.length > 0 || hashHistoryStream(entries.slice(0, expected.length)) !== expected.history) throw new ImportMoved(importConflict(mutation.id, [...touched, '$history'], { ...base?.metadata, body: base?.body, $history: expected.history }, { ...state.document?.metadata, body: state.document?.body, $history: state.proof.history }));
-        const birth = plan.births?.find(row => row.id === mutation.id);
-        if (context.before === null && birth !== undefined && birth.document !== birthDocument(context.after!, schema)) throw new ImportMoved(importConflict(mutation.id, ['birth'], { birth: birth.document }, { birth: birthDocument(context.after!, schema) }));
+        if (birth !== undefined && !isDeepStrictEqual(expectedBirth, canonicalBirth(context.after!, schema))) throw new ImportMoved(importConflict(mutation.id, ['birth'], { birth }, { birth: birthDocument(context.after!, schema) }));
         if (documentHash(context.before, schema) !== state.proof.hash) throw new ImportMoved(importConflict(mutation.id, ['revision'], { revision: documentHash(context.before, schema) }, { revision: state.proof.hash }));
         if (mutation.op === 'update' && !preserveRevision && Object.hasOwn(mutation.options!, 'memoryChangedAt') && fields.every(field => !SEMANTIC_FIELDS.has(field))) {
           const document = Object.fromEntries([...SEMANTIC_OPTIONS].filter(([option]) => Object.hasOwn(mutation.options!, option)).map(([, key]) => [key, key === 'body' ? context.after!.body : context.after!.metadata[key]]));
