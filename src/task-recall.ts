@@ -1,6 +1,6 @@
 import { encode } from '@toon-format/toon';
 import { certifyCompleteListResult, createOutputOmissionReceipt, fitOutputEnvelope, getHistoryPath, readHistoryEntries, resolveContextIntentContract, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
-import type { FittedOutputEnvelope, OutputOmissionReceipt, OutputProjectionFieldGroup, PmClient, PmContextIntentContract } from '@unbrained/pm-cli/sdk';
+import type { FittedOutputEnvelope, HistoryEntry, OutputOmissionReceipt, OutputProjectionFieldGroup, PmClient, PmContextIntentContract } from '@unbrained/pm-cli/sdk';
 import { isGuidanceField } from './content.ts';
 import { contradicts } from './consolidate.ts';
 import { budget, MemoryError, text, words } from './core.ts';
@@ -103,17 +103,38 @@ function supersessions(memories: readonly Memory[]): Supersessions {
   return incoming;
 }
 
+/** Identify history changes that can alter the guidance covered by a verification. */
+function patchesGuidance(entry: HistoryEntry): boolean {
+  return entry.patch.some(({ path }) => {
+    const [, scope, key] = path.split('/');
+    return isGuidanceField(scope === 'metadata' ? key : scope);
+  });
+}
+
+const verificationPaths = new Set(['/metadata/memory_changed_at', '/metadata/memory_verdict', '/metadata/memory_verified_at', '/metadata/memory_reason']);
+
+/** Trace a native bulk inverse to the saved guidance only if no intervening change can affect its evidence. */
+function historyCoversGuidance(entries: HistoryEntry[], field: 'memory_verified_at' | 'memory_reason'): boolean {
+  for (;;) {
+    const edited = entries.findLastIndex(patchesGuidance);
+    const evidence = entries.findLastIndex((entry, index) => index >= edited && entry.patch.some(patch => patch.path === `/metadata/${field}`));
+    if (evidence === -1) return false;
+    if (evidence > edited || field === 'memory_reason' || edited === 0 && entries[0].op === 'create') return true;
+    const restore = entries[edited];
+    const checkpoint = restore.op === 'restore' ? restore.context?.bulk_rollback : undefined;
+    if (typeof checkpoint !== 'string') return false;
+    const start = entries.slice(0, edited).findIndex(entry => entry.context?.bulk_checkpoint === checkpoint);
+    if (start < 1 || entries.slice(start + 1, edited).some(entry => patchesGuidance(entry)
+      || entry.patch.some(patch => verificationPaths.has(patch.path)))) return false;
+    entries = entries.slice(0, start);
+  }
+}
+
 /** Check history order when a legacy or extension-free edit may have bypassed native invalidation. */
 async function evidenceCoversGuidance(workspace: string, { body, ...metadata }: NativeItem, field: 'memory_verified_at' | 'memory_reason'): Promise<boolean> {
   try {
     const entries = await readHistoryEntries(getHistoryPath(workspace, metadata.id), metadata.id);
-    if (!verifyHistoryEntries(entries, { metadata, body: String(body) }).ok) return false;
-    const edited = entries.findLastIndex(entry => entry.patch.some(patch => {
-      const [, scope, key] = patch.path.split('/');
-      return isGuidanceField(scope === 'metadata' ? key : scope);
-    }));
-    return entries.some((entry, index) => entry.patch.some(patch => patch.path === `/metadata/${field}`) &&
-      (index > edited || index === edited && (field === 'memory_reason' || index === 0 && entry.op === 'create')));
+    return verifyHistoryEntries(entries, { metadata, body: String(body) }).ok && historyCoversGuidance(entries, field);
   } catch {
     return false;
   }

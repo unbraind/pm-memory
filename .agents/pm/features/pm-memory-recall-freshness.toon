@@ -6,13 +6,13 @@ status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-21T03:06:00.266Z"
+updated_at: "2026-11-21T03:06:42.360Z"
 assignee: codex-sol
 claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[57]{created_at,author,text}:
+comments[58]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -70,6 +70,7 @@ comments[57]{created_at,author,text}:
   "2026-11-21T02:57:18.014Z",codex-sol,Round FK started at 473d7fa. Reproduce older v2 receipt replay through the CLI and verify how guarded rollback restores freshness evidence. Pair each fixture with its inverse and rerun the earlier regression suites.
   "2026-11-21T03:00:05.862Z",codex-sol,Round FK reproduced both failures on 473d7fa. The CLI refused an intact version-2 receipt at the target clock; the digest-mismatch control retained both endpoint histories. Guarded rollback restored all stored verification fields but recall rejected the previously covered guidance. The inverse fixtures retained unverified for prior stale evidence and for an intervening native guidance edit outside the inverse.
   "2026-11-21T03:06:00.261Z",codex-sol,"Round FK preserves a prepared merge timestamp through the attested CLI host only while the native mutation guard confirms both saved revisions and the exact target digest. The clock-skew fixture passes with both CLI and standalone publication, and the bad digest refuses without changing either endpoint."
+  "2026-11-21T03:06:42.347Z",codex-sol,"Round FK restores freshness through native bulk rollback history only when the saved checkpoint traces to covered guidance. The fixtures confirm that earlier unproven guidance, intervening guidance or verification edits, and missing checkpoint context remain unverified. Repeated guarded rollback retains a proven prior state."
 files[17]:
   - path: index.ts
     scope: project

@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { estimatePmOutputTokens, EXIT_CODE, getHistoryPath, loadMutationCheckpoint, parseMutationReceipt, readHistoryEntries } from '@unbrained/pm-cli/sdk';
+import { estimatePmOutputTokens, EXIT_CODE, getHistoryPath, loadMutationCheckpoint, parseMutationReceipt, readHistoryEntries, sealHistoryRecord } from '@unbrained/pm-cli/sdk';
 import { decodeToon } from '@unbrained/pm-cli/sdk/testing';
 import { grantConsent, recallTask, remember, renew, type TaskRecallPacket } from '../index.ts';
 import { installExtension, tracker } from './helpers.ts';
@@ -541,6 +541,65 @@ test('native bulk updates revise each changed memory and retain ordinary batch r
   assert.equal(withoutCheckpoint.checkpoint, undefined);
 });
 
+test('recall after guarded bulk rollback recovers only verification that covered the restored guidance', async t => {
+  const { client, options, root, store, workspace } = await tracker(t);
+  const { item: task } = await client.create({ title: 'Review restored instructions', type: 'Task' });
+  const original = 'Use the previous instructions.';
+  const old = '2020-01-01T00:00:00.000Z';
+  const revised = 'Use the replacement instructions.';
+  const entries = [];
+  for (const slug of ['verified', 'unproven', 'intervening', 'evidence-edit']) {
+    const memory = await remember(original, { ...options, slug, kind: 'reference', links: [task.id], forceNew: true });
+    await store.fields(memory.id, { changed_at: old, verdict: 'verified', verified_at: old, reason: 'Prior review' });
+    entries.push(memory);
+  }
+  await client.update(entries[1].id, { title: 'Unreviewed guidance before the bulk change' });
+  const states = async () => Object.fromEntries((await recallTask(task.id, { ...options, intent: 'resume-evidence', tokenBudget: 1800 }))
+    .memories.map(row => [row.slug, row.freshness]));
+  assert.deepEqual(await states(), { verified: 'fresh', unproven: 'unverified', intervening: 'fresh', 'evidence-edit': 'fresh' });
+  await installExtension(workspace);
+  const bulk = (...flags: string[]) => {
+    const result = pm(root, workspace, ['update-many', ...flags, '--json']);
+    assert.equal(result.status, EXIT_CODE.SUCCESS, result.stderr + result.stdout);
+    return JSON.parse(result.stdout);
+  };
+  const applied = bulk('--ids', entries.map(item => item.id).join(','), '--body', revised);
+  assert.equal(applied.updated_count, entries.length);
+  assert.ok(Object.values(await states()).every(state => state === 'unverified'));
+  await update(root, workspace, entries[0].id, ['--priority', '1']);
+  // An extension-free writer changes guidance outside the batch's guarded inverse.
+  await client.update(entries[2].id, { title: 'Unreviewed guidance after the bulk change' });
+  await store.fields(entries[3].id, { reason: 'Intervening verification input' });
+  await client.run('update', { id: entries[3].id, options: { unset: ['memory_reason'] } });
+  assert.equal(bulk('--rollback', applied.checkpoint.id).restored_count, entries.length);
+  await assertBulkRestored(client, entries.map(item => item.id), original, old);
+  const restored = await states();
+  assert.equal(restored.unproven, 'unverified');
+  assert.equal(restored.intervening, 'unverified');
+  assert.equal(restored['evidence-edit'], 'unverified');
+  assert.equal(restored.verified, 'fresh');
+
+  const reapplied = bulk('--ids', entries[0].id, '--body', revised);
+  assert.equal(bulk('--rollback', reapplied.checkpoint.id).restored_count, 1);
+  assert.deepEqual(await states(), restored);
+
+  // An intact document chain alone cannot certify a restore whose checkpoint context is missing.
+  const { id } = entries[0];
+  const path = getHistoryPath(workspace, id);
+  const history = await readHistoryEntries(path, id);
+  const last = history.at(-1)!;
+  const checkpoint = last.context?.bulk_rollback;
+  assert.equal(last.op, 'restore');
+  assert.ok(typeof checkpoint === 'string' && history.some(entry => entry.context?.bulk_checkpoint === checkpoint));
+  for (const removeRollback of [false, true]) {
+    const incomplete = history.map(entry => (removeRollback ? entry === last : entry.context?.bulk_checkpoint === checkpoint)
+      ? sealHistoryRecord({ ...entry, context: undefined }) : entry);
+    await writeFile(path, incomplete.map(entry => JSON.stringify(entry)).join('\n') + '\n');
+    assert.equal((await nativeState(store, id)).document?.body, original);
+    assert.equal((await states()).verified, 'unverified');
+  }
+});
+
 /** Seed a bulk rollback with verified guidance so restored verification is observable. */
 async function seedVerifiedBulk({ options, store, workspace }: Awaited<ReturnType<typeof tracker>>, slugs: string[]) {
   const original = 'Previous guidance.';
@@ -769,4 +828,12 @@ test('task recall requires history evidence for guidance changed outside extensi
   assert.deepEqual([imported.memory_changed_at, imported.memory_verified_at, imported.memory_verdict], [old, old, 'verified']);
   const revised = await recallTask(task, { ...options, intent: 'resume-evidence', tokenBudget: 1800 });
   assert.equal(revised.memories.find(row => row.slug === 'imported')?.freshness, 'unverified');
+
+  await client.run('update', { id: initial.id, options: {
+    body: 'Co-edited instructions and verification timestamp.',
+    memoryVerifiedAt: new Date().toISOString(),
+    message: 'Update with verification alongside new guidance',
+  } });
+  const coedited = await recallTask(task, { ...options, intent: 'resume-evidence', tokenBudget: 1800 });
+  assert.equal(coedited.memories.find(row => row.slug === 'imported')?.freshness, 'unverified');
 });

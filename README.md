@@ -214,6 +214,9 @@ for a projected `pm get` read. A recorded supersession marks the older row
 `superseded` and points to the item holding the edge. An explicit stale
 verification yields `stale`. A verified timestamp covering the current content
 revision yields `fresh`. Missing or older verification yields `unverified`.
+Guarded bulk rollback can recover freshness when the native history shows the
+verification covered the restored guidance and there were no intervening
+guidance or verification edits outside the checkpoint.
 For legacy rows without a content revision timestamp, recall checks the native
 `updated_at` field. Freshness describes the available verification evidence,
 whose scope is the claims that `pm memory verify` can check.
