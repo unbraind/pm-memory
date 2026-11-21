@@ -2,15 +2,17 @@ id: pm-memory-recall-freshness
 title: Report stale or contradictory knowledge in task recall
 description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
 type: Feature
-status: open
+status: in_progress
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-20T23:51:31.976Z"
+updated_at: "2026-11-21T03:06:00.266Z"
+assignee: codex-sol
+claim_principal: codex-sol
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[54]{created_at,author,text}:
+comments[57]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -65,6 +67,9 @@ comments[54]{created_at,author,text}:
   "2026-11-20T23:09:17.857Z",codex-sol,"Round FH focused suite passed all 317 tests in 27 files with no failures, cancellations, or skips. It includes the two stale-clock regressions, Round FF legacy replay across clock skew, and the earlier recall, content, native revision, verification, and guarded recovery fixtures. Checking the additional portable references from the main integration and awaiting full coverage."
   "2026-11-20T23:29:00.893Z",codex-sol,"The four additional focused portable files passed all 25 tests, including the main integration 1 MiB framing case. Changelog regeneration and changelog:check passed with the item open. Full quick coverage remains in progress."
   "2026-11-20T23:51:31.308Z",codex-sol,"Round FH full verification passed on Node 26.13.0. PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage passed 945 tests with zero failures, cancellations, or skips and 100 percent statements, branches, functions, and lines across 42 source files. The 27-file focused command passed 317 tests and the four portable integration references passed 25. Typecheck, lint, and changelog:check passed. The item remains open for orchestration."
+  "2026-11-21T02:57:18.014Z",codex-sol,Round FK started at 473d7fa. Reproduce older v2 receipt replay through the CLI and verify how guarded rollback restores freshness evidence. Pair each fixture with its inverse and rerun the earlier regression suites.
+  "2026-11-21T03:00:05.862Z",codex-sol,Round FK reproduced both failures on 473d7fa. The CLI refused an intact version-2 receipt at the target clock; the digest-mismatch control retained both endpoint histories. Guarded rollback restored all stored verification fields but recall rejected the previously covered guidance. The inverse fixtures retained unverified for prior stale evidence and for an intervening native guidance edit outside the inverse.
+  "2026-11-21T03:06:00.261Z",codex-sol,"Round FK preserves a prepared merge timestamp through the attested CLI host only while the native mutation guard confirms both saved revisions and the exact target digest. The clock-skew fixture passes with both CLI and standalone publication, and the bad digest refuses without changing either endpoint."
 files[17]:
   - path: index.ts
     scope: project
@@ -81,20 +86,23 @@ files[17]:
     note: Round FH derives new intent clocks from the certified target document
   - path: src/native-host.ts
     scope: project
+    note: Round FK preserves verified prepared proposals through the CLI host
   - path: src/native-input.ts
     scope: project
     note: Round FA preserves the completed bulk receipt if combined checkpoint publication fails
   - path: src/native-revision.ts
     scope: project
+    note: Round FK shares the prepared proposal guard across host and standalone publication
   - path: src/task-federation.ts
     scope: project
   - path: src/task-recall.ts
     scope: project
+    note: Round FK traces freshness evidence to the guarded inverse
   - path: test/content-age.test.ts
     scope: project
   - path: test/merge-receipt.test.ts
     scope: project
-    note: Round FF exercises legacy replay and proposal refusal through native history; Round FH tests stale corpus clocks against native edits
+    note: Round FF exercises legacy replay and proposal refusal through native history; Round FH tests stale corpus clocks against native edits; Round FK tests legacy merge receipt replay and digest refusal through the CLI
   - path: test/native-host.test.ts
     scope: project
   - path: test/portable-recovery-controls.test.ts
@@ -103,8 +111,8 @@ files[17]:
     scope: project
   - path: test/task-recall.test.ts
     scope: project
-    note: Round FA forces combined checkpoint publication to fail on a real tracker
-tests[20]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
+    note: Round FA forces combined checkpoint publication to fail on a real tracker; Round FK tests valid rollback recovery and unproven or intervening guidance
+tests[22]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   npm run typecheck && npm run lint,project,codex-sol,"2026-11-19T14:10:36.014Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-reporter=tap test/task-recall.test.ts,project,codex-sol,"2026-11-19T14:10:49.744Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage,project,codex-sol,"2026-11-19T14:11:04.446Z",local_mutation,feat/recall-freshness
@@ -125,6 +133,8 @@ tests[20]{command,scope,provenance{author,created_at,source_kind,source_ref}}:
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/commands.test.ts test/content-age.test.ts test/merge-history.test.ts test/merge-receipt.test.ts test/merge-revision-blocker.test.ts test/native-host.test.ts test/native-revision-capture.test.ts test/native-revision.test.ts test/portable-collision.test.ts test/portable-document-aba.test.ts test/portable-host.test.ts test/portable-locality.test.ts test/portable-publication.test.ts test/portable-recovery-controls.test.ts test/publication-intent.test.ts test/review-boundaries.test.ts test/review-r1.test.ts test/review-r13.test.ts test/review-round4.test.ts test/sdk-adoption.test.ts test/sdk-secret-refusal.test.ts test/semantic.test.ts test/task-federation.test.ts test/task-recall.test.ts test/utility.test.ts test/verification-collision.test.ts,project,codex-sol,"2026-11-20T19:04:11.801Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/commands.test.ts test/consolidate.test.ts test/content-age.test.ts test/merge-history.test.ts test/merge-receipt.test.ts test/merge-revision-blocker.test.ts test/native-host.test.ts test/native-revision-capture.test.ts test/native-revision.test.ts test/portable-collision.test.ts test/portable-document-aba.test.ts test/portable-host.test.ts test/portable-locality.test.ts test/portable-publication.test.ts test/portable-recovery-controls.test.ts test/publication-intent.test.ts test/review-boundaries.test.ts test/review-r1.test.ts test/review-r13.test.ts test/review-round4.test.ts test/sdk-adoption.test.ts test/sdk-secret-refusal.test.ts test/semantic.test.ts test/task-federation.test.ts test/task-recall.test.ts test/utility.test.ts test/verification-collision.test.ts,project,codex-sol,"2026-11-20T22:33:55.640Z",local_mutation,feat/recall-freshness
   PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/policy-size-boundary.test.ts test/portable-admission.test.ts test/portable-critical.test.ts test/portable-preview.test.ts,project,codex-sol,"2026-11-20T22:34:24.152Z",local_mutation,feat/recall-freshness
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/commands.test.ts test/consolidate.test.ts test/content-age.test.ts test/merge-history.test.ts test/merge-receipt.test.ts test/merge-revision-blocker.test.ts test/native-host.test.ts test/native-revision-capture.test.ts test/native-revision.test.ts test/policy-size-boundary.test.ts test/portable-admission.test.ts test/portable-collision.test.ts test/portable-critical.test.ts test/portable-document-aba.test.ts test/portable-host.test.ts test/portable-locality.test.ts test/portable-preview.test.ts test/portable-publication.test.ts test/portable-recovery-controls.test.ts test/publication-intent.test.ts test/review-boundaries.test.ts test/review-r1.test.ts test/review-r13.test.ts test/review-round4.test.ts test/sdk-adoption.test.ts test/sdk-secret-refusal.test.ts test/semantic.test.ts test/task-federation.test.ts test/task-recall.test.ts test/utility.test.ts test/verification-collision.test.ts,project,codex-sol,"2026-11-21T03:02:58.318Z",local_mutation,feat/recall-freshness
+  PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 node --import ./test/support/file-deadline.ts --test --test-concurrency=2 test/ci-routing.test.ts test/release-approval.test.ts test/release-ci.test.ts test/review-followup.test.ts test/review-r10.test.ts test/review-r5.test.ts test/shipped-files.acceptance.ts,project,codex-sol,"2026-11-21T03:04:44.385Z",local_mutation,feat/recall-freshness
 docs[4]:
   - path: ARCHITECTURE.md
     scope: project
@@ -135,4 +145,5 @@ docs[4]:
     scope: project
   - path: README.md
     scope: project
+    note: Round FK explains the freshness evidence required after guarded bulk rollback
 body: ""

@@ -10,7 +10,7 @@ import { Store } from '../src/store.ts';
 import { performMerge } from '../src/merge-receipt.ts';
 import { interrupted, mergePair, refuseMerge, atMergeBoundary } from './merge-history-helpers.ts';
 import { nativeHost, nativePeer } from './native-host-helpers.ts';
-import { clonedTracker, snapshot, tracker } from './helpers.ts';
+import { clonedTracker, gitlessCli, installExtension, snapshot, tracker } from './helpers.ts';
 
 const mergeBases = new Map<string, Awaited<ReturnType<typeof interrupted>>>();
 before(async () => {
@@ -250,7 +250,7 @@ test('earlier version-2 prepared receipts without author metadata still resume t
   assert.equal(destination.dependencies!.filter(edge => edge.id === source.id && edge.kind === 'related').length, 1);
 });
 
-test('standalone merge replay publishes the exact version-2 payload across clock skew', async t => {
+for (const host of [false, true]) test(`${host ? 'CLI host' : 'standalone'} merge replay publishes the exact version-2 payload across clock skew`, async t => {
   const base = mergeBases.get('publish')!;
   for (const clock of ['behind', 'equal', 'ahead'] as const) {
     let expected = '';
@@ -263,7 +263,11 @@ test('standalone merge replay publishes the exact version-2 payload across clock
       const { proof } = await nativeState(clone.store, base.destination.id);
       return { target_before: proof };
     });
-    await consolidate({ ...target.options, apply: true });
+    if (host) {
+      await installExtension(target.workspace);
+      const result = gitlessCli(target.root, target.workspace)(['consolidate', '--apply', '--json']);
+      assert.equal(result.status, 0, `${clock}: ${result.stderr}${result.stdout}`);
+    } else await consolidate({ ...target.options, apply: true });
     const [source, destination] = await readPair(target, base);
     assert.equal(source.memory_merge, '');
     assert.equal(source.status, 'canceled');
@@ -273,6 +277,21 @@ test('standalone merge replay publishes the exact version-2 payload across clock
     const edge = destination.dependencies!.find(edge => edge.id === source.id && edge.kind === 'related');
     assert.equal(edge?.created_at, expected);
   }
+});
+
+test('CLI host refuses a skewed version-2 receipt with a mismatched target digest', async t => {
+  const base = mergeBases.get('publish')!;
+  const target = await pending(t, base, async (receipt, clone) => {
+    await clone.store.fields(base.destination.id, { changed_at: '2090-01-01T00:00:00.000Z' });
+    return { target_before: (await nativeState(clone.store, base.destination.id)).proof, target_after: '0'.repeat(64) };
+  });
+  await installExtension(target.workspace);
+  const endpointStates = () => Promise.all([base.source.id, base.destination.id].map(id => nativeState(target.store, id)));
+  const before = await endpointStates();
+  const result = gitlessCli(target.root, target.workspace)(['consolidate', '--apply', '--json']);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr + result.stdout, /Pending memory merge source -> target revisions changed/u);
+  assert.deepEqual(await endpointStates(), before);
 });
 
 for (const noOp of [false, true]) test(`merge replay refuses a ${noOp ? 'no-op' : 'mismatched'} publication before either endpoint changes`, async t => {

@@ -28,7 +28,7 @@ export function installStandaloneGuard(run: BeforeMutationHook, name: string): v
 /** Publish native evidence only for the exact saved SDK revision, including the SDK no-op path.
  * Additional certified items are rechecked against their saved immutable history inside the same admission hook,
  * so a receipt step that writes one item cannot certify a stale position of any other item it names.
- * A prepared receipt checks the SDK proposal and uses its exact fields on the standalone path. */
+ * A prepared receipt checks the SDK proposal and uses its exact fields on both paths. */
 export async function commitNativeFields(store: Store, id: string, expected: NativeProof, options: Record<string, unknown>, message = 'Verify unchanged native memory snapshot', certify?: ReadonlyMap<string, NativeProof>, matchesPrepared?: (proposal: ItemDocument) => Promise<boolean>): Promise<boolean> {
   /** Preserve the host scope for injected clients; isolate only the default SDK path. */
   const publish = async () => {
@@ -55,7 +55,7 @@ export async function commitNativeFields(store: Store, id: string, expected: Nat
       if (store.hostClient === undefined && matchesPrepared === undefined) {
         nativeContentRevision(fields, { ...base.document?.metadata, body: base.document?.body });
       }
-      const result = store.hostClient !== undefined ? await guardedHostUpdate(store, store.hostClient, id, guard, fields) : await update(id, fields, { pmRoot: store.workspace });
+      const result = store.hostClient !== undefined ? await guardedHostUpdate(store, store.hostClient, id, guard, fields, matchesPrepared !== undefined) : await update(id, fields, { pmRoot: store.workspace });
       return result.changed_fields.length > 0 || matchesPrepared === undefined && await matches() && await certified();
     } catch (error) { if (moved) return false; throw error; }
   };

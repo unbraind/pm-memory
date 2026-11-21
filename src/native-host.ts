@@ -13,7 +13,7 @@ const PROBE = 'pm-memory-verification-guard-probe';
 /** Results returned by genuine SDK native item mutations. */
 type HostResult = UpdateResult | CreateResult | void;
 /** One invocation's guard and attested in-process host write, isolated from concurrent callers. */
-interface HostExpectation { store: Store; id: string; guard: BeforeMutationHook; phase: 'read' | 'probe' | 'write'; attested: boolean; publish: () => Promise<HostResult>; result?: Promise<HostResult> }
+interface HostExpectation { store: Store; id: string; guard: BeforeMutationHook; preparedUpdate: boolean; phase: 'read' | 'probe' | 'write'; attested: boolean; publish: () => Promise<HostResult>; result?: Promise<HostResult> }
 /** Async-local expectations cannot cross an RPC or subprocess transport. */
 const expectations = new AsyncLocalStorage<HostExpectation>();
 
@@ -24,10 +24,10 @@ function unavailable(): MemoryError { return new MemoryError('host_guard', 'Host
 function denyHostWrite(): never { throw unavailable(); }
 
 /** Verify the final SDK proposal after input normalization, with the item lock held. */
-function invalidatedVerification(before: Record<string, unknown>, after: Record<string, unknown>): boolean {
+function invalidatedVerification(before: Record<string, unknown>, after: Record<string, unknown>, prepared: boolean): boolean {
   const prior = Date.parse(String(before.memory_changed_at ?? before.created_at));
   const changed = Date.parse(String(after.memory_changed_at));
-  return Number.isFinite(changed) && !(changed <= prior) && after.memory_verdict === 'unknown'
+  return Number.isFinite(changed) && (prepared || !(changed <= prior)) && after.memory_verdict === 'unknown'
     && after.memory_verified_at === undefined && after.memory_reason === undefined;
 }
 
@@ -55,18 +55,21 @@ export function registerNativeHost(api: ExtensionApi): void {
   api.registerService('command_result', finishNativeInput);
   api.hooks.beforeMutation(async context => {
     const { before, after, changed_fields } = context;
-    if (before !== null && after !== null && isMemory(before.metadata) && changed_fields.some(isGuidanceField)
-      && !invalidatedVerification(before.metadata, after.metadata)
-      && !isCheckpointRestore(context.operation, context.pm_root)) {
-      return { allow: false, code: 'memory_revision_required', message: 'Memory guidance edits must invalidate verification', remediation: 'Use pm update or update the content with pm memory remember --update' };
-    }
-    const task = expectations.getStore();
-    if (task === undefined || resolve(context.pm_root) !== resolve(task.store.workspace)) return;
-    if (task.phase === 'probe' && context.operation === PROBE) {
+    const active = expectations.getStore();
+    const task = active !== undefined && resolve(context.pm_root) === resolve(active.store.workspace) ? active : undefined;
+    if (task?.phase === 'probe' && context.operation === PROBE) {
       task.attested = true;
       denyHostWrite(); // Deny the read-only discovery operation before persistence.
     }
-    if (task.phase === 'write' && (context.before?.metadata.id ?? context.after?.metadata.id) === task.id) await task.guard(context);
+    const write = task?.phase === 'write' && (before?.metadata.id ?? after?.metadata.id) === task.id ? task : undefined;
+    const prepared = context.operation === 'update' && write?.preparedUpdate === true;
+    if (before !== null && after !== null && isMemory(before.metadata) && changed_fields.some(isGuidanceField)
+      && !invalidatedVerification(before.metadata, after.metadata, prepared)
+      && !isCheckpointRestore(context.operation, context.pm_root)) {
+      return { allow: false, code: 'memory_revision_required', message: 'Memory guidance edits must invalidate verification', remediation: 'Use pm update or update the content with pm memory remember --update' };
+    }
+    // The prepared timestamp is admissible only if the locked guard certifies the exact proposal.
+    await write?.guard(context);
   });
   api.hooks.onRead(async context => {
     const task = expectations.getStore();
@@ -87,8 +90,8 @@ export function registerNativeHost(api: ExtensionApi): void {
 }
 
 /** Discover a live guard through a read, then dispatch inside that exact host scope; never write without attestation. */
-async function guardedHostMutation(store: Store, id: string, guard: BeforeMutationHook, discover: () => Promise<unknown>, publish: () => Promise<HostResult>): Promise<HostResult> {
-  const task: HostExpectation = { store, id, guard, phase: 'read', attested: false, publish };
+async function guardedHostMutation(store: Store, id: string, guard: BeforeMutationHook, discover: () => Promise<unknown>, publish: () => Promise<HostResult>, preparedUpdate = false): Promise<HostResult> {
+  const task: HostExpectation = { store, id, guard, preparedUpdate, phase: 'read', attested: false, publish };
   return expectations.run(task, async () => {
     try { await discover(); } catch { /* Discovery cannot authorize a write; retain any already-dispatched mutation's own result. */ }
     if (task.result === undefined) throw unavailable();
@@ -96,13 +99,15 @@ async function guardedHostMutation(store: Store, id: string, guard: BeforeMutati
   });
 }
 /** Preserve the merged native verification path and every active host mutation policy. */
-export function guardedHostUpdate(store: Store, client: Store['client'], id: string, guard: BeforeMutationHook, options: Record<string, unknown>): Promise<UpdateResult> {
+export function guardedHostUpdate(store: Store, client: Store['client'], id: string, guard: BeforeMutationHook, options: Record<string, unknown>, prepared = false): Promise<UpdateResult> {
   return guardedHostMutation(store, id, guard, () => client.get(id, { full: true }), async () => {
-    const { item } = await client.get(id, { full: true });
     const revision = { ...options };
-    nativeContentRevision(revision, item);
+    if (!prepared) {
+      const { item } = await client.get(id, { full: true });
+      nativeContentRevision(revision, item);
+    }
     return store.client.run('update', { id, options: revision, fullChangedFields: true }) as Promise<UpdateResult>;
-  }) as Promise<UpdateResult>;
+  }, prepared) as Promise<UpdateResult>;
 }
 /** Attest an active host even in an empty tracker before dispatching the actual guarded creation. */
 export function guardedHostCreate(store: Store, client: Store['client'], id: string, guard: BeforeMutationHook, options: Record<string, unknown>): Promise<CreateResult> {
