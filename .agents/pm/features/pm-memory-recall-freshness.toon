@@ -2,17 +2,15 @@ id: pm-memory-recall-freshness
 title: Report stale or contradictory knowledge in task recall
 description: "Reuse existing verification and supersession signals to expose bounded, checkable freshness and contradiction evidence during task recall."
 type: Feature
-status: in_progress
+status: open
 priority: 2
 tags: []
 created_at: "2026-11-19T06:08:31.207Z"
-updated_at: "2026-11-21T03:06:42.360Z"
-assignee: codex-sol
-claim_principal: codex-sol
+updated_at: "2026-11-21T04:33:34.901Z"
 author: codex-sol
 acceptance_criteria: Agents can recover source evidence for a disclosed conflict without reading every candidate.
 parent: pm-memory-0kwy
-comments[58]{created_at,author,text}:
+comments[64]{created_at,author,text}:
   "2026-11-19T14:01:30.994Z",codex-sol,"Design: expose evidence through an opt-in SDK resume intent. Use a certified same-tracker snapshot, persist no recall exposure, keep complete rows within the existing ceiling, and report omitted rows and conflict evidence. Reuse native verification and supersession; disclose a single-field source only when it can adjudicate the competing guidance."
   "2026-11-19T14:11:40.400Z",codex-sol,"Scratch copy of the public tracker, with public facts and a synthetic recorded contradiction: resume plus both status, updated_at and dependencies reads took 262 TOON tokens (100 + 69 + 93). Resume-evidence plus the named dependencies read took 233 (155 + 78), saving 29 tokens and one read. The dependencies-only baseline with native ids supplied tied at 233. Counts use the SDK UTF-8 byte estimator."
   "2026-11-19T14:20:58.607Z",codex-sol,The pinned SDK stores a forward supersedes relationship. Resume-evidence derives the incoming superseded side and identifies the item that owns the edge. Explicit opposing guidance can use a persisted stale reason. Reciprocal edges and opposing guidance without a decisive source produce a conflict_sources receipt. Local targeted recall tests passed; the legacy missing-field branch has a dedicated fixture under verification.
@@ -71,6 +69,12 @@ comments[58]{created_at,author,text}:
   "2026-11-21T03:00:05.862Z",codex-sol,Round FK reproduced both failures on 473d7fa. The CLI refused an intact version-2 receipt at the target clock; the digest-mismatch control retained both endpoint histories. Guarded rollback restored all stored verification fields but recall rejected the previously covered guidance. The inverse fixtures retained unverified for prior stale evidence and for an intervening native guidance edit outside the inverse.
   "2026-11-21T03:06:00.261Z",codex-sol,"Round FK preserves a prepared merge timestamp through the attested CLI host only while the native mutation guard confirms both saved revisions and the exact target digest. The clock-skew fixture passes with both CLI and standalone publication, and the bad digest refuses without changing either endpoint."
   "2026-11-21T03:06:42.347Z",codex-sol,"Round FK restores freshness through native bulk rollback history only when the saved checkpoint traces to covered guidance. The fixtures confirm that earlier unproven guidance, intervening guidance or verification edits, and missing checkpoint context remain unverified. Repeated guarded rollback retains a proven prior state."
+  "2026-11-21T03:07:08.769Z",codex-sol,Round FK thread mapping for pm-memory PR #87. PRRT_kwDOVPw2oc66OxF3 maps to b271c076446788d7d4cd5d0c858ce355edb99cac for exact version-2 receipt replay through the CLI. PRRT_kwDOVPw2oc66OxF6 maps to 0048e01d77219f2b6a23455ef0271a2e27482a42 for recovering verified guidance through a guarded rollback.
+  "2026-11-21T03:10:32.121Z",codex-sol,"Round FK typecheck, lint and duplication are green. All 58 README and package reference checks passed. The finalized rollback regression passed, including the missing-context cases with intact native document hashes. The focused and full quick coverage runs are in progress."
+  "2026-11-21T03:20:06.554Z",codex-sol,A scratch native tracker confirmed a legacy clock case. A verified item without memory_changed_at was fresh before an exact guarded bulk rollback. Rollback advanced updated_at and the legacy fallback returned unverified even though the saved verification and body were restored. Tracked in pm-memory-legacy-rollback-clock.
+  "2026-11-21T03:32:51.909Z",codex-sol,"The 31-file focused command passed all 345 tests with zero failures, cancellations or skips. It covered the earlier review rounds, recall, content, native host input and revision, federation, guarded rollback and both receipt clocks. All 58 additional documentation and package references passed. Full quick coverage continues."
+  "2026-11-21T04:33:24.548Z",codex-sol,"Round FK full verification passed on Node 26.13.0. PM_TEST_DEPTH=quick PM_TEST_TIME_SCALE=3 npm run coverage passed 948 tests with zero failures, cancellations or skips and 100 percent statements, branches, functions and lines across 42 source files. Typecheck, lint, duplication, the 345 focused tests and 58 additional reference tests passed."
+  "2026-11-21T04:33:33.631Z",codex-sol,"Changelog regeneration and changelog:check passed with the item open. Round FK has local gate evidence for both mapped commits. The legacy updated_at fallback case remains open in pm-memory-legacy-rollback-clock."
 files[17]:
   - path: index.ts
     scope: project
