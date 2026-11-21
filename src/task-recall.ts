@@ -1,19 +1,32 @@
 import { encode } from '@toon-format/toon';
-import { certifyCompleteListResult, createOutputOmissionReceipt, fitOutputEnvelope, resolveContextIntentContract } from '@unbrained/pm-cli/sdk';
-import type { FittedOutputEnvelope, OutputOmissionReceipt, PmContextIntentContract } from '@unbrained/pm-cli/sdk';
+import { certifyCompleteListResult, createOutputOmissionReceipt, fitOutputEnvelope, getHistoryPath, readHistoryEntries, resolveContextIntentContract, verifyHistoryEntries } from '@unbrained/pm-cli/sdk';
+import type { FittedOutputEnvelope, HistoryEntry, OutputOmissionReceipt, OutputProjectionFieldGroup, PmClient, PmContextIntentContract } from '@unbrained/pm-cli/sdk';
+import { isGuidanceField } from './content.ts';
+import { contradicts } from './consolidate.ts';
 import { budget, MemoryError, text, words } from './core.ts';
 import { eligibleGuidance } from './guidance.ts';
 import { active, scored } from './memory.ts';
 import { Store } from './store.ts';
 import type { Memory, MemoryOptions } from './types.ts';
 
-/** The SDK catalogs this intent by the registered extension action. */
+const RESUME = 'resume';
+const EVIDENCE = 'resume-evidence';
+const FIELDS = ['task_id', 'basis', 'memories'];
+
+/** The SDK catalogs both projections by the registered extension action. */
 export const contextIntents = [{
   command: 'memory-recall-task',
-  intent: 'resume',
+  intent: RESUME,
   source: 'package',
   description: 'Recall actionable knowledge for an existing work item.',
-  included_field_groups: ['task_id', 'basis', 'memories'],
+  included_field_groups: FIELDS,
+  token_budget: 450,
+}, {
+  command: 'memory-recall-task',
+  intent: EVIDENCE,
+  source: 'package',
+  description: 'Recall knowledge with freshness and single-source conflict evidence.',
+  included_field_groups: [...FIELDS, 'freshness', 'conflicts'],
   token_budget: 450,
 }] satisfies PmContextIntentContract[];
 
@@ -25,8 +38,29 @@ export interface TaskRecallOptions extends MemoryOptions {
   tokenBudget?: number;
 }
 
+/** Native evidence attached to an admitted memory by the evidence projection. */
+type Freshness = {
+  /** Classification using persisted native evidence. */
+  freshness: 'fresh' | 'stale' | 'unverified' | 'superseded';
+  /** Native item that holds the evidence field. */
+  source_id: string;
+  /** Native field supporting the classification. */
+  field: 'memory_verdict' | 'memory_verified_at' | 'memory_changed_at' | 'updated_at' | 'dependencies';
+};
+
+/** A pair with a single native field that records precedence or refutes one claim. */
+export interface TaskRecallConflict {
+  /** Competing memory slugs in recall rank order. */
+  left: string;
+  right: string;
+  /** Native item to pass to pm get. */
+  item_id: string;
+  /** Native field to pass to pm get --fields. */
+  field: 'dependencies' | 'memory_reason';
+}
+
 /** The complete actionable fields, with a stable key for inspecting the source. */
-export interface TaskRecallRow {
+export interface TaskRecallRow extends Partial<Freshness> {
   /** Stable memory key accepted by memory get. */
   slug: string;
   /** Complete retained fact. */
@@ -43,6 +77,7 @@ type TaskRecallProjection = {
   intent: string;
   basis: 'linked' | 'lexical';
   memories: readonly TaskRecallRow[];
+  conflicts?: readonly TaskRecallConflict[];
   omission_receipt: OutputOmissionReceipt;
 };
 
@@ -52,14 +87,124 @@ export type TaskRecallPacket = FittedOutputEnvelope<TaskRecallProjection>;
 /** Common connective words alone are insufficient evidence of relevance. */
 const CONNECTIVES = new Set(['a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'in', 'is', 'it', 'of', 'on', 'or', 'the', 'to', 'was', 'were', 'with']);
 
-/** Resolve the native resume contract before opening a tracker. */
-export function taskRecallIntent(id: string, requested?: string): PmContextIntentContract {
+type NativeItem = Awaited<ReturnType<PmClient['listAllComplete']>>['items'][number];
+type Supersessions = Map<string, Set<string>>;
+
+/** Index the incoming side of the SDK's native supersedes relationship. */
+function supersessions(memories: readonly Memory[]): Supersessions {
+  const incoming = new Map<string, Set<string>>();
+  const ids = new Set(memories.map(item => item.id));
+  for (const item of memories) for (const edge of item.relationships) {
+    if (edge.kind !== 'supersedes' || !ids.has(edge.id)) continue;
+    const successors = incoming.get(edge.id) ?? new Set<string>();
+    successors.add(item.id);
+    incoming.set(edge.id, successors);
+  }
+  return incoming;
+}
+
+/** Identify history changes that can alter the guidance covered by a verification. */
+function patchesGuidance(entry: HistoryEntry): boolean {
+  return entry.patch.some(({ path }) => {
+    const [, scope, key] = path.split('/');
+    return isGuidanceField(scope === 'metadata' ? key : scope);
+  });
+}
+
+const verificationPaths = new Set(['/metadata/memory_changed_at', '/metadata/memory_verdict', '/metadata/memory_verified_at', '/metadata/memory_reason']);
+
+/** Trace a native bulk inverse to the saved guidance only if no intervening change can affect its evidence. */
+function historyCoversGuidance(entries: HistoryEntry[], field: 'memory_verified_at' | 'memory_reason'): boolean {
+  for (;;) {
+    const edited = entries.findLastIndex(patchesGuidance);
+    const evidence = entries.findLastIndex((entry, index) => index >= edited && entry.patch.some(patch => patch.path === `/metadata/${field}`));
+    if (evidence === -1) return false;
+    if (evidence > edited || field === 'memory_reason' || edited === 0 && entries[0].op === 'create') return true;
+    const restore = entries[edited];
+    const checkpoint = restore.op === 'restore' ? restore.context?.bulk_rollback : undefined;
+    if (typeof checkpoint !== 'string') return false;
+    const start = entries.slice(0, edited).findIndex(entry => entry.context?.bulk_checkpoint === checkpoint);
+    if (start < 1 || entries.slice(start + 1, edited).some(entry => patchesGuidance(entry)
+      || entry.patch.some(patch => verificationPaths.has(patch.path)))) return false;
+    entries = entries.slice(0, start);
+  }
+}
+
+/** Check history order when a legacy or extension-free edit may have bypassed native invalidation. */
+async function evidenceCoversGuidance(workspace: string, { body, ...metadata }: NativeItem, field: 'memory_verified_at' | 'memory_reason'): Promise<boolean> {
+  try {
+    const entries = await readHistoryEntries(getHistoryPath(workspace, metadata.id), metadata.id);
+    return verifyHistoryEntries(entries, { metadata, body: String(body) }).ok && historyCoversGuidance(entries, field);
+  } catch {
+    return false;
+  }
+}
+
+/** Judge freshness against the content clock and the native verification history. */
+async function freshness(item: Memory, native: NativeItem, replaced: Supersessions, workspace: string): Promise<Freshness> {
+  const successorSource = replaced.get(item.id)?.values().next().value;
+  if (successorSource !== undefined) return { freshness: 'superseded', source_id: successorSource, field: 'dependencies' };
+  const source_id = item.id;
+  if (item.verdict === 'stale') return { freshness: 'stale', source_id, field: 'memory_verdict' };
+  if (item.verdict !== 'verified') return { freshness: 'unverified', source_id, field: 'memory_verdict' };
+  const verified = Date.parse(String(native.memory_verified_at ?? ''));
+  if (!Number.isFinite(verified)) return { freshness: 'unverified', source_id, field: 'memory_verified_at' };
+  const field = native.memory_changed_at === undefined ? 'updated_at' : 'memory_changed_at';
+  if (!(Date.parse(String(native[field])) <= verified)) return { freshness: 'unverified', source_id, field };
+  const covered = await evidenceCoversGuidance(workspace, native, 'memory_verified_at');
+  return { freshness: covered ? 'fresh' : 'unverified', source_id, field: 'memory_verified_at' };
+}
+
+/** An explicit edge takes precedence over a lexical match and stale verification. */
+function conflictSource(left: Memory, right: Memory, replaced: Supersessions, coveredReasons: ReadonlySet<string>): Pick<TaskRecallConflict, 'item_id' | 'field'> | 'unresolved' | undefined {
+  const replacesLeft = replaced.get(left.id)?.has(right.id) === true;
+  const replacesRight = replaced.get(right.id)?.has(left.id) === true;
+  if (replacesLeft && replacesRight) return 'unresolved';
+  if (replacesLeft) return { item_id: right.id, field: 'dependencies' };
+  if (replacesRight) return { item_id: left.id, field: 'dependencies' };
+  if (!contradicts(left, right)) return undefined;
+  const [suspect, other] = left.verdict === 'stale' ? [left, right] : [right, left];
+  if (suspect.verdict === 'stale' && other.verdict !== 'stale' && coveredReasons.has(suspect.id)) return { item_id: suspect.id, field: 'memory_reason' };
+  return 'unresolved';
+}
+
+/** Compute conflict evidence for exactly the prefix requested by the fitter. */
+export function conflictProjection(ranked: readonly Memory[], replaced: Supersessions, coveredReasons: ReadonlySet<string>): (count: number) => {
+  conflicts: readonly TaskRecallConflict[];
+  unresolved: boolean;
+} {
+  return count => {
+    const conflicts: TaskRecallConflict[] = [];
+    let unresolved = false;
+    for (let rightIndex = 1; rightIndex < count; rightIndex++) {
+      const right = ranked[rightIndex];
+      for (let index = 0; index < rightIndex; index++) {
+        const left = ranked[index];
+        const source = conflictSource(left, right, replaced, coveredReasons);
+        if (source === 'unresolved') unresolved = true;
+        else if (source !== undefined) conflicts.push({ left: left.slug, right: right.slug, ...source });
+      }
+    }
+    return { conflicts, unresolved };
+  };
+}
+
+/** Resolve the allowed intent before opening a tracker. */
+export function taskRecallIntent(
+  id: string, requested?: string, contracts: readonly PmContextIntentContract[] = [contextIntents[0]],
+): PmContextIntentContract {
   const declaration = contextIntents[0];
-  return resolveContextIntentContract(declaration.command, requested ?? declaration.intent, contextIntents, [id])!;
+  return resolveContextIntentContract(declaration.command, requested ?? declaration.intent, contracts, [id])!;
 }
 
 /** The local projection, before packet-specific provenance and budget are applied. */
-type RankedTask = { id: string; basis: 'linked' | 'lexical'; rows: TaskRecallRow[]; ineligible: number };
+type RankedTask = {
+  id: string;
+  basis: 'linked' | 'lexical';
+  rows: TaskRecallRow[];
+  ineligible: number;
+  projectConflicts?: ReturnType<typeof conflictProjection>;
+};
 
 /** Read every native item and body through the SDK's complete-list contract. */
 export async function readTaskRecallCorpus(store: Store) {
@@ -69,13 +214,13 @@ export async function readTaskRecallCorpus(store: Store) {
 /** Rank one certified snapshot, filtering protected memories before relevance scoring. */
 export async function rankTask(
   id: string, store: Store, items: Awaited<ReturnType<typeof readTaskRecallCorpus>>,
-  canShare?: (row: TaskRecallRow) => boolean,
+  { canShare, withEvidence = false }: { canShare?: (row: TaskRecallRow) => boolean; withEvidence?: boolean },
 ): Promise<RankedTask> {
   const task = items.find(item => item.id === id && item.type !== 'Knowledge');
   if (task === undefined) throw new MemoryError('missing', 'Work item does not exist', 'Use the full ID of a non-Knowledge item in this tracker');
 
   const current = eligibleGuidance(active(await store.read(items)), 'exclude', Date.now())
-    .filter(item => item.verdict !== 'stale');
+    .filter(item => withEvidence || item.verdict !== 'stale');
   let ineligible = 0;
   const eligible = current.filter(item => {
     if (item.consent === undefined && (canShare === undefined || canShare(taskRow(item)))) return true;
@@ -87,10 +232,25 @@ export async function rankTask(
   const hasLinks = linked.length > 0;
   const basis = hasLinks ? 'linked' : 'lexical';
   const query = [...words([task.title, task.description].join('\n'))].filter(word => !CONNECTIVES.has(word)).join(' ');
-  const rows = scored(hasLinks ? linked : eligible, query)
+  const ranked = scored(hasLinks ? linked : eligible, query)
     .filter(entry => hasLinks || entry.lexical > 0)
-    .map(({ item }) => taskRow(item));
-  return { id: task.id, basis, rows, ineligible };
+    .map(entry => entry.item);
+  const sources = new Map(withEvidence ? items.map(item => [item.id, item]) : []);
+  const replaced = withEvidence ? supersessions(eligible) : new Map();
+  const coveredReasons = new Set<string>();
+  const rows: TaskRecallRow[] = [];
+  for (const item of ranked) {
+    if (withEvidence && item.verdict === 'stale' && item.reason?.trim() &&
+      await evidenceCoversGuidance(store.workspace, sources.get(item.id)!, 'memory_reason')) {
+      coveredReasons.add(item.id);
+    }
+    rows.push({
+      ...taskRow(item),
+      ...(withEvidence ? await freshness(item, sources.get(item.id)!, replaced, store.workspace) : {}),
+    });
+  }
+  const projectConflicts = withEvidence ? conflictProjection(ranked, replaced, coveredReasons) : undefined;
+  return { id: task.id, basis, rows, ineligible, projectConflicts };
 }
 
 /** Project the complete actionable fields used by both resume forms. */
@@ -106,21 +266,28 @@ function taskRow(item: Memory): TaskRecallRow {
 /** Rank a certified same-tracker snapshot without recording recall exposures or calling embeddings. */
 export async function recallTask(taskId: string, options: TaskRecallOptions): Promise<TaskRecallPacket> {
   const id = text(taskId).trim();
-  const intent = taskRecallIntent(id, options.intent);
+  const intent = taskRecallIntent(id, options.intent, contextIntents);
   const limit = budget(options.tokenBudget ?? intent.token_budget);
   const store = new Store(options);
-  const { id: nativeId, basis, rows } = await rankTask(id, store, await readTaskRecallCorpus(store));
+  const { id: nativeId, basis, rows, projectConflicts } = await rankTask(id, store, await readTaskRecallCorpus(store), {
+    withEvidence: intent.intent === EVIDENCE,
+  });
   return fitOutputEnvelope(rows, {
     tokenBudget: limit,
-    buildEnvelope: (memories, receipt): TaskRecallProjection => ({
-      task_id: nativeId,
-      intent: intent.intent,
-      basis,
-      memories,
-      omission_receipt: createOutputOmissionReceipt(receipt.omitted_count > 0
-        ? [{ name: 'matching_memories', restore_with: '--token-budget <larger-number>' }]
-        : []),
-    }),
+    buildEnvelope: (memories, receipt): TaskRecallProjection => {
+      const evidence = projectConflicts?.(memories.length);
+      const omissions: OutputProjectionFieldGroup[] = [];
+      if (receipt.omitted_count > 0) omissions.push({ name: 'matching_memories', restore_with: '--token-budget <larger-number>' });
+      if (evidence?.unresolved) omissions.push({ name: 'conflict_sources', restore_with: 'pm memory get <slug>' });
+      return {
+        task_id: nativeId,
+        intent: intent.intent,
+        basis,
+        memories,
+        ...(evidence === undefined ? {} : { conflicts: evidence.conflicts }),
+        omission_receipt: createOutputOmissionReceipt(omissions),
+      };
+    },
     renderers: {
       json: value => JSON.stringify(value, null, 2) + '\n',
       toon: value => encode(value) + '\n',

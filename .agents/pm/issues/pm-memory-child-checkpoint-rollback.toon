@@ -1,0 +1,16 @@
+id: pm-memory-child-checkpoint-rollback
+title: Support guarded recovery from a standalone native memory checkpoint
+description: A real tracker confirmed that direct update-many rollback of a child checkpoint exits 5 because the memory verification guard refuses the inverse. Rolling back the combined checkpoint restores the same row because that path scopes the SDK-proven inverse. A failed combined publication can leave only child checkpoint IDs in the receipt.
+type: Issue
+status: open
+priority: 2
+tags: []
+created_at: "2026-11-20T15:44:34.519Z"
+updated_at: "2026-11-20T15:44:34.519Z"
+author: codex-sol
+acceptance_criteria: Provide a recovery path from the reported child checkpoint IDs that verifies native history and current postimages and retains other mutation guards.
+parent: pm-memory-recall-freshness
+files[2]{path,scope}:
+  src/native-input.ts,project
+  src/native-host.ts,project
+body: ""

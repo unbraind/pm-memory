@@ -202,10 +202,52 @@ task recall took 182, saving 433 (70%). These estimates use the pm SDK's
 outside those totals. The same unseeded tracker took 692 TOON tokens for
 `pm context --for orient` and 552 with `--token-budget 700`.
 
+#### Check freshness and settle a conflict
+
+Use `pm memory recall-task <task-id> --for resume-evidence` to include stale
+guidance and see the freshness of each returned row. The default `resume`
+projection retains its original shape and ranking. Both intents use a 450-token
+ceiling and keep the same consent, archive and validity-window filters.
+
+Each evidence row has a `freshness` verdict and a `source_id` and `field`
+for a projected `pm get` read. A recorded supersession marks the older row
+`superseded` and points to the item holding the edge. An explicit stale
+verification yields `stale`. A verified timestamp covering the current content
+revision yields `fresh`. Missing or older verification yields `unverified`.
+Guarded bulk rollback can recover freshness when the native history shows the
+verification covered the restored guidance and there were no intervening
+guidance or verification edits outside the checkpoint.
+For legacy rows without a content revision timestamp, recall checks the native
+`updated_at` field. Freshness describes the available verification evidence,
+whose scope is the claims that `pm memory verify` can check.
+
+A conflict lists the two slugs and one native `item_id` and `field`. Read that
+pair with `pm get <item-id> --fields <field>`. A recorded supersession points
+to `dependencies`. For explicit opposing guidance where one claim has been
+refuted, the pointer leads to its persisted `memory_reason` when native history
+binds that reason to the current guidance. Opposing guidance without one
+authoritative pointer produces a `conflict_sources` omission
+receipt. If a competing row and its conflict cannot fit, the packet reports
+`matching_memories` and a larger `--token-budget` can restore them.
+
+The measured example used a scratch copy of the public pm-memory tracker and
+two synthetic facts linked to `pm-memory-higm`: “Always run the release smoke
+tests” and “Never run the release smoke tests.” The newer item recorded a
+`supersedes` edge to the older one. Using the SDK's UTF-8 byte estimate:
+
+| Path | TOON tokens |
+| --- | ---: |
+| `--for resume` plus `pm get <id> --fields status,updated_at,dependencies` for both candidates | 100 + 69 + 93 = 262 |
+| `--for resume-evidence` plus `pm get <item-id> --fields dependencies` for the named source | 155 + 78 = 233 |
+
+The evidence path saved **29 tokens (11%)** and one source read. With both
+candidate IDs already known and the baseline reads narrowed to `dependencies`,
+the baseline also cost 233 tokens.
+
 #### Federated task recall
 
-Repeat `--tracker` with the directories that contain each tracker's
-`settings.json`. A bare path uses the positional task ID. Use
+Federated recall uses the `resume` intent. Repeat `--tracker` with the directories
+that contain each tracker's `settings.json`. A bare path uses the positional task ID. Use
 `TASK_ID=PATH` to resolve a different native task in a particular tracker.
 Paths are relative to the working directory. Prefix a relative path
 containing an equals sign with `./` to pass it as a bare path.

@@ -196,7 +196,7 @@ async function readSource(id: string, { tracker, taskId, root, allowSharing }: S
       if (items.some(item => effectiveItemFormatVersion(item) > CURRENT_ITEM_FORMAT_VERSION)) {
         throw new MemoryError('version', 'Incompatible native item format version', 'Use a compatible pm host');
       }
-      return rankTask(identity.task_id, store, items, canShareRow);
+      return rankTask(identity.task_id, store, items, { canShare: canShareRow });
     });
     return { ...identity, rank };
   } catch (error) {

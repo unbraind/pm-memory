@@ -80,11 +80,25 @@ test('a policy refusal during guard discovery cannot authorize a host write', as
   assert.deepEqual(await snapshot(target.workspace), before);
 });
 
-test('host mutation hooks leave ordinary SDK writes unchanged outside a verification expectation', async t => {
+test('active host mutation guards require atomic invalidation for memory guidance only', async t => {
   const target = await fixture(t);
   await nativeHost(target.workspace, async client => {
-    await client.update(target.id, { body: 'Ordinary host mutation' });
-    assert.equal((await client.get(target.id, { full: true })).item.body, 'Ordinary host mutation');
+    const task = (await client.create({ title: 'Ordinary host task', type: 'Task' })).item.id;
+    await client.update(task, { body: 'Ordinary host mutation' });
+    assert.equal((await client.get(task, { full: true })).item.body, 'Ordinary host mutation');
+    await target.store.fields(target.id, { changed_at: '2020-01-01T00:00:00.000Z', verdict: 'verified', verified_at: '2020-01-01T00:00:00.000Z', reason: 'Prior evidence' });
+    const before = await snapshot(target.workspace);
+    const revision = { body: 'Unprepared native guidance edit', memoryChangedAt: '2022-01-01T00:00:00.000Z', memoryVerdict: 'unknown' };
+    for (const patch of [
+      { body: revision.body, memoryChangedAt: 'invalid time' },
+      { ...revision, memoryChangedAt: '2020-01-01T00:00:00.000Z' },
+      { ...revision, memoryVerdict: 'verified', unset: ['memory_verified_at', 'memory_reason'] },
+      revision,
+      { ...revision, unset: ['memory_verified_at'] },
+    ]) {
+      await assert.rejects(client.run('update', { id: target.id, options: patch }), /must invalidate verification/u);
+      assert.deepEqual(await snapshot(target.workspace), before);
+    }
   });
 });
 

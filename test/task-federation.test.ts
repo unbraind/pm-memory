@@ -37,6 +37,9 @@ test('federated CLI uses exact selections, returns source-tagged rows, and leave
   const secondPath = relative(local.root, second.workspace);
   const secondSelector = secondary + '=' + secondPath;
   const args = ['recall-task', id, '--for', 'resume', '--token-budget', '800', '--tracker', firstPath, '--tracker', secondSelector, '--share-tracker', firstPath, '--share-tracker', secondSelector];
+  const evidence = cli(['recall-task', id, '--for', 'resume-evidence', '--tracker', firstPath, '--share-tracker', firstPath, '--json']);
+  assert.equal(evidence.status, 2, evidence.stdout + evidence.stderr);
+  assert.match(evidence.stderr, /Unknown task recall intent/);
   for (const format of ['json', 'toon']) {
     const result = cli([...args, '--output-format', format]);
     assert.equal(result.status, 0, result.stdout + result.stderr);

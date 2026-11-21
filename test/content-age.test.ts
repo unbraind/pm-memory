@@ -93,6 +93,10 @@ test('operational unsets preserve age and evidence while pin and content edits i
   const target = await tracker(t); withoutGit(t, target.root);
   const memory = await remember('Content unset control', { ...target.options, slug: 'unset', kind: 'reference', why: 'Prior rationale' });
   const old = '2020-01-01T00:00:00.000Z'; const now = new Date().toISOString();
+  const pin: Record<string, unknown> = { memoryPinned: true };
+  contentRevision(pin, now);
+  await target.client.run('update', { id: memory.id, options: pin });
+  assert.equal((await target.client.get(memory.id, { full: true })).item.memory_changed_at, now);
   for (const field of ['memory_merge', 'memory_pinned', 'memory_why']) {
     await target.store.fields(memory.id, { changed_at: old, merge: 'Operational control', pinned: true, why: 'Prior rationale', verdict: 'stale', verified_at: old, reason: 'Prior evidence' });
     const options: Record<string, unknown> = { unset: [field] }; contentRevision(options, now, old);

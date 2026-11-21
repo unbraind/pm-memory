@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { canonicalDocument, itemDocumentToMutationOptions, getHistoryPath, getItemAt, hashHistoryStream, readHistoryEntries, readSettings, resolveAuthorIdentity } from '@unbrained/pm-cli/sdk';
 import type { ItemDocument } from '@unbrained/pm-cli/sdk';
 import { instant } from './guidance.ts';
-import { contentRevision } from './content.ts';
+import { contentRevision, nextContentTimestamp } from './content.ts';
 import { MemoryError } from './core.ts';
 import { isCanceled, statusRegistry } from './lifecycle.ts';
 import { commitNativeFields, documentHash, nativeState, sameNativeProof, trackerSchema, validNativeProof } from './native-revision.ts';
@@ -65,8 +65,8 @@ async function recover(store: Store, source: Memory, target: Memory, receipt: Me
   return { source: saved, target: destination, published, canceled };
 }
 /** Publish every merge step through the same complete revision and host-policy guard, rechecking every additionally certified item. */
-async function writeStep(store: Store, source: Memory, id: string, before: NativeProof, fields: Record<string, unknown>, message: string, certify?: ReadonlyMap<string, NativeProof>): Promise<void> {
-  if (!await commitNativeFields(store, id, before, fields, message, certify)) throw refusal(source);
+async function writeStep(store: Store, source: Memory, id: string, before: NativeProof, fields: Record<string, unknown>, message: string, certify: ReadonlyMap<string, NativeProof>, matchesPrepared?: (proposal: ItemDocument) => Promise<boolean>): Promise<void> {
+  if (!await commitNativeFields(store, id, before, fields, message, certify, matchesPrepared)) throw refusal(source);
 }
 /** Capture and publish a merge, or resume only its exact forward history steps. Legacy intents refuse safely. */
 export async function performMerge(store: Store, source: Memory, memories: readonly Memory[], observed: ReadonlyMap<string, Awaited<ReturnType<typeof nativeState>>>, apply: boolean, selectedTarget?: string): Promise<void> {
@@ -86,7 +86,8 @@ export async function performMerge(store: Store, source: Memory, memories: reado
     // Persist the complete intent before touching the target. The relationship and body publish together,
     // so a denied intent has no unjournaled target preparation to duplicate on retry.
     const body = `${targetBase.document.body}\n\n### Consolidated context (${source.slug})\n${source.body}\n\n**Why:** ${source.why}\n**How to apply:** ${source.how}`;
-    const changed_at = new Date().toISOString();
+    const { memory_changed_at, created_at } = targetBase.document.metadata;
+    const changed_at = nextContentTimestamp(new Date().toISOString(), memory_changed_at ?? created_at);
     const author = resolveAuthorIdentity(store.invocationAuthor, (await readSettings(store.workspace)).author_default).author;
     const fields = revisionFields({ body, changed_at, author }, targetBase.document, source.id);
     const after = canonicalDocument({ ...targetBase.document, body, metadata: { ...targetBase.document.metadata, dependencies: mergeGraph(targetBase.document, source.id, { changed_at, author }), memory_edited: fields.memoryEdited, memory_changed_at: fields.memoryChangedAt, memory_verdict: fields.memoryVerdict } }, { schema: await trackerSchema(store.workspace) });
@@ -100,7 +101,9 @@ export async function performMerge(store: Store, source: Memory, memories: reado
   try { progress = await recover(store, source, target, receipt); } catch (cause) { throw cause instanceof MemoryError ? cause : refusal(source, { cause }); }
   if (!apply) return;
   if (!progress.published) {
-    await writeStep(store, source, target.id, progress.target.proof, revisionFields(receipt, progress.target.document!, source.id), `Memory merge ${receipt.id} publish`, new Map([[source.id, progress.source.proof]]));
+    const fields = revisionFields(receipt, progress.target.document!, source.id);
+    await writeStep(store, source, target.id, progress.target.proof, fields, `Memory merge ${receipt.id} publish`,
+      new Map([[source.id, progress.source.proof]]), async after => await payloadHash(store, after) === receipt.target_after);
     progress = await recover(store, source, target, receipt);
   }
   if (!progress.canceled) {

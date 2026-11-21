@@ -4,7 +4,7 @@ import { register } from './src/commands.ts';
 export { remember, recall, index, get } from './src/memory.ts';
 /** Recall actionable knowledge for an existing work item through the resume projection. */
 export { contextIntents, recallTask } from './src/task-recall.ts';
-export type { TaskRecallOptions, TaskRecallPacket, TaskRecallRow } from './src/task-recall.ts';
+export type { TaskRecallConflict, TaskRecallOptions, TaskRecallPacket, TaskRecallRow } from './src/task-recall.ts';
 /** Recall across explicitly selected trackers with a shared budget and source receipts. */
 export { recallTaskFederated } from './src/task-federation.ts';
 export type { FederatedTaskRecallOptions, FederatedTaskRecallPacket, FederatedTaskRecallRow, TaskRecallSource, TaskRecallSourceReceipt } from './src/task-federation.ts';

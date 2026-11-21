@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs, { rm } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
-import { getHistoryPath } from '@unbrained/pm-cli/sdk';
+import { getHistoryPath, getItemAt } from '@unbrained/pm-cli/sdk';
 import { randomUUID } from 'node:crypto';
 import { test, before, after } from 'node:test';
 import { consolidate, remember, MemoryError } from '../index.ts';
@@ -10,7 +10,7 @@ import { Store } from '../src/store.ts';
 import { performMerge } from '../src/merge-receipt.ts';
 import { interrupted, mergePair, refuseMerge, atMergeBoundary } from './merge-history-helpers.ts';
 import { nativeHost, nativePeer } from './native-host-helpers.ts';
-import { clonedTracker, snapshot, tracker } from './helpers.ts';
+import { clonedTracker, gitlessCli, installExtension, snapshot, tracker } from './helpers.ts';
 
 const mergeBases = new Map<string, Awaited<ReturnType<typeof interrupted>>>();
 before(async () => {
@@ -35,13 +35,13 @@ async function readPair(target: Awaited<ReturnType<typeof tracker>>, pair: { sou
   return Promise.all([pair.source.id, pair.destination.id].map(async id => (await target.client.get(id, { full: true })).item));
 }
 /** Persist synthetic recovery input through genuine SDK history, never by editing an audit stream. */
-async function pending(t: Parameters<typeof tracker>[0], base: Awaited<ReturnType<typeof interrupted>>, change: (receipt: Record<string, unknown>) => void, mode = '') {
+async function pending(t: Parameters<typeof tracker>[0], base: Awaited<ReturnType<typeof interrupted>>, change: (receipt: Record<string, unknown>, target: Awaited<ReturnType<typeof clonedTracker>>) => void | Promise<Record<string, unknown>>, mode = '') {
   const target = await clonedTracker(t, base);
   const source = base.source; const destination = base.destination;
   const receipt = JSON.parse(String((await target.client.get(source.id, { full: true })).item.memory_merge)) as Record<string, unknown>;
   await target.client.run('update', { id: source.id, options: { memoryMerge: '' } });
   Object.assign(receipt, { id: randomUUID(), source_before: (await nativeState(target.store, source.id)).proof, target_before: (await nativeState(target.store, destination.id)).proof });
-  change(receipt);
+  Object.assign(receipt, await change(receipt, target));
   await target.client.run('update', { id: source.id, options: { memoryMerge: JSON.stringify(receipt), ...(mode === 'intent-content' ? { title: 'Intervening intent content' } : {}), message: `Memory merge ${receipt.id} intent` } });
   if (mode.startsWith('cancel')) await target.client.run('update', { id: source.id, options: { status: 'canceled', closeReason: 'Synthetic cancellation', ...(mode === 'cancel-content' ? { body: 'Intervening cancel content' } : {}), message: `Memory merge ${receipt.id} cancel` } });
   if (mode.startsWith('publish')) await target.client.run('update', { id: destination.id, options: { body: receipt.body, memoryEdited: true, memoryChangedAt: receipt.changed_at, memoryVerdict: 'unknown', unset: ['memory_verified_at', 'memory_reason'], ...(mode === 'publish-content' ? { title: 'Intervening publication content' } : {}), message: mode === 'publish-message' ? 'Native peer publication' : `Memory merge ${receipt.id} publish` } });
@@ -78,6 +78,44 @@ test('merge admission refuses incomplete observations and stale native generatio
   await target.client.update(destination.id, { body: native });
   await assert.rejects(target.store.write(() => performMerge(target.store, original, memories, observed, true, 'target')), error => error instanceof MemoryError && error.code === 'conflict');
   assert.equal((await target.client.get(destination.id, { full: true })).item.body, native);
+});
+
+for (const legacy of [false, true]) test(`new merge receipts use the certified target clock: ${legacy ? 'legacy creation time' : 'content time'}`, async t => {
+  const target = await mergePair(t);
+  const { store, client, workspace, destination } = target;
+  const future = '2090-01-01T00:00:00.000Z';
+  if (legacy) await store.fields(destination.id, { changed_at: future });
+  const memories = await store.read();
+  const source = memories.find(item => item.id === target.source.id)!;
+  const staleTarget = memories.find(item => item.id === destination.id)!;
+  const editedBody = 'Repeated safe guidance with a native edit';
+  await client.run('update', { id: destination.id, options: {
+    body: editedBody, ...(legacy ? { unset: ['memory_changed_at'] } : { memoryChangedAt: future }),
+  } });
+  const observed = await observeTargets(store, (await client.listAllComplete({ includeBody: true })).items);
+  const targetBase = observed.get(destination.id)!;
+  const metadata = targetBase.document!.metadata;
+  const previous = legacy ? metadata.created_at : future;
+  assert.ok(previous);
+  assert.equal(metadata.memory_changed_at, legacy ? undefined : future);
+  assert.notEqual(staleTarget.updated, previous);
+
+  await store.write(() => performMerge(store, source, memories, observed, true, staleTarget.slug));
+
+  const intentRevision = observed.get(source.id)!.proof.length + 1;
+  const { document: intent } = await getItemAt(source.id, String(intentRevision), { pmRoot: workspace });
+  const receipt = JSON.parse(String(intent.metadata.memory_merge)) as { target_before: NativeProof; body: string; changed_at: string };
+  assert.deepEqual(receipt.target_before, targetBase.proof);
+  assert.ok(receipt.body.startsWith(`${editedBody}\n\n`));
+  if (legacy) {
+    assert.ok(receipt.changed_at > previous && receipt.changed_at < future);
+  } else {
+    assert.equal(receipt.changed_at, '2090-01-01T00:00:00.001Z');
+  }
+  const published = (await client.get(destination.id, { full: true })).item;
+  assert.equal(published.body, receipt.body);
+  assert.equal(published.memory_changed_at, receipt.changed_at);
+  assert.equal(published.dependencies!.find(edge => edge.id === source.id && edge.kind === 'related')?.created_at, receipt.changed_at);
 });
 
 test('a refused merge intent retains every target byte and retry publishes one provenance link', async t => {
@@ -210,6 +248,67 @@ test('earlier version-2 prepared receipts without author metadata still resume t
   assert.equal(source.memory_merge, ''); assert.equal(source.status, 'canceled');
   assert.match(String(destination.body), /Unique retained rationale/);
   assert.equal(destination.dependencies!.filter(edge => edge.id === source.id && edge.kind === 'related').length, 1);
+});
+
+for (const host of [false, true]) test(`${host ? 'CLI host' : 'standalone'} merge replay publishes the exact version-2 payload across clock skew`, async t => {
+  const base = mergeBases.get('publish')!;
+  for (const clock of ['behind', 'equal', 'ahead'] as const) {
+    let expected = '';
+    const target = await pending(t, base, async (receipt, clone) => {
+      expected = String(receipt.changed_at);
+      const prior = clock === 'equal' ? expected : clock === 'ahead' ? '2090-01-01T00:00:00.000Z' : '2020-01-01T00:00:00.000Z';
+      await clone.store.fields(base.destination.id, {
+        changed_at: prior, verdict: 'verified', verified_at: prior, reason: 'Previous verification',
+      });
+      const { proof } = await nativeState(clone.store, base.destination.id);
+      return { target_before: proof };
+    });
+    if (host) {
+      await installExtension(target.workspace);
+      const result = gitlessCli(target.root, target.workspace)(['consolidate', '--apply', '--json']);
+      assert.equal(result.status, 0, `${clock}: ${result.stderr}${result.stdout}`);
+    } else await consolidate({ ...target.options, apply: true });
+    const [source, destination] = await readPair(target, base);
+    assert.equal(source.memory_merge, '');
+    assert.equal(source.status, 'canceled');
+    assert.match(String(destination.body), /Unique retained rationale/u);
+    assert.deepEqual([destination.memory_changed_at, destination.memory_verdict, destination.memory_verified_at, destination.memory_reason],
+      [expected, 'unknown', undefined, undefined], clock);
+    const edge = destination.dependencies!.find(edge => edge.id === source.id && edge.kind === 'related');
+    assert.equal(edge?.created_at, expected);
+  }
+});
+
+test('CLI host refuses a skewed version-2 receipt with a mismatched target digest', async t => {
+  const base = mergeBases.get('publish')!;
+  const target = await pending(t, base, async (receipt, clone) => {
+    await clone.store.fields(base.destination.id, { changed_at: '2090-01-01T00:00:00.000Z' });
+    return { target_before: (await nativeState(clone.store, base.destination.id)).proof, target_after: '0'.repeat(64) };
+  });
+  await installExtension(target.workspace);
+  const endpointStates = () => Promise.all([base.source.id, base.destination.id].map(id => nativeState(target.store, id)));
+  const before = await endpointStates();
+  const result = gitlessCli(target.root, target.workspace)(['consolidate', '--apply', '--json']);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr + result.stdout, /Pending memory merge source -> target revisions changed/u);
+  assert.deepEqual(await endpointStates(), before);
+});
+
+for (const noOp of [false, true]) test(`merge replay refuses a ${noOp ? 'no-op' : 'mismatched'} publication before either endpoint changes`, async t => {
+  const base = mergeBases.get('publish')!;
+  const target = noOp ? await pending(t, base, async (receipt, clone) => {
+    await clone.store.link(base.destination.id, base.source.id);
+    await clone.client.run('update', { id: base.destination.id, options: {
+      memoryChangedAt: receipt.changed_at, memoryEdited: true, memoryVerdict: 'unknown',
+      unset: ['memory_verified_at', 'memory_reason'],
+    } });
+    const state = await nativeState(clone.store, base.destination.id);
+    return { body: state.document!.body, target_before: state.proof };
+  }) : await pending(t, base, receipt => { receipt.target_after = '0'.repeat(64); });
+  const endpointStates = () => Promise.all([base.source.id, base.destination.id].map(id => nativeState(target.store, id)));
+  const before = await endpointStates();
+  await assert.rejects(consolidate({ ...target.options, apply: true }), conflict);
+  assert.deepEqual(await endpointStates(), before);
 });
 
 for (const host of [false, true]) test(`merge provenance retains native environment attribution without an explicit author: ${host ? 'host' : 'default'}`, async t => {
