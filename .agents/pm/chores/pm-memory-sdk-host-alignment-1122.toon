@@ -1,0 +1,14 @@
+id: pm-memory-sdk-host-alignment-1122
+title: Adopt pm-cli 2026.11.23 host-aligned SDK behaviour
+description: "Update the exact-pinned pm-memory toolchain and adopt the native host mutation guard contract introduced by GH-1719 and GH-1729. Companion item: pm-cli-website-spus."
+type: Chore
+status: in_progress
+priority: 2
+tags[2]: deps,sdk
+created_at: "2026-11-23T09:58:32.707Z"
+updated_at: "2026-11-23T09:58:35.535Z"
+assignee: codex-agent
+claim_principal: codex-agent
+author: codex-agent
+acceptance_criteria: Pin all first-party tooling to npm latest and refresh the committed lockfile.; Use host actor and dry-run context at guard boundaries and preserve fail-closed behaviour.; Pass the package release gates at unchanged coverage thresholds and regenerate the changelog.; Open a dedicated PR with failure classifications and verification evidence.
+body: ""
