@@ -169,7 +169,8 @@ export async function modelBatches(t: TestContext, worker: URL, stem: string, ba
 /** Initialize a real tracker and register cleanup before any mutations. */
 export async function tracker(t: TestContext) {
   const result = await trackerFixture(t);
-  await result.client.init('memory-test', { defaults: true, agentGuidance: 'skip', mergeFence: false });
+  const initializer = new PmClient({ cwd: result.root, pmRoot: result.workspace, author: result.options.author, noExtensions: true });
+  await initializer.init('memory-test', { defaults: true, agentGuidance: 'skip', mergeFence: false });
   return result;
 }
 /** Clone prepared schema for property workers without inheriting a logical tracker namespace. */
@@ -188,7 +189,8 @@ async function trackerFixture(t: TestContext) {
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
   const workspace = join(root, '.agents', 'pm');
-  const client = new PmClient({ cwd: root, pmRoot: workspace, author: 'memory-test', noExtensions: true });
+  // Calls made from SDK callbacks must address the tracker without switching the process cwd.
+  const client = new PmClient({ pmRoot: workspace, author: 'memory-test', noExtensions: true });
   const options = { workspace, author: 'memory-test' }; const store = new Store(options);
   return { root, workspace, client, options, store };
 }

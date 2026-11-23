@@ -1,8 +1,8 @@
 import { resolve } from 'node:path';
 import { canonicalDocument, parseItemDocument, certifyCompleteListResult, getItemAt, getHistoryPath, readHistoryEntries, hashHistoryStream, runWithActiveExtensions, create, update, commitWorkspaceTransaction, itemDocumentToMutationOptions, resolveRuntimeFieldRegistry, readItemRevision, readWorkspaceTransaction, withExpectedItemRevisions, isItemRevisionConflict } from '@unbrained/pm-cli/sdk';
-import type { ItemDocument, BulkItemMutation, WorkspaceTransactionJsonValue, WorkspaceTransactionCommitResult } from '@unbrained/pm-cli/sdk';
+import type { ItemDocument, WorkspaceTransactionJsonValue, WorkspaceTransactionCommitResult } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook } from '@unbrained/pm-cli/sdk/authoring';
-import type { ImportPlan } from './portable-plan.ts';
+import type { ImportPlan, PortableMutation } from './portable-plan.ts';
 import type { Store } from './store.ts';
 import { isDeepStrictEqual } from 'node:util';
 import { savePlan, importIdentity, retainForwardWrites, retireOwnedTransaction, portableRecoveryData, assertPortableTransactionOwner } from './portable-plan.ts';
@@ -113,7 +113,7 @@ async function dependencyConflict(store: Store, plan: ImportPlan, target: OwnedT
 class CompletedInput extends Error {}
 
 /** Publish under a locked native revision while retaining the domain field, birth and immutable-history proofs. */
-async function writeForward(store: Store, plan: ImportPlan, mutation: BulkItemMutation, target: OwnedTarget, base: ItemDocument | null, options: PortableImportOptions, stepId: string): Promise<void> {
+async function writeForward(store: Store, plan: ImportPlan, mutation: PortableMutation, target: OwnedTarget, base: ItemDocument | null, options: PortableImportOptions, stepId: string): Promise<void> {
   await publishPending(store, plan, options);
   const identity = await importIdentity(store, plan.input); let completed: NativeProof | undefined;
   const receipt = await commitWorkspaceTransaction({ pmRoot: store.workspace, author: plan.author, transactionId: `${identity.transactionId}-snapshot`, recoveryData: portableRecoveryData(`${identity.transactionId}-snapshot`, plan.author, stepId), steps: [{ id: stepId, inspect: async () => ({ state: 'pending' }), apply: async () => {
@@ -215,7 +215,7 @@ function skipItem(plan: ImportPlan, id: string, conflict: ImportConflict): void 
   }
 }
 /** Journal forward item steps with no domain compensation: interruptions retain every completed write. */
-export async function commitPortableBatch(store: Store, plan: ImportPlan, _transactionId: string, phase: string, mutations: BulkItemMutation[], options: PortableImportOptions): Promise<void> {
+export async function commitPortableBatch(store: Store, plan: ImportPlan, _transactionId: string, phase: string, mutations: PortableMutation[], options: PortableImportOptions): Promise<void> {
   for (const [index, mutation] of mutations.entries()) {
     if (plan.result.skipped.some(row => row.conflict?.item === mutation.id)) continue;
     const target = plan.ownership!.find(target => target.id === mutation.id)!;

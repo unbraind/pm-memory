@@ -53,11 +53,16 @@ test('guarded verification retains environment and explicit invocation author pr
   t.after(() => { for (const [key, value] of restore) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
   for (const author of [undefined, 'explicit-agent']) {
     const target = await fixture(t);
+    const observed: { author: string; dry_run: boolean }[] = [];
     await nativeHost(target.workspace, async client => {
       assert.equal((await verify({ workspace: target.workspace, root: target.root, client, author })).checked, 1);
+    }, context => {
+      observed.push({ author: context.actor.author, dry_run: context.dry_run });
     });
+    const effective = author ?? 'environment-agent';
+    assert.deepEqual(observed, [{ author: effective, dry_run: true }, { author: effective, dry_run: false }]);
     const history = await readHistoryEntries(getHistoryPath(target.workspace, target.id), target.id);
-    assert.equal(history.at(-1)!.author, author ?? 'environment-agent');
+    assert.equal(history.at(-1)!.author, effective);
   }
   const target = await fixture(t);
   const expected = (await nativeState(target.store, target.id)).proof;

@@ -7,7 +7,6 @@ import { constants } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { certifyCompleteListResult, readSettings, resolveAuthorIdentity, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
-import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { digest, MemoryError, privacy, privacyRefusal, aggregateSize, aggregatePrivacy } from './core.ts';
 import { metadata, Store } from './store.ts';
 import { POLICY_MANIFEST, importPolicy, policyRecord, policyBody, policyContent, policyPayload, policyParts, ownedMemories, readImportSnapshot, closeSkips, appendImportSkips, parsePolicy, guidanceOrigin } from './portable.ts';
@@ -16,6 +15,7 @@ import type { Harness, Memory, MemoryOptions } from './types.ts';
 import { ownershipPatch, portableFields, previousOwnership, creationMetadata, PORTABLE_FIELDS, validFields, projectSourceFields, projectSourceLinks, unsetSourceFields, exportedSource } from './portable-ownership.ts';
 import type { OwnedTarget, PortableFields } from './portable-ownership.ts';
 import { applyImport, expectedTargets, importIdentity, validateImportPlan, recoverInput, previewImport } from './portable-plan.ts';
+import type { PortableMutation } from './portable-plan.ts';
 import { originCatalog, selectOrigin, sameOrigin, ensureTrackerOrigin } from './portable-origin.ts';
 import type { PortableOrigin } from './portable-origin.ts';
 import { sourceDocument, stemOf, documentPatch, encodeDocument, safePath, readDocument } from './portable-source.ts';
@@ -223,7 +223,7 @@ export async function importDir(path: string, options: PortableImportOptions): P
     for (const source of parsed) if (!selected.has(source.slug) && foreign.some(item => item.memory_slug === source.slug || legacyOrigin(origins.get(item.id), source, options.from))) skipped.set(source.slug, 'Foreign record has no package-owned source');
     closeSkips(parsed.map(source => ({ slug: source.slug, relationships: sourceRelationships(source, references) })), skipped);
     const result: PortableImportResult = { imported: 0, updated: 0, unchanged: 0, unresolved_links: 0, skipped: [...foreign.filter(item => !parsed.some(source => source.slug === item.memory_slug && skipped.has(source.slug))).map(item => ({ slug: item.id, reason: 'Foreign record has no package-owned source' })), ...[...skipped].map(([slug, reason]) => ({ slug, reason }))] };
-    const mutations: BulkItemMutation[] = []; const ownership: OwnedTarget[] = [];
+    const mutations: PortableMutation[] = []; const ownership: OwnedTarget[] = [];
     for (const source of parsed) {
       if (skipped.has(source.slug)) continue;
       const previous = selected.get(source.slug); const id = ids.get(source.slug)!;

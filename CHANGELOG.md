@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Other
+
+- Adopt pm-cli 2026.11.23 host-aligned SDK behaviour ([pm-memory-sdk-host-alignment-1122](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-sdk-host-alignment-1122.toon))
+
 ## 2026.11.21 - 2026-11-21
 
 ### Added

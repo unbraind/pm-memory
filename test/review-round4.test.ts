@@ -106,7 +106,8 @@ test('reference terminators inspect 100000 spaces within a bounded process deadl
     boundedScan(value, 750, 3000);
   }
   // The child process accepts a refusal too, so admission of reference-only input is asserted in process first.
-  for (const value of ['pwd="${X}"'.repeat(1_000), 'password="${X}"<x>'.repeat(1_000)]) privacy(value);
+  for (const value of ['pwd="${X}"'.repeat(1_000), 'password="${X}"<x> '.repeat(1_000)]) privacy(value);
+  assert.throws(() => privacy('password="${X}"<x>'.repeat(1_000)), { code: 'privacy' });
   // Repeated reference-only assignments stay linear: each adjacent segment is scanned once. At 500 KB a linear scan
   // takes about 2 s on CI-class hardware, while the quadratic rescan it replaces runs for minutes.
   for (const value of ['pwd="${X}"'.repeat(50_000), 'password="${X}"<x>'.repeat(30_000)]) {
