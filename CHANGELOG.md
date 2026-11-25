@@ -5,7 +5,7 @@
 ### Other
 
 - Keep published dependency updates in the generated changelog ([pm-memory-xgli](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-xgli.toon))
-- Adopt pm-cli 2026.11.23 host-aligned SDK behaviour ([pm-memory-sdk-host-alignment-1122](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-sdk-host-alignment-1122.toon))
+- Adopt pm-cli 2026.11.25 host-aligned SDK behaviour ([pm-memory-sdk-host-alignment-1122](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-sdk-host-alignment-1122.toon))
 
 ### Dependencies
 

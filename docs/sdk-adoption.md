@@ -1,6 +1,6 @@
 # Public SDK adoption
 
-The supported peer range is `>=2026.11.23 <2027`: the floor is the reviewed detector inventory and
+The supported peer range is `>=2026.11.25 <2027`: the floor is the reviewed detector inventory and
 the pinned development host, and the bound stops before the next major so an unreviewed redesign
 cannot be claimed. Hosts inside the range upgrade without a package release; the runtime finding
 policy refuses unknown findings from any newer runtime conservatively, so lockstep releases
