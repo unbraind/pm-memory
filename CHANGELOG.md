@@ -6,9 +6,13 @@
 
 - Keep published dependency updates in the generated changelog ([pm-memory-xgli](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-xgli.toon))
 
+### Closed
+
+- Closed: Release timeout retains an approval warning after CI was successfully approved ([pm-memory-github-f33c4a70a040-44](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-github-f33c4a70a040-44.toon))
+
 ### Dependencies
 
-- Bump unbraind/pm-ops/.github/workflows/daily-release.yml
+- Bump unbraind/pm-ops/.github/workflows/daily-release.yml from 2026.11.19 to 2026.11.22 ([#102](https://github.com/unbraind/pm-memory/pull/102))
 - Bump the codeql-action group with 2 updates ([#93](https://github.com/unbraind/pm-memory/pull/93))
 - Bump unbraind/pm-ops/.github/workflows/daily-release.yml from 2026.11.14 to 2026.11.19 ([#95](https://github.com/unbraind/pm-memory/pull/95))
 - Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml from 2026.11.15 to 2026.11.18 ([#94](https://github.com/unbraind/pm-memory/pull/94))
