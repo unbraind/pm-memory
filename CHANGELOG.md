@@ -8,6 +8,7 @@
 
 ### Dependencies
 
+- Bump unbraind/pm-ops/.github/workflows/daily-release.yml
 - Bump the codeql-action group with 2 updates ([#93](https://github.com/unbraind/pm-memory/pull/93))
 - Bump unbraind/pm-ops/.github/workflows/daily-release.yml from 2026.11.14 to 2026.11.19 ([#95](https://github.com/unbraind/pm-memory/pull/95))
 - Bump unbraind/pm-github/.github/workflows/pm-github-sync.yml from 2026.11.15 to 2026.11.18 ([#94](https://github.com/unbraind/pm-memory/pull/94))
