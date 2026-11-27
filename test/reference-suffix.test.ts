@@ -63,7 +63,8 @@ test('reference boundaries inspect adjacent quoted literals and preserve pure re
   privacy('password=${X}<secret-manager-reference>');
   // A literal split across adjacent quoted or bare segments is judged by its combined text.
   for (const value of ['password=${X}"Synthet""icOnly1""23!"', "password=${X}'Synthet'icOnly'123!'", 'password="${X}"Synthet"icOnly123!"', 'password=${X}ab"cdefgh"', 'password=${X}"abcd""efgh"']) for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
-  for (const value of ['password=${X}"ab""cd"', 'password=${X}"${Y}""${Z}"', 'password=${X}"a"<secret-manager-reference>', 'pwd="${X}"'.repeat(3), 'password=${X}"${Y}"api_key=${Z}', 'pwd="${X}"; token="${Y}"', 'password=${X}"${Y}"<ab', 'password=${X}<ab']) privacy(value);
+  for (const value of ['password=${X}"ab""cd"', 'password=${X}"${Y}""${Z}"', 'password=${X}"a"<secret-manager-reference>', 'pwd="${X}"'.repeat(3), 'password=${X}"${Y}" api_key=${Z}', 'pwd="${X}"; token="${Y}"', 'password=${X}"${Y}"<ab', 'password=${X}<ab']) privacy(value);
+  assert.throws(() => privacy('password=${X}"${Y}"api_key=${Z}'), refused);
   // Complete references are consumed whole, so a literal after one is inspected and pure references stay public.
   for (const value of ['password=${X}"${Y}"${Z}' + literal, 'password=${X}"${Y}"${Z}"' + literal + '"']) for (const encoded of [value, JSON.stringify(value)]) assert.throws(() => privacy(encoded), refused);
   for (const value of ['password=${X}"${Y}"${BUILD_PASSWORD}', 'password=${X}"${Y}"$BUILD_PASSWORD', 'password="${X}"${BUILD_PASSWORD}']) privacy(value);
@@ -89,13 +90,27 @@ test('reference boundaries inspect adjacent quoted literals and preserve pure re
   }
 });
 
-test('complete annotated references under quoted credential keys survive native admission and both transfers', async t => {
+test('reference values with separate annotations survive native admission and both transfers', async t => {
   const target = await tracker(t); withoutGit(t, target.root);
-  const reference = '${BUILD_PASSWORD}(provided by the environment)';
-  for (const [index, value] of [JSON.stringify({ password: reference }), "'password': '" + reference + "'", JSON.stringify({ nested: [{ api_key: reference }] }), JSON.stringify({ config: { note: 'password=${BUILD_PASSWORD}' } }, null, 8)].entries()) {
+  const reference = '${BUILD_PASSWORD}';
+  const annotation = 'provided by the environment';
+  const attached = reference + '(' + annotation + ')';
+  const before = await snapshot(target.workspace);
+  for (const value of [JSON.stringify({ password: attached }), "'password': '" + attached + "'"]) {
+    assert.throws(() => privacy(value), refused);
+    await assert.rejects(remember(value, { ...target.options, kind: 'reference' }), refused);
+  }
+  assert.deepEqual(await snapshot(target.workspace), before);
+  const inputs = [
+    JSON.stringify({ password: reference, note: annotation }),
+    "'password': '" + reference + "'\n" + annotation,
+    JSON.stringify({ nested: [{ api_key: attached }] }),
+    JSON.stringify({ config: { note: 'password=' + reference } }, null, 8),
+  ];
+  for (const [index, value] of inputs.entries()) {
     privacy(value);
     await remember(value, { ...target.options, kind: 'reference', slug: 'annotated-' + index, forceNew: true });
-    const supplied = value.includes(reference) ? reference : '${BUILD_PASSWORD}';
+    const supplied = value.includes(attached) ? attached : reference;
     assert.throws(() => privacy(value.replace(supplied, supplied + literal)), refused);
   }
   for (const to of ['agents-md', 'claude-code'] as const) {

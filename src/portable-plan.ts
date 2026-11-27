@@ -59,6 +59,8 @@ export async function expectedTargets(store: Store, targets: readonly Pick<Expec
     return { ...target, document, version: proof.version, length: proof.length, history: proof.history };
   }));
 }
+/** Portable plans publish only native creates and updates. */
+export type PortableMutation = Extract<BulkItemMutation, { op: 'create' | 'update' }>;
 /** Frozen SDK batch bound to the target history positions that it replaces. */
 export interface ImportPlan {
   /** Immutable-origin selection format. */
@@ -80,11 +82,11 @@ export interface ImportPlan {
   /** UUID component bound to the input digest and persisted before the first write. */
   attempt?: string;
   /** Exact ordered batch retained across interruptions. */
-  mutations: BulkItemMutation[];
+  mutations: PortableMutation[];
   /** Portable ownership is retained in SDK journal results, outside native item fields. */
   ownership?: OwnedTarget[];
   /** Edge-free creation batch ensures a partial graph never references absent nodes. */
-  nodes?: BulkItemMutation[];
+  nodes?: PortableMutation[];
   /** Complete independent SDK birth documents, frozen before source writes. */
   births?: { id: string; document: string; message?: string }[];
   /** True once all nodes exist and full data mutations carry captured SDK revisions. */

@@ -74,7 +74,10 @@ test('complete-value resource bounds refuse the whole value with a typed privacy
 });
 
 test('complete SDK positives cannot be masked by a safe reference or a later local finding', () => {
-  for (const body of ['password=$BUILD_PASSWORD', '_authToken=${BUILD_TOKEN}', 'password=${TOKEN}\n' + xml, xml + '\nclient_secret=Zq8vN3kLmP0wXy7Ab']) {
+  const bareReference = 'password=$BUILD_PASSWORD';
+  assert.deepEqual(scanMutationSecrets(bareReference), []);
+  assert.doesNotThrow(() => privacy(bareReference));
+  for (const body of [bareReference + 'literal!', '_authToken=${BUILD_TOKEN}', 'password=${TOKEN}\n' + xml, xml + '\nclient_secret=Zq8vN3kLmP0wXy7Ab']) {
     assert.ok(scanMutationSecrets(body).length > 0);
     assert.throws(() => privacy(body), refusal);
   }

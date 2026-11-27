@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { join } from 'node:path';
 import { PmClient, setActiveExtensionHooks } from '@unbrained/pm-cli/sdk';
 import { verify, MemoryError } from '../index.ts';
 import { commitNativeFields, nativeState } from '../src/native-revision.ts';
@@ -37,15 +38,36 @@ for (const mode of ['inactive', 'missing-mutation-guard', 'foreign-tracker', 'fo
     await assert.rejects(verify({ ...target.options, client, root: target.root }), error => error instanceof MemoryError && error.code === 'host_guard');
   };
   if (mode === 'inactive') await refuse(new PmClient({ pmRoot: target.workspace, noExtensions: true }));
-  else await nativeHost(target.workspace, async (client, hooks) => {
-    if (mode === 'missing-mutation-guard') setActiveExtensionHooks({ ...hooks, beforeMutation: [] });
-    else {
-      const foreign = mode === 'foreign-tracker' ? await clonedTracker(t, target) : await fixture(t); const retained = await snapshot(foreign.workspace);
+  else {
+    // A nested SDK call cannot change cwd while the caller's host scope is open.
+    const foreign = mode === 'foreign-tracker' ? await clonedTracker(t, target) : mode === 'foreign-missing-item' ? await fixture(t) : undefined;
+    await nativeHost(target.workspace, async (client, hooks) => {
+      if (foreign === undefined) {
+        setActiveExtensionHooks({ ...hooks, beforeMutation: [] });
+        await refuse(client);
+        return;
+      }
+      const retained = await snapshot(foreign.workspace);
       await assert.rejects(commitNativeFields(new Store({ ...target.options, client: PmClient.forActiveExtensionHost({ pmRoot: foreign.workspace }) }), target.id, target.saved.proof, metadata({ verdict: 'verified' })), error => error instanceof MemoryError && error.code === 'host_guard');
       assert.deepEqual(await snapshot(foreign.workspace), retained);
-      return;
-    }
-    await refuse(client);
+    });
+  }
+  assert.deepEqual(await snapshot(target.workspace), before);
+});
+
+test('an active host rejects discovery reads outside the bound tracker', async t => {
+  const target = await fixture(t);
+  const foreign = await clonedTracker(t, target);
+  const before = await snapshot(target.workspace);
+  await nativeHost(target.workspace, async (client, hooks) => {
+    setActiveExtensionHooks({
+      ...hooks,
+      onRead: hooks.onRead.map(hook => ({
+        ...hook,
+        run: context => hook.run({ ...context, path: join(foreign.workspace, 'settings.json') }),
+      })),
+    });
+    await assert.rejects(verify({ ...target.options, client, root: target.root }), { code: 'host_guard' });
   });
   assert.deepEqual(await snapshot(target.workspace), before);
 });

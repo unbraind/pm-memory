@@ -1,0 +1,15 @@
+id: pm-memory-c8-glob-advisory
+title: Track the development-only c8 glob advisory
+description: "npm audit reports GHSA-3g3m-2fjr-6pw4 through the existing c8 12.0.0, test-exclude 8.0.0, and glob 13.0.6 development dependency chain. The main lock already has those versions. npm run audit:prod reports zero vulnerabilities. Track the dependency remediation separately from pm-memory-sdk-host-alignment-1122."
+type: Issue
+status: open
+priority: 2
+tags[2]: dependencies,dev-only
+created_at: "2026-11-27T10:49:27.160Z"
+updated_at: "2026-11-27T10:49:31.243Z"
+author: codex-agent
+estimated_minutes: 30
+acceptance_criteria: Adopt a supported patched dependency graph and verify that npm audit clears the advisory and the existing release gates pass at their configured thresholds.
+files[1]{path,scope}:
+  package-lock.json,project
+body: ""

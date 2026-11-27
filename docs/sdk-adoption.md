@@ -1,6 +1,6 @@
 # Public SDK adoption
 
-The supported peer range is `>=2026.11.11 <2027`: the floor is the reviewed detector inventory and
+The supported peer range is `>=2026.11.27 <2027`: the floor is the reviewed detector inventory and
 the pinned development host, and the bound stops before the next major so an unreviewed redesign
 cannot be claimed. Hosts inside the range upgrade without a package release; the runtime finding
 policy refuses unknown findings from any newer runtime conservatively, so lockstep releases
@@ -25,6 +25,17 @@ staged birth with the SDK. The final mutation guard compares the full canonical
 document with that birth, normalizing only the two generated timestamps. The
 hook avoids a redundant TOON encode/decode pass within the SDK's five-second
 budget. The birth history seal and publication hash retain their existing format.
+
+## Native mutation guards
+
+Guard discovery is a read-only evaluation with `dry_run: true`. The SDK
+resolves its actor from the intended author using the native attribution
+chain. A preview cannot certify an actual write. Publication still runs the
+revision guard against the host's unchanged context while the native item lock
+is held. For an in-scope portable update, the SDK evaluates host mutation
+guards in its disposable preview using the same plan author as the write.
+Standalone schema registration binds its fenced client to one extension-free
+scope across type and field writes.
 
 ## Credential policy
 
@@ -68,12 +79,15 @@ controls retain their original limits and accept a safe typed refusal.
 
 The local policy exempts complete standalone environment references, recognizable
 placeholders and the exact `[scrubbed]` marker, but these exemptions never erase
-an SDK credential finding. For example, `password=$BUILD_PASSWORD` and
-`_authToken=${BUILD_TOKEN}` are SDK-positive and refuse; `password=${BUILD_PASSWORD}`
-remains accepted. Parenthesized explanatory suffixes in local references remain
-accepted when the complete match contains multiple space-separated words using
-letters and prose punctuation, is at most 200 characters and ends at a value
-boundary. Unknown or literal continuations refuse. The generic literal policy
+an SDK credential finding. Complete bare and braced environment references,
+such as `password=$BUILD_PASSWORD` and `password=${BUILD_PASSWORD}`, pass the
+SDK's reference check. An npm auth assignment such as `_authToken=${BUILD_TOKEN}`
+or an assignment with a literal continuation still refuses. The SDK measures
+annotations inside a quoted password value as literal text. Put explanatory
+text outside the quoted value or in a separate JSON member. Separate adjacent
+assignments with whitespace or a statement delimiter so the scanner reads them
+as independent values. The local policy also recognizes parenthesized prose up
+to 200 characters at a value boundary when the SDK accepts the complete input. The generic literal policy
 includes passphrase aliases with the same eight-character floor.
 
 New admission rules run before schema/item writes. Native history and older

@@ -2,9 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Restore local reference-suffix branch coverage on pm-cli 2026.11.27 ([pm-memory-reference-suffix-coverage](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-reference-suffix-coverage.toon))
+
 ### Other
 
 - Keep published dependency updates in the generated changelog ([pm-memory-xgli](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-xgli.toon))
+- Adopt pm-cli 2026.11.27 host-aligned SDK behaviour ([pm-memory-sdk-host-alignment-1122](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/chores/pm-memory-sdk-host-alignment-1122.toon))
 
 ### Closed
 

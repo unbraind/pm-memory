@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { createMutationGuardSdk, readSettings, PmClient, resolveBodyFileContent, resolveItemTypeRegistry, runActiveBeforeMutationHooks } from '@unbrained/pm-cli/sdk';
+import { createMutationGuardSdk, readSettings, PmClient, resolveAuthor, resolveBodyFileContent, resolveItemTypeRegistry, runActiveBeforeMutationHooks } from '@unbrained/pm-cli/sdk';
 import type { CreateResult, UpdateResult } from '@unbrained/pm-cli/sdk';
 import type { BeforeMutationHook, ExtensionApi } from '@unbrained/pm-cli/sdk/authoring';
 import type { Store } from './store.ts';
@@ -13,7 +13,7 @@ const PROBE = 'pm-memory-verification-guard-probe';
 /** Results returned by genuine SDK native item mutations. */
 type HostResult = UpdateResult | CreateResult | void;
 /** One invocation's guard and attested in-process host write, isolated from concurrent callers. */
-interface HostExpectation { store: Store; id: string; guard: BeforeMutationHook; preparedUpdate: boolean; phase: 'read' | 'probe' | 'write'; attested: boolean; publish: () => Promise<HostResult>; result?: Promise<HostResult> }
+interface HostExpectation { store: Store; id: string; guard: BeforeMutationHook; author: unknown; preparedUpdate: boolean; phase: 'read' | 'probe' | 'write'; attested: boolean; publish: () => Promise<HostResult>; result?: Promise<HostResult> }
 /** Async-local expectations cannot cross an RPC or subprocess transport. */
 const expectations = new AsyncLocalStorage<HostExpectation>();
 
@@ -54,14 +54,14 @@ export function registerNativeHost(api: ExtensionApi): void {
     needsBulkPreparation(options) ? { options: { ...options, dryRun: true, [APPLY_BULK]: true } } : {});
   api.registerService('command_result', finishNativeInput);
   api.hooks.beforeMutation(async context => {
-    const { before, after, changed_fields } = context;
+    const { before, after, changed_fields, dry_run } = context;
     const active = expectations.getStore();
     const task = active !== undefined && resolve(context.pm_root) === resolve(active.store.workspace) ? active : undefined;
     if (task?.phase === 'probe' && context.operation === PROBE) {
-      task.attested = true;
+      task.attested = dry_run;
       denyHostWrite(); // Deny the read-only discovery operation before persistence.
     }
-    const write = task?.phase === 'write' && (before?.metadata.id ?? after?.metadata.id) === task.id ? task : undefined;
+    const write = !dry_run && task?.phase === 'write' && (before?.metadata.id ?? after?.metadata.id) === task.id ? task : undefined;
     const prepared = context.operation === 'update' && write?.preparedUpdate === true;
     if (before !== null && after !== null && isMemory(before.metadata) && changed_fields.some(isGuidanceField)
       && !invalidatedVerification(before.metadata, after.metadata, prepared)
@@ -79,7 +79,12 @@ export function registerNativeHost(api: ExtensionApi): void {
     task.phase = 'probe';
     const settings = await readSettings(task.store.workspace);
     try {
-      await runActiveBeforeMutationHooks({ pm_root: task.store.workspace, operation: PROBE, before: null, after: null, changed_fields: [], sdk: createMutationGuardSdk({ pmRoot: task.store.workspace, settings, typeToFolder: resolveItemTypeRegistry(settings).type_to_folder }) });
+      await runActiveBeforeMutationHooks({
+        pm_root: task.store.workspace, operation: PROBE, before: null, after: null, changed_fields: [],
+        author: resolveAuthor(typeof task.author === 'string' ? task.author : task.store.invocationAuthor, settings.author_default),
+        dry_run: true,
+        sdk: createMutationGuardSdk({ pmRoot: task.store.workspace, settings, typeToFolder: resolveItemTypeRegistry(settings).type_to_folder }),
+      });
     } catch { /* Only this invocation's registered guard can attest; policy denials cannot authorize a write. */ }
     if (task.attested) {
       task.phase = 'write';
@@ -90,8 +95,8 @@ export function registerNativeHost(api: ExtensionApi): void {
 }
 
 /** Discover a live guard through a read, then dispatch inside that exact host scope; never write without attestation. */
-async function guardedHostMutation(store: Store, id: string, guard: BeforeMutationHook, discover: () => Promise<unknown>, publish: () => Promise<HostResult>, preparedUpdate = false): Promise<HostResult> {
-  const task: HostExpectation = { store, id, guard, preparedUpdate, phase: 'read', attested: false, publish };
+async function guardedHostMutation(store: Store, id: string, guard: BeforeMutationHook, discover: () => Promise<unknown>, publish: () => Promise<HostResult>, author?: unknown, preparedUpdate = false): Promise<HostResult> {
+  const task: HostExpectation = { store, id, guard, author, preparedUpdate, phase: 'read', attested: false, publish };
   return expectations.run(task, async () => {
     try { await discover(); } catch { /* Discovery cannot authorize a write; retain any already-dispatched mutation's own result. */ }
     if (task.result === undefined) throw unavailable();
@@ -107,11 +112,11 @@ export function guardedHostUpdate(store: Store, client: Store['client'], id: str
       nativeContentRevision(revision, item);
     }
     return store.client.run('update', { id, options: revision, fullChangedFields: true }) as Promise<UpdateResult>;
-  }, prepared) as Promise<UpdateResult>;
+  }, options.author, prepared) as Promise<UpdateResult>;
 }
 /** Attest an active host even in an empty tracker before dispatching the actual guarded creation. */
 export function guardedHostCreate(store: Store, client: Store['client'], id: string, guard: BeforeMutationHook, options: Record<string, unknown>): Promise<CreateResult> {
-  return guardedHostMutation(store, id, guard, () => client.schemaListFields(), () => store.client.run('create', { options: { ...options, id } }) as Promise<CreateResult>) as Promise<CreateResult>;
+  return guardedHostMutation(store, id, guard, () => client.schemaListFields(), () => store.client.run('create', { options: { ...options, id } }) as Promise<CreateResult>, options.author) as Promise<CreateResult>;
 }
 
 /** Attest an injected host before import recovery or schema setup can persist anything. */

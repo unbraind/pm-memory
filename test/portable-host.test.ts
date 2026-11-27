@@ -52,13 +52,19 @@ test('portable host guard refuses an independent same-timestamp ABA before publi
 
 for (const existing of [false, true]) test(`portable host ${existing ? 'update' : 'create'} publishes through the attested SDK guard`, async t => {
   const target = await source(t, existing); let guards = 0;
+  const phases: { author: string; dry_run: boolean }[] = [];
   await nativeHost(target.workspace, async client => {
     const result = await importDir(target.path, { ...target.options, client, from: 'agents-md', onStep: step => { if (step === 'write-guard') guards++; } });
     assert.equal(result[existing ? 'updated' : 'imported'], 1);
   }, context => {
-    if (resolve(context.pm_root) !== resolve(target.workspace)) return { allow: false, code: 'test_foreign_projection', remediation: 'Only the actual target tracker is authorized' };
+    if (!context.dry_run && resolve(context.pm_root) !== resolve(target.workspace)) return { allow: false, code: 'test_foreign_projection', remediation: 'Only the actual target tracker is authorized' };
+    if (context.operation === (existing ? 'update' : 'create') && context.after?.metadata.memory_slug === 'alpha') {
+      phases.push({ author: context.actor.author, dry_run: context.dry_run });
+    }
   });
   assert.ok(guards > 0);
+  const applied = { author: target.options.author, dry_run: false };
+  assert.deepEqual(phases, existing ? [{ ...applied, dry_run: true }, applied] : [applied]);
   const rows = (await target.client.listAllComplete({ includeBody: true })).items;
   assert.equal(rows.length, 1); assert.equal(rows[0].body, 'Alpha B');
 });

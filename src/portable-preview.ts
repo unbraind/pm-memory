@@ -5,10 +5,9 @@ import { lstat, readdir, open, mkdir, mkdtemp, rm, writeFile } from 'node:fs/pro
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PmClient, certifyCompleteListResult, readSettings, writeSettings, runWithActiveExtensions, runWithConfigurationOnlySettings, resolveTransactionSchema, resolveItemTypeRegistry, locateItem, getItemPath, getHistoryPath, getItemAt, canonicalDocument, serializeItemDocument, readHistoryEntries } from '@unbrained/pm-cli/sdk';
-import type { BulkItemMutation } from '@unbrained/pm-cli/sdk';
 import { validateImportPlan } from './portable-plan.ts';
 import { Store } from './store.ts';
-import type { ImportPlan } from './portable-plan.ts';
+import type { ImportPlan, PortableMutation } from './portable-plan.ts';
 import type { PortableImportOptions } from './portable.ts';
 import { digest, MemoryError } from './core.ts';
 
@@ -83,7 +82,7 @@ export function birthDocument(document: Parameters<typeof canonicalDocument>[0],
   return serializeItemDocument(canonicalBirth(document, schema), { schema });
 }
 /** Actual edge-free creation requests, shared by preview and publication. */
-export function prepareImportNodes(plan: ImportPlan): BulkItemMutation[] {
+export function prepareImportNodes(plan: ImportPlan): PortableMutation[] {
   plan.mutations = plan.mutations.map(row => row.op === 'create' ? { ...row, options: { ...row.options, memoryBirth: 'portable-v1' } } : row);
   return plan.mutations.filter(row => row.op === 'create').map(row => {
     const { dep: _dep, allowUnresolvedDeps: _unresolved, ...options } = row.options;
@@ -110,11 +109,13 @@ export async function captureBirths(store: Store, plan: ImportPlan): Promise<voi
   Object.assign(plan, { births: births.map(row => ({ ...row, document: prior?.find(old => old.id === row.id)?.document ?? row.document })) });
 }
 /** Keep SDK schema/lifecycle validation while excluding installed code from its snapshot. */
-export async function previewOwnedItems(store: Store, plan: ImportPlan, mutations: BulkItemMutation[], onStep?: PortableImportOptions['onStep']): Promise<void> {
+export async function previewOwnedItems(store: Store, plan: ImportPlan, mutations: PortableMutation[], onStep?: PortableImportOptions['onStep']): Promise<void> {
   const creates = mutations.some(row => row.op === 'create');
   if (!creates && !await hasPreviewPackages(store.workspace)) {
     await validateImportPlan(store, plan);
-    await (store.hostClient ?? new PmClient({ pmRoot: store.workspace, author: plan.author, noExtensions: true })).previewItemMutations({ transactionId: plan.transactionId, mutations }); return;
+    const client = new PmClient({ pmRoot: store.workspace, author: plan.author, noExtensions: store.hostClient === undefined });
+    await client.previewItemMutations({ transactionId: plan.transactionId, mutations });
+    return;
   }
   await withProjection(store, plan, new Set(), async workspace => {
     const target = new Store({ workspace, author: plan.author });

@@ -3,8 +3,9 @@ import { contentRevision } from './content.ts';
 import { isCanceled } from './lifecycle.ts';
 import { validRelationship } from './portable-relationships.ts';
 import { getHistoryPath, readHistoryEntries, readSettings, certifyCompleteListResult, resolveAuthorIdentity, canonicalDocument, itemDocumentToMutationOptions } from '@unbrained/pm-cli/sdk';
-import type { BulkItemMutation, CommitItemMutationsOptions, Dependency } from '@unbrained/pm-cli/sdk';
+import type { CommitItemMutationsOptions, Dependency } from '@unbrained/pm-cli/sdk';
 import { recoverInput, applyImport, expectedTargets, observeTargets, validateImportPlan, previewImport, importIdentity } from './portable-plan.ts';
+import type { PortableMutation } from './portable-plan.ts';
 import { importConflict } from './portable-write.ts';
 import { digest, kind, MemoryError, privacy, aggregateSize, aggregatePrivacy, slug } from './core.ts';
 import { readWindow, instant } from './guidance.ts';
@@ -392,7 +393,7 @@ export async function importPolicy(input: readonly { path: string; bytes: Buffer
       if (!selected.has(row.slug) && foreign.some(item => item.memory_slug === row.slug)) originSkips.set(row.slug, 'Foreign record has no package-owned source');
     }
     const ids = new Map(manifest.guidance.map(row => [row.slug, selected.get(row.slug)?.id ?? `${settings.id_prefix}${digest(`${transactionId}:${row.slug}`).slice(0, 24)}`]));
-    const mutations: BulkItemMutation[] = [];
+    const mutations: PortableMutation[] = [];
     const ownership: OwnedTarget[] = [];
     const baselineIds = new Map([...current.map(item => [item.slug, item.id] as const), ...ids]);
     const skipped = originSkips;
