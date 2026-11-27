@@ -2,15 +2,23 @@ id: pm-memory-reference-suffix-coverage
 title: Restore local reference-suffix branch coverage on pm-cli 2026.11.27
 description: "PR 96 exact head ae1c8a72a5de8391061beeee0b87bddebceb3d1e passed all 950 Node 26 quick tests. The release gate reported 99.94 percent branch coverage against 100 percent required. The coverage report lists src/core.ts lines 238, 268, and 271 in adjacentCredential, where the package checks the combined literal and handles incomplete quoted segments. The complete SDK scan can refuse before the supplemental local policy runs. Identify which fixture inputs reach those branches under the pinned SDK before adding regression coverage. CI evidence: https://github.com/unbraind/pm-memory/actions/runs/45992204073."
 type: Issue
-status: open
+status: in_progress
 priority: 1
 tags[3]: coverage,privacy,sdk
 created_at: "2026-11-27T11:59:02.387Z"
-updated_at: "2026-11-27T11:59:05.285Z"
+updated_at: "2026-11-27T14:08:03.194Z"
 author: codex-agent
 estimated_minutes: 45
 acceptance_criteria: Reach the reported local branches under the pinned SDK with fixtures that preserve allowed environment references and literal refusals.; Exact-head Node 26 CI passes all four existing 100 percent coverage thresholds.
-files[2]{path,scope}:
+comments[2]{created_at,author,text}:
+  "2026-11-27T14:04:58.910Z",codex-agent,"Add public privacy scanner fixtures for both outcomes of the combined literal check, complete quoted references, and unterminated quoted segments. Verify which paths the pinned SDK leaves for local policy and measure the reported source branches with only the new tests."
+  "2026-11-27T14:08:01.297Z",codex-agent,"Three public privacy scanner tests pass directly and through the linked pm command. Each synthetic pair verifies that the host leaves the decision to local policy. Focused c8 recorded three hits for each combined-literal verdict at src/core.ts:238, four terminated and two unterminated quote slices at line 268, one excluded complete reference at line 270, and two early terminator returns at line 271. The isolated package gate with only these tests ran 3/3 and reported 38.80 percent aggregate branch coverage over the unchanged full source inventory. Full coverage is for exact-head CI. In a disposable copy, changing only the combined check, complete-reference exemption, or unterminated check failed the corresponding test with missing, unwanted, or missing privacy exception. Restoring each behavior passed all three. Typecheck, lint, zero duplication, and docstrings passed."
+files[3]{path,scope}:
   src/core.ts,project
+  test/reference-suffix-scanner.test.ts,project
   test/reference-suffix.test.ts,project
+tests[1]{command,scope,timeout_seconds,provenance{author,created_at,source_kind,source_ref}}:
+  node --import ./test/support/file-deadline.ts --test --test-reporter=tap --test-concurrency=2 test/reference-suffix-scanner.test.ts,project,180,codex-agent,"2026-11-27T14:07:36.575Z",local_mutation,deps/adopt-pm-cli-host-alignment-1122
+docs[1]{path,scope}:
+  CHANGELOG.md,project
 body: ""
