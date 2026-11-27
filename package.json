@@ -49,19 +49,19 @@
     "bench": "node scripts/bench.ts"
   },
   "peerDependencies": {
-    "@unbrained/pm-cli": ">=2026.11.25 <2027"
+    "@unbrained/pm-cli": ">=2026.11.27 <2027"
   },
   "devDependencies": {
     "@babel/eslint-parser": "8.1.2",
     "@babel/plugin-syntax-typescript": "8.0.3",
     "@types/node": "26.6.6",
-    "@unbrained/pm-cli": "2026.11.25",
+    "@unbrained/pm-cli": "2026.11.27",
     "c8": "^12.0.0",
     "eslint": "10.15.0",
     "fast-glob": "3.3.3",
     "jscpd": "5.4.3",
-    "pm-changelog": "2026.11.20",
-    "pm-ops": "2026.11.22",
+    "pm-changelog": "2026.11.24",
+    "pm-ops": "2026.11.24",
     "typescript": "7.0.2"
   },
   "keywords": [
