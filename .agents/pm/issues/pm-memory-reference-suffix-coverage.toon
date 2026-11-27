@@ -1,0 +1,16 @@
+id: pm-memory-reference-suffix-coverage
+title: Restore local reference-suffix branch coverage on pm-cli 2026.11.27
+description: "PR 96 exact head ae1c8a72a5de8391061beeee0b87bddebceb3d1e passed all 950 Node 26 quick tests. The release gate reported 99.94 percent branch coverage against 100 percent required. The coverage report lists src/core.ts lines 238, 268, and 271 in adjacentCredential, where the package checks the combined literal and handles incomplete quoted segments. The complete SDK scan can refuse before the supplemental local policy runs. Identify which fixture inputs reach those branches under the pinned SDK before adding regression coverage. CI evidence: https://github.com/unbraind/pm-memory/actions/runs/45992204073."
+type: Issue
+status: open
+priority: 1
+tags[3]: coverage,privacy,sdk
+created_at: "2026-11-27T11:59:02.387Z"
+updated_at: "2026-11-27T11:59:05.285Z"
+author: codex-agent
+estimated_minutes: 45
+acceptance_criteria: Reach the reported local branches under the pinned SDK with fixtures that preserve allowed environment references and literal refusals.; Exact-head Node 26 CI passes all four existing 100 percent coverage thresholds.
+files[2]{path,scope}:
+  src/core.ts,project
+  test/reference-suffix.test.ts,project
+body: ""
