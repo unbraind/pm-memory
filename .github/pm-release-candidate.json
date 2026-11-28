@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "repository": "unbraind/pm-memory",
-  "baseSha": "d86925df2a1710f2c0ccd12cc780c68ab5bf33c2",
-  "version": "2026.11.21",
-  "runId": 44898606805,
+  "baseSha": "c75e5cab65a4b975739dbe59f24fb252bfd62ecb",
+  "version": "2026.11.28",
+  "runId": 46142272635,
   "runAttempt": 1,
   "configDigest": "19f861084767fcd1b42ece3bc60c873d40cadd652aba909211d2aaf4f1e1ede6"
 }
