@@ -13,6 +13,7 @@
 
 ### Closed
 
+- Closed: Flaky test: an orphaned slot claimer exits once its parent process is gone (Node 26) ([pm-memory-github-f33c4a70a040-98](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-github-f33c4a70a040-98.toon))
 - Closed: Release timeout retains an approval warning after CI was successfully approved ([pm-memory-github-f33c4a70a040-44](https://github.com/unbraind/pm-memory/blob/main/.agents/pm/issues/pm-memory-github-f33c4a70a040-44.toon))
 
 ### Dependencies
