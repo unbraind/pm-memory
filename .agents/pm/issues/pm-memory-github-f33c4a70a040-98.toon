@@ -1,21 +1,24 @@
 id: pm-memory-github-f33c4a70a040-98
 title: "Flaky test: an orphaned slot claimer exits once its parent process is gone (Node 26)"
-description: "GH issue #98: https://github.com/unbraind/pm-memory/issues/98 · author @unbraind · created 2026-11-24T07:49:11Z · updated 2026-11-25T07:00:00Z"
+description: "GH issue #98: https://github.com/unbraind/pm-memory/issues/98 · author @unbraind · state reason completed · created 2026-11-24T07:49:11Z · updated 2026-11-27T15:50:31Z"
 type: Issue
-status: open
+status: closed
 priority: 2
 tags[2]: "gh:unbraind/pm-memory#98","github_author:unbraind"
 created_at: "2026-11-24T07:49:11Z"
-updated_at: "2026-11-26T12:42:24.920Z"
+updated_at: "2026-11-28T11:53:09.525Z"
+closed_at: "2026-11-27T15:50:31Z"
+completed_at: "2026-11-27T15:50:31Z"
 author: pm-github
-github_close_reason: ""
-github_closed_at: ""
+close_reason: "Closed on GitHub as completed on 2026-11-27T15:50:31Z; closing PR https://github.com/unbraind/pm-memory/pull/96 (\"Adopt pm-cli 2026.11.27: align SDK guards and restore reference transfers\")"
+github_close_reason: "Closed on GitHub as completed on 2026-11-27T15:50:31Z; closing PR https://github.com/unbraind/pm-memory/pull/96 (\"Adopt pm-cli 2026.11.27: align SDK guards and restore reference transfers\")"
+github_closed_at: "2026-11-27T15:50:31Z"
 github_created_at: "2026-11-24T07:49:11Z"
 github_link_only: false
 github_number: 98
 github_release: ""
-github_state: open
-github_state_reason: unspecified
-github_updated_at: "2026-11-25T07:00:00Z"
+github_state: closed
+github_state_reason: completed
+github_updated_at: "2026-11-27T15:50:31Z"
 github_url: "https://github.com/unbraind/pm-memory/issues/98"
 body: "The test `an orphaned slot claimer exits once its parent process is gone` failed once on the Node 26 CI leg of #97 (run 45338085515). A re-run of only the failed job passed on the same head (`ac27782`), and #97 changed no source code (changelog flag only), so this is a timing-sensitive flake, not a regression.\n\nExpected: the test proves the orphan exit deterministically. For example, wait for the parent's exit to be observable (pidfd or poll until `kill -0` fails) and use the suite's scaled child deadline, instead of a fixed delay racing the reaper.\n\nAcceptance:\n- 50 consecutive runs pass under `--test-concurrency=2` on a loaded host.\n- The test still fails if the claimer ignores parent death.\n\n\n---\n\n### GitHub comments (1)\n\n> **@coderabbitai[bot]** (2026-11-24T07:49:31Z)\n>\n> <!-- coderabbit-ai-generated:v1 -->\n> \n> <!-- This is an auto-generated issue plan by CodeRabbit -->\n> <details>\n> <summary>🔗 Related PRs</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> unbraind/pm-memory#42 - Split the complete release gates into separate CI jobs and prove all 500 seeds of every property suite ran [merged]\n> </dd>\n> </dl>\n> </details>\n> \n> ---\n> <details>\n> <summary>📝 Issue Planner</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> <sub>Check the box below or use the `@coderabbitai plan` command to generate an implementation plan and prompts that you can use with your favorite coding assistant.</sub>\n> \n> - [ ] <!-- {\"checkboxId\":\"8d4f2b9c-3e1a-4f7c-a9b2-d5e8f1c4a7b9\"} --> Create Plan\n> </dd>\n> </dl>\n> </details>\n> \n> \n> ---\n> <details>\n> <summary> 🧪 Issue enrichment is currently in open beta.</summary>\n> <dl>\n> <dd>\n> <br>\n> \n> \n> You can configure auto-planning by selecting labels in the issue_enrichment configuration.\n> \n> To disable automatic issue enrichment, add the following to your `.coderabbit.yaml`:\n> ```yaml\n> issue_enrichment:\n>   auto_enrich:\n>     enabled: false\n> ```\n> </dd>\n> </dl>\n> </details>\n> \n> 💬 Have feedback or questions? Drop into our [discord](https://discord.gg/coderabbit)!"
